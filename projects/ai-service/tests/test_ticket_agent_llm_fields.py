@@ -5,6 +5,7 @@ import pytest
 
 from app.agents.ticket_agent import (
     LLMTicketFieldExtractor,
+    TICKET_FIELD_EXTRACTION_PROMPT,
     build_ticket_agent_graph,
     build_ticket_agent_input,
     build_ticket_field_extraction_messages,
@@ -161,6 +162,8 @@ def test_llm_ticket_field_extractor_calls_openai_compatible_client(
     assert any(
         "ticket_field_llm_extraction_succeeded provider=test-provider model=qwen-test"
         in message
+        and f"prompt_name={TICKET_FIELD_EXTRACTION_PROMPT.name}" in message
+        and f"prompt_version={TICKET_FIELD_EXTRACTION_PROMPT.version}" in message
         and "issue_type=complaint" in message
         and "has_order_id=True" in message
         and "prompt_tokens=80" in message

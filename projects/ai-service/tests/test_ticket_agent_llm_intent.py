@@ -5,6 +5,7 @@ import pytest
 
 from app.agents.ticket_agent import (
     LLMTicketIntentClassifier,
+    TICKET_INTENT_CLASSIFICATION_PROMPT,
     build_ticket_agent_graph,
     build_ticket_agent_input,
     build_ticket_intent_classification_messages,
@@ -132,6 +133,8 @@ def test_llm_ticket_intent_classifier_calls_openai_compatible_client(
     assert any(
         "ticket_intent_llm_classification_succeeded provider=test-provider model=qwen-test"
         in message
+        and f"prompt_name={TICKET_INTENT_CLASSIFICATION_PROMPT.name}" in message
+        and f"prompt_version={TICKET_INTENT_CLASSIFICATION_PROMPT.version}" in message
         and "intent=ticket_request" in message
         and "prompt_tokens=40" in message
         for message in messages

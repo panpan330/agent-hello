@@ -1,7 +1,9 @@
+from collections.abc import Callable
 import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from operator import add
 from time import perf_counter
 from typing import Annotated, Any, Literal, Protocol
@@ -27,6 +29,7 @@ from app.schemas.ticket import (
     TicketCategory,
     TicketPriority,
 )
+from app.schemas.tool import QueryOrderArgs, QueryOrderResult, ToolDefinition
 from app.services.java_ticket_client import JavaTicketClient
 from app.services.llm_client import create_openai_compatible_client
 from app.services.llm_service import (
@@ -34,6 +37,8 @@ from app.services.llm_service import (
     extract_token_usage,
     map_openai_error_to_app_exception,
 )
+from app.tools.fake_order_tool import query_order as run_query_order_tool
+from app.tools.tool_registry import authorize_tool_call, get_tool_definition
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
@@ -62,10 +67,82 @@ TicketNeedSource = Literal[
 ]
 TicketIssueType = Literal["refund", "logistics", "complaint", "policy_gap", "unknown"]
 TicketUrgencyLevel = Literal["low", "normal", "high"]
-TicketFieldExtractionSource = Literal["rule_based", "fake_llm", "llm"]
+TicketFieldExtractionSource = Literal[
+    "rule_based",
+    "fake_llm",
+    "llm",
+    "llm_fallback_rule_based",
+]
+TicketOrderQueryStatus = Literal["missing_order_id", "succeeded", "failed"]
+TicketOrderQueryFailureKind = Literal[
+    "missing_order_id",
+    "argument_validation",
+    "not_found",
+    "timeout",
+    "upstream_error",
+    "result_validation",
+    "tool_error",
+    "unknown_error",
+]
+TicketOrderQueryFailureAction = Literal[
+    "ask_user_for_order_id",
+    "ask_user_to_check_order_id",
+    "retry_later",
+    "contact_human_support",
+    "investigate_system",
+]
 TicketConfirmationStatus = Literal["pending"]
 TicketCreationStatus = Literal["created", "blocked", "failed"]
+TicketWriteSafetyStatus = Literal[
+    "confirmation_required",
+    "missing_confirmed_fields",
+    "tool_not_allowed",
+    "authorized",
+]
 TicketAgentStreamPart = dict[str, Any]
+TicketAgentPromptName = Literal[
+    "ticket_intent_classification",
+    "ticket_field_extraction",
+]
+TicketAgentModelOutputFailureKind = Literal[
+    "empty_response",
+    "invalid_json",
+    "schema_validation",
+    "provider_error",
+    "configuration_error",
+    "unknown_error",
+]
+TicketAgentModelOutputFailureAction = Literal[
+    "fallback_to_rule_based",
+    "raise_error",
+]
+
+
+@dataclass(frozen=True)
+class TicketAgentPromptSpec:
+    name: TicketAgentPromptName
+    version: str
+    system_prompt: str
+    description: str
+
+
+@dataclass(frozen=True)
+class TicketAgentModelOutputFailure:
+    code: str
+    kind: TicketAgentModelOutputFailureKind
+    action: TicketAgentModelOutputFailureAction
+    message: str
+    retryable: bool
+
+
+@dataclass(frozen=True)
+class TicketOrderQueryFailure:
+    code: str
+    kind: TicketOrderQueryFailureKind
+    action: TicketOrderQueryFailureAction
+    message: str
+    retryable: bool
+    status_code: int | None = None
 
 TICKET_INTENT_CLASSIFICATION_SYSTEM_PROMPT = (
     "你是智能客服 Agent 的意图识别器。"
@@ -96,6 +173,23 @@ TICKET_FIELD_EXTRACTION_SYSTEM_PROMPT = (
     "need_human_review 表示是否需要人工复核；投诉、policy_gap、高紧急度或不确定时应为 true。"
     "不要输出 should_create_ticket、route、final_answer 等流程控制字段。"
 )
+
+TICKET_INTENT_CLASSIFICATION_PROMPT = TicketAgentPromptSpec(
+    name="ticket_intent_classification",
+    version="ticket_intent_classification:v1",
+    system_prompt=TICKET_INTENT_CLASSIFICATION_SYSTEM_PROMPT,
+    description="Classify a customer message into one allowed ticket agent intent.",
+)
+TICKET_FIELD_EXTRACTION_PROMPT = TicketAgentPromptSpec(
+    name="ticket_field_extraction",
+    version="ticket_field_extraction:v1",
+    system_prompt=TICKET_FIELD_EXTRACTION_SYSTEM_PROMPT,
+    description="Extract validated customer service ticket fields from agent state.",
+)
+TICKET_AGENT_PROMPTS: dict[TicketAgentPromptName, TicketAgentPromptSpec] = {
+    TICKET_INTENT_CLASSIFICATION_PROMPT.name: TICKET_INTENT_CLASSIFICATION_PROMPT,
+    TICKET_FIELD_EXTRACTION_PROMPT.name: TICKET_FIELD_EXTRACTION_PROMPT,
+}
 
 TICKET_AGENT_FIXED_EDGES: tuple[tuple[str, str], ...] = (
     (START, "normalize_user_input"),
@@ -264,6 +358,9 @@ class TicketCreator(Protocol):
         """Create a ticket through the backend business service."""
 
 
+OrderQueryExecutor = Callable[[QueryOrderArgs], QueryOrderResult]
+
+
 class TicketAgentState(TypedDict, total=False):
     """State shared by the ticket agent learning graph."""
 
@@ -277,6 +374,15 @@ class TicketAgentState(TypedDict, total=False):
     rag_citations: list[dict[str, Any]]
     rag_no_context_reason: str | None
     rag_suggestions: list[str]
+    order_query_order_id: str | None
+    order_query_status: TicketOrderQueryStatus
+    order_query_result: dict[str, Any]
+    order_query_error_code: str | None
+    order_query_error_kind: TicketOrderQueryFailureKind | None
+    order_query_error_action: TicketOrderQueryFailureAction | None
+    order_query_error_message: str | None
+    order_query_retryable: bool | None
+    order_query_error_status_code: int | None
     needs_ticket: bool
     ticket_need_reason: str
     ticket_need_source: TicketNeedSource
@@ -291,10 +397,15 @@ class TicketAgentState(TypedDict, total=False):
     ticket_confirmation_message: str
     pending_ticket_confirmation: PendingTicketConfirmation
     ticket_actor_id: str
+    ticket_tool_name: str
+    ticket_tool_access_level: str | None
+    ticket_tool_requires_confirmation: bool | None
+    ticket_write_safety_status: TicketWriteSafetyStatus
     ticket_creation_args: dict[str, Any]
     ticket_creation_status: TicketCreationStatus
     ticket_creation_error_code: str | None
     ticket_creation_error_message: str | None
+    ticket_creation_idempotency_key: str | None
     created_ticket: dict[str, Any]
     agent_error_code: str | None
     agent_error_message: str | None
@@ -447,17 +558,161 @@ TICKET_URGENCY_TO_PRIORITY: dict[TicketUrgencyLevel, TicketPriority] = {
     "normal": TicketPriority.NORMAL,
     "high": TicketPriority.HIGH,
 }
+ORDER_STATUS_LABELS: dict[str, str] = {
+    "waiting_shipment": "待发货",
+    "shipped": "已发货",
+    "delivered": "已签收",
+    "canceled": "已取消",
+}
+PAYMENT_STATUS_LABELS: dict[str, str] = {
+    "unpaid": "未支付",
+    "paid": "已支付",
+    "refunded": "已退款",
+}
 DEFAULT_TICKET_ACTOR_ID = "demo_user_001"
+CREATE_TICKET_TOOL_NAME = "create_ticket"
 TICKET_CONFIRMATION_NOT_FOUND_MESSAGE = "当前会话没有待确认工单，请先发起工单流程。"
 TICKET_CONFIRMATION_INTERRUPT_NOT_FOUND_MESSAGE = "当前执行结果里没有待处理的工单确认中断。"
 TICKET_CONFIRMATION_REJECTED_MESSAGE = "已取消创建工单；如需创建，请重新发起工单流程。"
 TICKET_CONFIRMATION_INTERRUPT_KIND = "ticket_confirmation"
 TICKET_AGENT_FALLBACK_ERROR_CODE = "TICKET_AGENT_UNEXPECTED_ERROR"
 TICKET_AGENT_FALLBACK_MESSAGE = "智能工单流程暂时遇到异常，请稍后重试或联系人工客服。"
+TICKET_ORDER_QUERY_MISSING_ORDER_ID_MESSAGE = (
+    "请提供要查询的订单号（例如 A1001 或 1001），我拿到订单号后才能查询订单状态和物流信息。"
+)
+TICKET_ORDER_QUERY_ARGUMENT_VALIDATION_ERROR_CODE = "TOOL_ARGUMENTS_VALIDATION_FAILED"
+TICKET_ORDER_QUERY_ARGUMENT_VALIDATION_MESSAGE = (
+    "订单号格式不符合查询工具要求，请提供清晰的订单号。"
+)
+TICKET_ORDER_QUERY_UNEXPECTED_ERROR_CODE = "TOOL_CALL_FAILED"
+TICKET_ORDER_QUERY_UNEXPECTED_ERROR_MESSAGE = (
+    "订单查询工具调用失败，请稍后重试或联系人工客服。"
+)
+TICKET_ORDER_QUERY_RESULT_VALIDATION_MESSAGE = (
+    "订单查询服务返回的数据暂时无法处理，请稍后重试或联系人工客服。"
+)
+TICKET_ORDER_QUERY_NOT_FOUND_CODES = frozenset({"ORDER_NOT_FOUND"})
+TICKET_ORDER_QUERY_TIMEOUT_CODES = frozenset({"TOOL_TIMEOUT"})
+TICKET_ORDER_QUERY_UPSTREAM_ERROR_CODES = frozenset({"TOOL_UPSTREAM_ERROR"})
+TICKET_ORDER_QUERY_RESULT_VALIDATION_FAILED_CODES = frozenset(
+    {"TOOL_RESULT_VALIDATION_FAILED"}
+)
+TICKET_ORDER_QUERY_TOOL_ERROR_CODES = frozenset({"TOOL_CALL_FAILED"})
 TICKET_CREATION_UNEXPECTED_ERROR_CODE = "TICKET_CREATION_UNEXPECTED_ERROR"
 TICKET_CREATION_UNEXPECTED_ERROR_MESSAGE = "创建工单时遇到异常，请稍后重试或联系人工客服。"
 TICKET_THREAD_ID_INVALID_ERROR_CODE = "TICKET_THREAD_ID_INVALID"
 TICKET_AGENT_LOG_VALUE_EMPTY = "-"
+TICKET_AGENT_MODEL_EMPTY_RESPONSE_CODES = frozenset(
+    {
+        "LLM_EMPTY_RESPONSE",
+        "TICKET_INTENT_LLM_EMPTY_RESPONSE",
+        "TICKET_FIELD_LLM_EMPTY_RESPONSE",
+    }
+)
+TICKET_AGENT_MODEL_SCHEMA_VALIDATION_FAILED_CODES = frozenset(
+    {
+        "TICKET_INTENT_LLM_VALIDATION_FAILED",
+        "TICKET_FIELD_LLM_VALIDATION_FAILED",
+    }
+)
+TICKET_AGENT_MODEL_TRANSIENT_PROVIDER_ERROR_CODES = frozenset(
+    {
+        "LLM_TIMEOUT",
+        "LLM_RATE_LIMITED",
+        "LLM_PROVIDER_ERROR",
+        "LLM_CONNECTION_ERROR",
+        "LLM_PROVIDER_STATUS_ERROR",
+        "LLM_BAD_RESPONSE",
+        "LLM_CALL_FAILED",
+    }
+)
+TICKET_AGENT_MODEL_CONFIGURATION_ERROR_CODES = frozenset(
+    {
+        "LLM_API_KEY_MISSING",
+        "LLM_AUTHENTICATION_FAILED",
+        "LLM_PERMISSION_DENIED",
+        "LLM_RESOURCE_NOT_FOUND",
+        "LLM_BAD_REQUEST",
+    }
+)
+
+
+def get_ticket_agent_prompt_spec(
+    prompt_name: TicketAgentPromptName,
+) -> TicketAgentPromptSpec:
+    return TICKET_AGENT_PROMPTS[prompt_name]
+
+
+def _has_pydantic_error_type(details: object, error_type: str) -> bool:
+    if not isinstance(details, list):
+        return False
+
+    return any(
+        isinstance(error, dict) and error.get("type") == error_type
+        for error in details
+    )
+
+
+def classify_ticket_agent_model_output_failure(
+    exc: Exception,
+) -> TicketAgentModelOutputFailure:
+    if not isinstance(exc, AppException):
+        return TicketAgentModelOutputFailure(
+            code=type(exc).__name__,
+            kind="unknown_error",
+            action="raise_error",
+            message="模型调用遇到未知异常",
+            retryable=False,
+        )
+
+    if exc.code in TICKET_AGENT_MODEL_EMPTY_RESPONSE_CODES:
+        return TicketAgentModelOutputFailure(
+            code=exc.code,
+            kind="empty_response",
+            action="fallback_to_rule_based",
+            message=exc.message,
+            retryable=True,
+        )
+
+    if exc.code in TICKET_AGENT_MODEL_SCHEMA_VALIDATION_FAILED_CODES:
+        kind: TicketAgentModelOutputFailureKind = (
+            "invalid_json"
+            if _has_pydantic_error_type(exc.details, "json_invalid")
+            else "schema_validation"
+        )
+        return TicketAgentModelOutputFailure(
+            code=exc.code,
+            kind=kind,
+            action="fallback_to_rule_based",
+            message=exc.message,
+            retryable=kind == "invalid_json",
+        )
+
+    if exc.code in TICKET_AGENT_MODEL_TRANSIENT_PROVIDER_ERROR_CODES:
+        return TicketAgentModelOutputFailure(
+            code=exc.code,
+            kind="provider_error",
+            action="fallback_to_rule_based",
+            message=exc.message,
+            retryable=True,
+        )
+
+    if exc.code in TICKET_AGENT_MODEL_CONFIGURATION_ERROR_CODES:
+        return TicketAgentModelOutputFailure(
+            code=exc.code,
+            kind="configuration_error",
+            action="raise_error",
+            message=exc.message,
+            retryable=False,
+        )
+
+    return TicketAgentModelOutputFailure(
+        code=exc.code,
+        kind="unknown_error",
+        action="raise_error",
+        message=exc.message,
+        retryable=False,
+    )
 
 
 def get_ticket_intent_classification_json_schema() -> dict[str, Any]:
@@ -466,6 +721,8 @@ def get_ticket_intent_classification_json_schema() -> dict[str, Any]:
 
 def build_ticket_intent_classification_messages(
     user_message: str,
+    *,
+    prompt_spec: TicketAgentPromptSpec = TICKET_INTENT_CLASSIFICATION_PROMPT,
 ) -> list[dict[str, str]]:
     schema_text = json.dumps(
         get_ticket_intent_classification_json_schema(),
@@ -475,7 +732,7 @@ def build_ticket_intent_classification_messages(
     return [
         {
             "role": "system",
-            "content": TICKET_INTENT_CLASSIFICATION_SYSTEM_PROMPT,
+            "content": prompt_spec.system_prompt,
         },
         {
             "role": "user",
@@ -527,9 +784,16 @@ class FakeLLMTicketIntentClassifier:
 
 
 class LLMTicketIntentClassifier:
-    def __init__(self, settings: Settings, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: Any | None = None,
+        *,
+        prompt_spec: TicketAgentPromptSpec = TICKET_INTENT_CLASSIFICATION_PROMPT,
+    ) -> None:
         self.settings = settings
         self._client = client
+        self.prompt_spec = prompt_spec
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -555,11 +819,13 @@ class LLMTicketIntentClassifier:
         logger.info(
             (
                 "ticket_intent_llm_classification_succeeded provider=%s model=%s "
-                "elapsed_ms=%.2f intent=%s prompt_tokens=%s completion_tokens=%s "
-                "total_tokens=%s"
+                "prompt_name=%s prompt_version=%s elapsed_ms=%.2f intent=%s "
+                "prompt_tokens=%s completion_tokens=%s total_tokens=%s"
             ),
             self.settings.llm_provider,
             self.settings.llm_model,
+            self.prompt_spec.name,
+            self.prompt_spec.version,
             elapsed_ms,
             classification["intent"],
             usage.prompt_tokens,
@@ -577,11 +843,14 @@ class LLMTicketIntentClassifier:
         logger.warning(
             (
                 "ticket_intent_llm_classification_failed code=%s provider=%s "
-                "model=%s status_code=%s elapsed_ms=%.2f"
+                "model=%s prompt_name=%s prompt_version=%s status_code=%s "
+                "elapsed_ms=%.2f"
             ),
             app_exception.code,
             self.settings.llm_provider,
             self.settings.llm_model,
+            self.prompt_spec.name,
+            self.prompt_spec.version,
             app_exception.status_code,
             elapsed_ms,
             exc_info=exc_info,
@@ -595,7 +864,10 @@ class LLMTicketIntentClassifier:
                 status_code=500,
             )
 
-        messages = build_ticket_intent_classification_messages(message)
+        messages = build_ticket_intent_classification_messages(
+            message,
+            prompt_spec=self.prompt_spec,
+        )
         start_time = perf_counter()
         try:
             completion = self._get_client().chat.completions.create(
@@ -625,8 +897,13 @@ def create_llm_ticket_intent_classifier(
     settings: Settings | None = None,
     *,
     client: Any | None = None,
+    prompt_spec: TicketAgentPromptSpec = TICKET_INTENT_CLASSIFICATION_PROMPT,
 ) -> LLMTicketIntentClassifier:
-    return LLMTicketIntentClassifier(settings or get_settings(), client=client)
+    return LLMTicketIntentClassifier(
+        settings or get_settings(),
+        client=client,
+        prompt_spec=prompt_spec,
+    )
 
 
 def get_ticket_field_extraction_json_schema() -> dict[str, Any]:
@@ -635,6 +912,8 @@ def get_ticket_field_extraction_json_schema() -> dict[str, Any]:
 
 def build_ticket_field_extraction_messages(
     state: TicketAgentState,
+    *,
+    prompt_spec: TicketAgentPromptSpec = TICKET_FIELD_EXTRACTION_PROMPT,
 ) -> list[dict[str, str]]:
     schema_text = json.dumps(
         get_ticket_field_extraction_json_schema(),
@@ -657,7 +936,7 @@ def build_ticket_field_extraction_messages(
     return [
         {
             "role": "system",
-            "content": TICKET_FIELD_EXTRACTION_SYSTEM_PROMPT,
+            "content": prompt_spec.system_prompt,
         },
         {
             "role": "user",
@@ -718,9 +997,16 @@ class FakeLLMTicketFieldExtractor:
 class LLMTicketFieldExtractor:
     extraction_source: TicketFieldExtractionSource = "llm"
 
-    def __init__(self, settings: Settings, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: Any | None = None,
+        *,
+        prompt_spec: TicketAgentPromptSpec = TICKET_FIELD_EXTRACTION_PROMPT,
+    ) -> None:
         self.settings = settings
         self._client = client
+        self.prompt_spec = prompt_spec
 
     def _get_client(self) -> Any:
         if self._client is not None:
@@ -746,12 +1032,14 @@ class LLMTicketFieldExtractor:
         logger.info(
             (
                 "ticket_field_llm_extraction_succeeded provider=%s model=%s "
-                "elapsed_ms=%.2f issue_type=%s has_order_id=%s urgency=%s "
-                "need_human_review=%s prompt_tokens=%s completion_tokens=%s "
-                "total_tokens=%s"
+                "prompt_name=%s prompt_version=%s elapsed_ms=%.2f issue_type=%s "
+                "has_order_id=%s urgency=%s need_human_review=%s prompt_tokens=%s "
+                "completion_tokens=%s total_tokens=%s"
             ),
             self.settings.llm_provider,
             self.settings.llm_model,
+            self.prompt_spec.name,
+            self.prompt_spec.version,
             elapsed_ms,
             fields["issue_type"],
             fields["order_id"] is not None,
@@ -772,11 +1060,14 @@ class LLMTicketFieldExtractor:
         logger.warning(
             (
                 "ticket_field_llm_extraction_failed code=%s provider=%s "
-                "model=%s status_code=%s elapsed_ms=%.2f"
+                "model=%s prompt_name=%s prompt_version=%s status_code=%s "
+                "elapsed_ms=%.2f"
             ),
             app_exception.code,
             self.settings.llm_provider,
             self.settings.llm_model,
+            self.prompt_spec.name,
+            self.prompt_spec.version,
             app_exception.status_code,
             elapsed_ms,
             exc_info=exc_info,
@@ -790,7 +1081,10 @@ class LLMTicketFieldExtractor:
                 status_code=500,
             )
 
-        messages = build_ticket_field_extraction_messages(state)
+        messages = build_ticket_field_extraction_messages(
+            state,
+            prompt_spec=self.prompt_spec,
+        )
         start_time = perf_counter()
         try:
             completion = self._get_client().chat.completions.create(
@@ -820,8 +1114,95 @@ def create_llm_ticket_field_extractor(
     settings: Settings | None = None,
     *,
     client: Any | None = None,
+    prompt_spec: TicketAgentPromptSpec = TICKET_FIELD_EXTRACTION_PROMPT,
 ) -> LLMTicketFieldExtractor:
-    return LLMTicketFieldExtractor(settings or get_settings(), client=client)
+    return LLMTicketFieldExtractor(
+        settings or get_settings(),
+        client=client,
+        prompt_spec=prompt_spec,
+    )
+
+
+def log_ticket_agent_model_output_fallback(
+    *,
+    component: str,
+    failure: TicketAgentModelOutputFailure,
+) -> None:
+    logger.warning(
+        (
+            "ticket_agent_model_output_fallback component=%s code=%s kind=%s "
+            "action=%s retryable=%s"
+        ),
+        component,
+        failure.code,
+        failure.kind,
+        failure.action,
+        failure.retryable,
+    )
+
+
+class ModelOutputFallbackTicketIntentClassifier:
+    def __init__(
+        self,
+        primary: TicketIntentClassifier,
+        *,
+        fallback: TicketIntentClassifier | None = None,
+    ) -> None:
+        self.primary = primary
+        self.fallback = fallback or RuleBasedTicketIntentClassifier()
+
+    def classify_intent(self, message: str) -> TicketAgentIntentClassification:
+        try:
+            return self.primary.classify_intent(message)
+        except Exception as exc:
+            failure = classify_ticket_agent_model_output_failure(exc)
+            if failure.action != "fallback_to_rule_based":
+                raise
+
+            log_ticket_agent_model_output_fallback(
+                component="intent_classifier",
+                failure=failure,
+            )
+            return self.fallback.classify_intent(message)
+
+
+class ModelOutputFallbackTicketFieldExtractor:
+    extraction_source: TicketFieldExtractionSource = "llm"
+
+    def __init__(
+        self,
+        primary: TicketFieldExtractor,
+        *,
+        fallback: TicketFieldExtractor | None = None,
+    ) -> None:
+        self.primary = primary
+        self.fallback = fallback or RuleBasedTicketFieldExtractor()
+        self.last_extraction_source: TicketFieldExtractionSource = (
+            primary.extraction_source
+        )
+
+    def extract_fields(self, state: TicketAgentState) -> TicketFields:
+        try:
+            fields = self.primary.extract_fields(state)
+            self.last_extraction_source = self.primary.extraction_source
+            return fields
+        except Exception as exc:
+            failure = classify_ticket_agent_model_output_failure(exc)
+            if failure.action != "fallback_to_rule_based":
+                raise
+
+            log_ticket_agent_model_output_fallback(
+                component="field_extractor",
+                failure=failure,
+            )
+            self.last_extraction_source = "llm_fallback_rule_based"
+            return self.fallback.extract_fields(state)
+
+
+def get_ticket_field_extraction_source(
+    extractor: TicketFieldExtractor,
+) -> TicketFieldExtractionSource:
+    return getattr(extractor, "last_extraction_source", extractor.extraction_source)
 
 
 def ensure_real_ticket_agent_llm_is_configured(settings: Settings) -> None:
@@ -838,6 +1219,9 @@ def create_ticket_agent_model_dependencies(
     *,
     settings: Settings | None = None,
     client: Any | None = None,
+    intent_prompt_spec: TicketAgentPromptSpec = TICKET_INTENT_CLASSIFICATION_PROMPT,
+    field_prompt_spec: TicketAgentPromptSpec = TICKET_FIELD_EXTRACTION_PROMPT,
+    enable_model_output_fallback: bool = False,
 ) -> TicketAgentModelDependencies:
     selected_settings = settings or get_settings()
     selected_mode = mode or selected_settings.ticket_agent_model_mode
@@ -858,16 +1242,28 @@ def create_ticket_agent_model_dependencies(
 
     if selected_mode == "real_llm":
         ensure_real_ticket_agent_llm_is_configured(selected_settings)
+        intent_classifier: TicketIntentClassifier = create_llm_ticket_intent_classifier(
+            selected_settings,
+            client=client,
+            prompt_spec=intent_prompt_spec,
+        )
+        field_extractor: TicketFieldExtractor = create_llm_ticket_field_extractor(
+            selected_settings,
+            client=client,
+            prompt_spec=field_prompt_spec,
+        )
+        if enable_model_output_fallback:
+            intent_classifier = ModelOutputFallbackTicketIntentClassifier(
+                intent_classifier,
+            )
+            field_extractor = ModelOutputFallbackTicketFieldExtractor(
+                field_extractor,
+            )
+
         return {
             "mode": "real_llm",
-            "intent_classifier": create_llm_ticket_intent_classifier(
-                selected_settings,
-                client=client,
-            ),
-            "field_extractor": create_llm_ticket_field_extractor(
-                selected_settings,
-                client=client,
-            ),
+            "intent_classifier": intent_classifier,
+            "field_extractor": field_extractor,
         }
 
     raise ValueError(f"Unsupported ticket agent model mode: {selected_mode}")
@@ -1273,6 +1669,177 @@ def build_ticket_creation_failure_state(
     return update
 
 
+def build_ticket_write_safety_state(
+    *,
+    status: TicketWriteSafetyStatus,
+    definition: ToolDefinition | None = None,
+    idempotency_key: str | None = None,
+) -> TicketAgentState:
+    tool_definition = definition or get_tool_definition(CREATE_TICKET_TOOL_NAME)
+    return {
+        "ticket_tool_name": CREATE_TICKET_TOOL_NAME,
+        "ticket_tool_access_level": (
+            tool_definition.access_level.value if tool_definition is not None else None
+        ),
+        "ticket_tool_requires_confirmation": (
+            tool_definition.requires_confirmation if tool_definition is not None else None
+        ),
+        "ticket_write_safety_status": status,
+        "ticket_creation_idempotency_key": idempotency_key,
+    }
+
+
+def execute_ticket_order_query(arguments: QueryOrderArgs) -> QueryOrderResult:
+    return run_query_order_tool(arguments)
+
+
+def build_order_query_argument_validation_failure() -> TicketOrderQueryFailure:
+    return TicketOrderQueryFailure(
+        code=TICKET_ORDER_QUERY_ARGUMENT_VALIDATION_ERROR_CODE,
+        kind="argument_validation",
+        action="ask_user_to_check_order_id",
+        message=TICKET_ORDER_QUERY_ARGUMENT_VALIDATION_MESSAGE,
+        retryable=False,
+        status_code=422,
+    )
+
+
+def classify_ticket_order_query_failure(exc: Exception) -> TicketOrderQueryFailure:
+    if not isinstance(exc, AppException):
+        return TicketOrderQueryFailure(
+            code=TICKET_ORDER_QUERY_UNEXPECTED_ERROR_CODE,
+            kind="unknown_error",
+            action="retry_later",
+            message=TICKET_ORDER_QUERY_UNEXPECTED_ERROR_MESSAGE,
+            retryable=True,
+            status_code=502,
+        )
+
+    if exc.code in TICKET_ORDER_QUERY_NOT_FOUND_CODES:
+        return TicketOrderQueryFailure(
+            code=exc.code,
+            kind="not_found",
+            action="ask_user_to_check_order_id",
+            message=exc.message,
+            retryable=False,
+            status_code=exc.status_code,
+        )
+
+    if exc.code in TICKET_ORDER_QUERY_TIMEOUT_CODES:
+        return TicketOrderQueryFailure(
+            code=exc.code,
+            kind="timeout",
+            action="retry_later",
+            message=exc.message,
+            retryable=True,
+            status_code=exc.status_code,
+        )
+
+    if exc.code in TICKET_ORDER_QUERY_UPSTREAM_ERROR_CODES:
+        return TicketOrderQueryFailure(
+            code=exc.code,
+            kind="upstream_error",
+            action="retry_later",
+            message=exc.message,
+            retryable=True,
+            status_code=exc.status_code,
+        )
+
+    if exc.code in TICKET_ORDER_QUERY_RESULT_VALIDATION_FAILED_CODES:
+        return TicketOrderQueryFailure(
+            code=exc.code,
+            kind="result_validation",
+            action="investigate_system",
+            message=TICKET_ORDER_QUERY_RESULT_VALIDATION_MESSAGE,
+            retryable=False,
+            status_code=exc.status_code,
+        )
+
+    if exc.code in TICKET_ORDER_QUERY_TOOL_ERROR_CODES:
+        return TicketOrderQueryFailure(
+            code=exc.code,
+            kind="tool_error",
+            action="retry_later",
+            message=TICKET_ORDER_QUERY_UNEXPECTED_ERROR_MESSAGE,
+            retryable=True,
+            status_code=exc.status_code,
+        )
+
+    return TicketOrderQueryFailure(
+        code=exc.code,
+        kind="tool_error",
+        action="contact_human_support",
+        message=exc.message,
+        retryable=False,
+        status_code=exc.status_code,
+    )
+
+
+def build_order_query_missing_order_id_state() -> TicketAgentState:
+    return {
+        "order_query_order_id": None,
+        "order_query_status": "missing_order_id",
+        "order_query_error_code": "ORDER_ID_REQUIRED",
+        "order_query_error_kind": "missing_order_id",
+        "order_query_error_action": "ask_user_for_order_id",
+        "order_query_error_message": TICKET_ORDER_QUERY_MISSING_ORDER_ID_MESSAGE,
+        "order_query_retryable": False,
+        "order_query_error_status_code": None,
+        "final_answer": TICKET_ORDER_QUERY_MISSING_ORDER_ID_MESSAGE,
+        "node_history": ["query_order"],
+    }
+
+
+def build_order_query_failure_state(
+    *,
+    order_id: str,
+    failure: TicketOrderQueryFailure,
+) -> TicketAgentState:
+    update = build_ticket_agent_fallback_state(
+        node_name="query_order",
+        code=failure.code,
+        message=failure.message,
+    )
+    update.update(
+        {
+            "order_query_order_id": order_id,
+            "order_query_status": "failed",
+            "order_query_error_code": failure.code,
+            "order_query_error_kind": failure.kind,
+            "order_query_error_action": failure.action,
+            "order_query_error_message": failure.message,
+            "order_query_retryable": failure.retryable,
+            "order_query_error_status_code": failure.status_code,
+        }
+    )
+    return update
+
+
+def build_order_query_success_answer(result: QueryOrderResult) -> str:
+    order_status = ORDER_STATUS_LABELS.get(
+        str(result.order_status),
+        str(result.order_status),
+    )
+    payment_status = PAYMENT_STATUS_LABELS.get(
+        str(result.payment_status),
+        str(result.payment_status),
+    )
+    ticket_hint = (
+        "如仍有售后问题，可以继续帮你整理工单。"
+        if result.can_create_ticket
+        else "当前订单暂不建议直接创建工单，可以先根据订单状态继续观察。"
+    )
+    return (
+        f"查询到订单 {result.order_id}：\n"
+        f"- 订单状态：{order_status}\n"
+        f"- 支付状态：{payment_status}\n"
+        f"- 物流摘要：{result.logistics_message}\n"
+        f"- 最新事件：{result.latest_event}\n"
+        f"- 数据来源：{result.source}\n"
+        f"{ticket_hint}"
+    )
+
+
 def build_ticket_agent_observation_metadata(
     state: dict[str, Any],
     *,
@@ -1395,9 +1962,98 @@ def retrieve_policy_node(
     }
 
 
-def query_order_node(state: TicketAgentState) -> TicketAgentState:
+def query_order_node(
+    state: TicketAgentState,
+    *,
+    order_query_executor: OrderQueryExecutor | None = None,
+) -> TicketAgentState:
+    normalized_message = state.get("normalized_message") or state.get("user_message", "")
+    order_id = _extract_order_id(normalized_message)
+    if order_id is None:
+        logger.info(
+            "ticket_agent_query_order_missing_order_id message_length=%s",
+            len(normalized_message),
+        )
+        return build_order_query_missing_order_id_state()
+
+    try:
+        arguments = QueryOrderArgs(order_id=order_id)
+    except ValidationError:
+        failure = build_order_query_argument_validation_failure()
+        logger.warning(
+            (
+                "ticket_agent_query_order_failed order_id=%s code=%s kind=%s "
+                "action=%s retryable=%s"
+            ),
+            order_id,
+            failure.code,
+            failure.kind,
+            failure.action,
+            failure.retryable,
+        )
+        return build_order_query_failure_state(
+            order_id=order_id,
+            failure=failure,
+        )
+
+    executor = order_query_executor or execute_ticket_order_query
+    logger.info("ticket_agent_query_order_started order_id=%s", arguments.order_id)
+    try:
+        result = executor(arguments)
+    except AppException as exc:
+        failure = classify_ticket_order_query_failure(exc)
+        logger.warning(
+            (
+                "ticket_agent_query_order_failed order_id=%s code=%s kind=%s "
+                "action=%s retryable=%s status_code=%s"
+            ),
+            arguments.order_id,
+            failure.code,
+            failure.kind,
+            failure.action,
+            failure.retryable,
+            failure.status_code,
+        )
+        return build_order_query_failure_state(
+            order_id=arguments.order_id,
+            failure=failure,
+        )
+    except Exception as exc:
+        failure = classify_ticket_order_query_failure(exc)
+        logger.warning(
+            (
+                "ticket_agent_query_order_failed order_id=%s code=%s kind=%s "
+                "action=%s retryable=%s error_type=%s"
+            ),
+            arguments.order_id,
+            failure.code,
+            failure.kind,
+            failure.action,
+            failure.retryable,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return build_order_query_failure_state(
+            order_id=arguments.order_id,
+            failure=failure,
+        )
+
+    logger.info(
+        "ticket_agent_query_order_succeeded order_id=%s source=%s",
+        result.order_id,
+        result.source,
+    )
     return {
-        "final_answer": "已识别为订单查询问题，后续课程会接入 query_order 工具。",
+        "order_query_order_id": result.order_id,
+        "order_query_status": "succeeded",
+        "order_query_result": result.model_dump(mode="json"),
+        "order_query_error_code": None,
+        "order_query_error_kind": None,
+        "order_query_error_action": None,
+        "order_query_error_message": None,
+        "order_query_retryable": None,
+        "order_query_error_status_code": None,
+        "final_answer": build_order_query_success_answer(result),
         "node_history": ["query_order"],
     }
 
@@ -1412,7 +2068,7 @@ def extract_ticket_fields_node(
         extraction_source: TicketFieldExtractionSource = "rule_based"
     else:
         fields = extractor.extract_fields(state)
-        extraction_source = extractor.extraction_source
+        extraction_source = get_ticket_field_extraction_source(extractor)
 
     missing_fields = find_missing_ticket_fields(fields)
 
@@ -1503,14 +2159,20 @@ def create_ticket_node(
 ) -> TicketAgentState:
     if state.get("ticket_confirmation_approved") is not True:
         message = "创建工单前需要先得到用户确认。"
+        safety_state = build_ticket_write_safety_state(
+            status="confirmation_required",
+        )
         logger.info(
-            "ticket_agent_create_ticket_blocked code=%s",
+            "ticket_agent_create_ticket_blocked code=%s tool_name=%s safety_status=%s",
             "TICKET_CONFIRMATION_REQUIRED",
+            safety_state["ticket_tool_name"],
+            safety_state["ticket_write_safety_status"],
         )
         return {
             "ticket_creation_status": "blocked",
             "ticket_creation_error_code": "TICKET_CONFIRMATION_REQUIRED",
             "ticket_creation_error_message": message,
+            **safety_state,
             "final_answer": message,
             "node_history": ["create_ticket"],
         }
@@ -1519,24 +2181,62 @@ def create_ticket_node(
     if fields is None:
         message = "没有找到可创建工单的确认字段，请重新整理工单信息。"
         logger.warning("ticket_agent_create_ticket_failed code=%s", "TICKET_FIELDS_NOT_FOUND")
-        return build_ticket_creation_failure_state(
+        update = build_ticket_creation_failure_state(
             code="TICKET_FIELDS_NOT_FOUND",
             message=message,
         )
+        update.update(
+            build_ticket_write_safety_state(status="missing_confirmed_fields")
+        )
+        return update
 
     actor_id = state.get("ticket_actor_id") or DEFAULT_TICKET_ACTOR_ID
     idempotency_key = _get_ticket_creation_idempotency_key(state, fields)
+
+    try:
+        tool_definition = authorize_tool_call(
+            CREATE_TICKET_TOOL_NAME,
+            user_confirmed=True,
+        )
+    except AppException as exc:
+        logger.warning(
+            "ticket_agent_create_ticket_failed code=%s tool_name=%s safety_status=%s",
+            exc.code,
+            CREATE_TICKET_TOOL_NAME,
+            "tool_not_allowed",
+        )
+        update = build_ticket_creation_failure_state(
+            code=exc.code,
+            message=exc.message,
+        )
+        update.update(
+            build_ticket_write_safety_state(
+                status="tool_not_allowed",
+                idempotency_key=idempotency_key,
+            )
+        )
+        return update
+
+    safety_state = build_ticket_write_safety_state(
+        status="authorized",
+        definition=tool_definition,
+        idempotency_key=idempotency_key,
+    )
 
     try:
         arguments = build_create_ticket_args_from_fields(fields, actor_id=actor_id)
         logger.info(
             (
                 "ticket_agent_create_ticket_started category=%s priority=%s "
-                "related_order_id=%s idempotency_key=%s"
+                "related_order_id=%s tool_name=%s access_level=%s "
+                "requires_confirmation=%s idempotency_key=%s"
             ),
             arguments.category,
             arguments.priority,
             _safe_log_value(arguments.related_order_id),
+            safety_state["ticket_tool_name"],
+            safety_state["ticket_tool_access_level"],
+            safety_state["ticket_tool_requires_confirmation"],
             idempotency_key,
         )
         ticket_creator = creator or create_ticket_creator()
@@ -1550,35 +2250,42 @@ def create_ticket_node(
             exc.code,
             type(exc).__name__,
         )
-        return build_ticket_creation_failure_state(
+        update = build_ticket_creation_failure_state(
             code=exc.code,
             message=exc.message,
         )
+        update.update(safety_state)
+        return update
     except Exception as exc:
         logger.warning(
             "ticket_agent_create_ticket_failed code=%s error_type=%s",
             TICKET_CREATION_UNEXPECTED_ERROR_CODE,
             type(exc).__name__,
         )
-        return build_ticket_creation_failure_state(
+        update = build_ticket_creation_failure_state(
             code=TICKET_CREATION_UNEXPECTED_ERROR_CODE,
             message=TICKET_CREATION_UNEXPECTED_ERROR_MESSAGE,
         )
+        update.update(safety_state)
+        return update
 
     logger.info(
         (
             "ticket_agent_create_ticket_finished status=created ticket_id=%s "
-            "category=%s priority=%s"
+            "category=%s priority=%s tool_name=%s access_level=%s"
         ),
         ticket.ticket_id,
         ticket.category,
         ticket.priority,
+        safety_state["ticket_tool_name"],
+        safety_state["ticket_tool_access_level"],
     )
     return {
         "ticket_creation_args": arguments.model_dump(mode="json"),
         "ticket_creation_status": "created",
         "ticket_creation_error_code": None,
         "ticket_creation_error_message": None,
+        **safety_state,
         "created_ticket": ticket.model_dump(mode="json"),
         "final_answer": (
             f"工单已创建，工单号：{ticket.ticket_id}。客服会根据工单继续处理。"
@@ -1612,6 +2319,7 @@ def build_ticket_agent_graph(
     ticket_creator: TicketCreator | None = None,
     *,
     policy_rag_service: PolicyRagService | None = None,
+    order_query_executor: OrderQueryExecutor | None = None,
     intent_classifier: TicketIntentClassifier | None = None,
     field_extractor: TicketFieldExtractor | None = None,
     checkpointer: Any | None = None,
@@ -1629,7 +2337,13 @@ def build_ticket_agent_graph(
         lambda state: retrieve_policy_node(state, service=policy_rag_service),
     )
     builder.add_node("decide_ticket_need", decide_ticket_need_node)
-    builder.add_node("query_order", query_order_node)
+    builder.add_node(
+        "query_order",
+        lambda state: query_order_node(
+            state,
+            order_query_executor=order_query_executor,
+        ),
+    )
     builder.add_node(
         "extract_ticket_fields",
         lambda state: extract_ticket_fields_node(state, extractor=field_extractor),
@@ -1682,9 +2396,13 @@ def build_ticket_agent_graph_for_model_mode(
     ticket_creator: TicketCreator | None = None,
     *,
     policy_rag_service: PolicyRagService | None = None,
+    order_query_executor: OrderQueryExecutor | None = None,
     mode: TicketAgentModelMode | None = None,
     settings: Settings | None = None,
     client: Any | None = None,
+    intent_prompt_spec: TicketAgentPromptSpec = TICKET_INTENT_CLASSIFICATION_PROMPT,
+    field_prompt_spec: TicketAgentPromptSpec = TICKET_FIELD_EXTRACTION_PROMPT,
+    enable_model_output_fallback: bool = False,
     checkpointer: Any | None = None,
     interrupt_confirmation: bool = False,
 ):
@@ -1692,11 +2410,15 @@ def build_ticket_agent_graph_for_model_mode(
         mode,
         settings=settings,
         client=client,
+        intent_prompt_spec=intent_prompt_spec,
+        field_prompt_spec=field_prompt_spec,
+        enable_model_output_fallback=enable_model_output_fallback,
     )
 
     return build_ticket_agent_graph(
         ticket_creator=ticket_creator,
         policy_rag_service=policy_rag_service,
+        order_query_executor=order_query_executor,
         intent_classifier=dependencies["intent_classifier"],
         field_extractor=dependencies["field_extractor"],
         checkpointer=checkpointer,
@@ -1711,12 +2433,14 @@ def build_checkpointed_ticket_agent_graph(
     ticket_creator: TicketCreator | None = None,
     *,
     policy_rag_service: PolicyRagService | None = None,
+    order_query_executor: OrderQueryExecutor | None = None,
     intent_classifier: TicketIntentClassifier | None = None,
     field_extractor: TicketFieldExtractor | None = None,
 ):
     return build_ticket_agent_graph(
         ticket_creator=ticket_creator,
         policy_rag_service=policy_rag_service,
+        order_query_executor=order_query_executor,
         intent_classifier=intent_classifier,
         field_extractor=field_extractor,
         checkpointer=MemorySaver(),
@@ -1727,12 +2451,14 @@ def build_interrupting_ticket_agent_graph(
     ticket_creator: TicketCreator | None = None,
     *,
     policy_rag_service: PolicyRagService | None = None,
+    order_query_executor: OrderQueryExecutor | None = None,
     intent_classifier: TicketIntentClassifier | None = None,
     field_extractor: TicketFieldExtractor | None = None,
 ):
     return build_ticket_agent_graph(
         ticket_creator=ticket_creator,
         policy_rag_service=policy_rag_service,
+        order_query_executor=order_query_executor,
         intent_classifier=intent_classifier,
         field_extractor=field_extractor,
         checkpointer=MemorySaver(),

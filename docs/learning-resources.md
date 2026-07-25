@@ -488,11 +488,26 @@
 - [阶段 6 第 16 节：fake LLM 和真实 LLM 双模式](../notes/stage6-16-fake-real-llm-modes.md)
   - 用途：学习为什么生产化 AI 项目要区分 `rule_based`、`fake_llm` 和 `real_llm`，理解 fake/mock/stub、运行模式配置、依赖注入、工厂函数、默认防误调用、真实模型 API key 检查、自动测试不真实调用模型，以及 fake LLM 只验证工程边界不代表真实模型效果。
 
+- [阶段 6 第 17 节：prompt 版本管理](../notes/stage6-17-prompt-version-management.md)
+  - 用途：学习为什么 prompt 是会影响模型行为和业务路径的工程资产，理解 prompt name/version、PromptSpec、prompt registry、prompt 与 model/schema/eval/log 的关系，以及如何让真实 LLM 调用日志记录 `prompt_name` 和 `prompt_version`，为后续 prompt v2/v3 对比评测打基础。
+
+- [阶段 6 第 18 节：模型输出失败处理](../notes/stage6-18-model-output-failure-handling.md)
+  - 用途：学习真实 LLM 输出失败时如何区分空输出、非法 JSON、schema 校验失败、provider 临时异常和配置错误，理解为什么不是所有错误都能兜底，以及如何用规则逻辑、fallback 日志、source 标记和测试保护 Agent 的生产化边界。
+
+- [阶段 6 第 19 节：接入真实 `query_order` 到 LangGraph](../notes/stage6-19-query-order-langgraph.md)
+  - 用途：学习如何把 LangGraph 智能工单 Agent 的 `query_order` 占位节点升级为真实只读工具节点，理解节点和工具的区别、订单号提取、`QueryOrderArgs` 参数校验、`QueryOrderResult` 结果校验、JavaOrderClient 跨服务调用、字段白名单映射、结构化 state 写回、executor 注入测试和工具异常兜底。
+
+- [阶段 6 第 20 节：工具节点错误处理升级](../notes/stage6-20-tool-node-error-handling.md)
+  - 用途：学习真实工具接入 LangGraph 后如何处理失败，理解 `code`、`kind`、`action`、`retryable` 的区别，掌握订单不存在、工具超时、上游服务不可用、工具结果校验失败和未知异常的分类策略，以及为什么工具错误要写成可测试、可统计、可观测的结构化 state。
+
+- [阶段 6 第 21 节：工具权限和写操作安全回归](../notes/stage6-21-tool-permission-write-safety-regression.md)
+  - 用途：学习只读工具和写操作工具的安全差异，理解为什么用户确认不等于后端授权、为什么写操作必须经过工具注册表、为什么 `create_ticket` 要带 `idempotency_key`，以及如何用 `ticket_write_safety_status` 和回归测试证明未确认、缺字段、授权失败时不会误调用写操作。
+
 ### 阶段 6 使用方式
 
 1. 第 1-12 节先看 LangSmith Evaluation 相关资料，建立 Agent 评测、测试集、evaluator 和回归评测概念。
-2. 第 13-18 节回到模型调用和结构化输出，重点看真实 LLM 节点、Pydantic 校验、fake/real 双模式和 prompt 版本管理。
-3. 第 19-25 节结合 LangGraph persistence，把真实工具链路、checkpoint 持久化、thread 生命周期和会话清理补齐。
+2. 第 13-18 节回到模型调用和结构化输出，重点看真实 LLM 节点、Pydantic 校验、fake/real 双模式、prompt 版本管理和模型输出失败处理。
+3. 第 19-25 节先把真实工具链路生产化，再结合 LangGraph persistence，把工具错误处理、权限边界、checkpoint 持久化、thread 生命周期和会话清理补齐。
 4. 第 26-30 节看 LangSmith Observability 和 OpenTelemetry，理解 trace、span、logs、metrics、成本和延迟指标。
 5. 第 31-35 节补 timeout、retry、rate limit、circuit breaker、Docker Compose、health check 和 CI 自动回归。
 6. 第 36 节做阶段 6 项目整理和面试表达。

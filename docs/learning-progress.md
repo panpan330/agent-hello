@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 16 节 fake LLM 和真实 LLM 双模式 已完成。下一步进入阶段 6 第 17 节 prompt 版本管理。
+当前阶段：阶段 6 生产化与评测进行中，第 21 节 工具权限和写操作安全回归 已完成。下一步进入阶段 6 第 22 节 持久化 checkpoint 基础。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -199,6 +199,11 @@
 - [x] 完成阶段 6 第 14 节：真实 LLM 字段提取节点
 - [x] 完成阶段 6 第 15 节：Pydantic 校验模型输出
 - [x] 完成阶段 6 第 16 节：fake LLM 和真实 LLM 双模式
+- [x] 完成阶段 6 第 17 节：prompt 版本管理
+- [x] 完成阶段 6 第 18 节：模型输出失败处理
+- [x] 完成阶段 6 第 19 节：接入真实 `query_order` 到 LangGraph
+- [x] 完成阶段 6 第 20 节：工具节点错误处理升级
+- [x] 完成阶段 6 第 21 节：工具权限和写操作安全回归
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -379,11 +384,11 @@
 | 14 | 真实 LLM 字段提取节点 | 已完成 | `notes/stage6-14-real-llm-field-extraction-node.md`、`LLMTicketFields`、`TicketFieldExtractor`、`LLMTicketFieldExtractor`、`TICKET_FIELD_EXTRACTION_SYSTEM_PROMPT`、`build_ticket_field_extraction_messages()`、`parse_ticket_field_extraction_json()`、`create_llm_ticket_field_extractor()`、`extract_ticket_fields_node(..., extractor=...)`、`build_ticket_agent_graph(field_extractor=...)`、JSON mode + Pydantic 二次校验、fake/real 注入、`tests/test_ticket_agent_llm_fields.py`、`scripts/ticket_agent_llm_field_smoke.py` |
 | 15 | Pydantic 校验模型输出 | 已完成 | `notes/stage6-15-pydantic-validate-model-output.md`、`ConfigDict(extra="forbid")`、`StrictBool`、`Field(pattern=...)`、`field_validator(mode="before")`、意图识别输出拒绝多余字段、字段提取输出拒绝 `should_create_ticket`、订单号格式校验、订单号空值归一化、空 reason/description 校验、`tests/test_ticket_agent_llm_output_validation.py` |
 | 16 | fake LLM 和真实 LLM 双模式 | 已完成 | `notes/stage6-16-fake-real-llm-modes.md`、`TICKET_AGENT_MODEL_MODE`、`TicketAgentModelMode`、`FakeLLMTicketIntentClassifier`、`FakeLLMTicketFieldExtractor`、`create_ticket_agent_model_dependencies()`、`build_ticket_agent_graph_for_model_mode()`、默认 `rule_based` 防误调用、`fake_llm` 走 JSON/Pydantic 边界、`real_llm` API key 检查、`tests/test_ticket_agent_llm_modes.py` |
-| 17 | prompt 版本管理 | 未开始 | 待新增 |
-| 18 | 模型输出失败处理 | 未开始 | 待新增 |
-| 19 | 接入真实 `query_order` 到 LangGraph | 未开始 | 待新增 |
-| 20 | 工具节点错误处理升级 | 未开始 | 待新增 |
-| 21 | 工具权限和写操作安全回归 | 未开始 | 待新增 |
+| 17 | prompt 版本管理 | 已完成 | `notes/stage6-17-prompt-version-management.md`、`TicketAgentPromptSpec`、`TicketAgentPromptName`、`TICKET_INTENT_CLASSIFICATION_PROMPT`、`TICKET_FIELD_EXTRACTION_PROMPT`、`TICKET_AGENT_PROMPTS`、`get_ticket_agent_prompt_spec()`、message builder 支持 `prompt_spec`、LLM 成功/失败日志记录 `prompt_name` 和 `prompt_version`、模式工厂透传 prompt spec、`tests/test_ticket_agent_prompt_versions.py` |
+| 18 | 模型输出失败处理 | 已完成 | `notes/stage6-18-model-output-failure-handling.md`、`TicketAgentModelOutputFailure`、`TicketAgentModelOutputFailureKind`、`TicketAgentModelOutputFailureAction`、`classify_ticket_agent_model_output_failure()`、`ModelOutputFallbackTicketIntentClassifier`、`ModelOutputFallbackTicketFieldExtractor`、`llm_fallback_rule_based` 字段来源、`enable_model_output_fallback` 显式开关、fallback 日志、配置错误不隐藏、`tests/test_ticket_agent_model_output_failure.py` |
+| 19 | 接入真实 `query_order` 到 LangGraph | 已完成 | `notes/stage6-19-query-order-langgraph.md`、`OrderQueryExecutor`、`execute_ticket_order_query()`、`query_order_node(..., order_query_executor=...)`、`QueryOrderArgs` 参数校验、`QueryOrderResult` 结果写回、缺订单号追问、工具异常结构化兜底、`build_ticket_agent_graph(order_query_executor=...)` 依赖注入、`tests/test_ticket_agent_query_order_node.py`、`tests/test_ticket_agent_intent.py` |
+| 20 | 工具节点错误处理升级 | 已完成 | `notes/stage6-20-tool-node-error-handling.md`、`TicketOrderQueryFailure`、`TicketOrderQueryFailureKind`、`TicketOrderQueryFailureAction`、`classify_ticket_order_query_failure()`、`order_query_error_kind`、`order_query_error_action`、`order_query_retryable`、`order_query_error_status_code`、缺订单号追问状态、订单不存在不可重试、超时/上游错误可重试、工具结果校验失败安全文案、未知异常安全兜底、`tests/test_ticket_agent_query_order_node.py` |
+| 21 | 工具权限和写操作安全回归 | 已完成 | `notes/stage6-21-tool-permission-write-safety-regression.md`、`CREATE_TICKET_TOOL_NAME`、`TicketWriteSafetyStatus`、`build_ticket_write_safety_state()`、`authorize_tool_call("create_ticket", user_confirmed=True)`、`ticket_tool_name`、`ticket_tool_access_level`、`ticket_tool_requires_confirmation`、`ticket_write_safety_status`、`ticket_creation_idempotency_key`、未确认阻断、缺确认字段阻断、授权失败不调用 creator、确认后带幂等键创建、写操作安全回归测试 |
 | 22 | 持久化 checkpoint 基础 | 未开始 | 待新增 |
 | 23 | checkpoint 存储选型 | 未开始 | 待新增 |
 | 24 | `thread_id` 生命周期 | 未开始 | 待新增 |

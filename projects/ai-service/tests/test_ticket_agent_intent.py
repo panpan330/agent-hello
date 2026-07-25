@@ -62,6 +62,7 @@ from app.core.logging import install_trace_id_log_record_factory
 from app.core.exceptions import AppException
 from app.core.trace import reset_trace_id, set_trace_id
 from app.rag.generator import RAG_NO_CONTEXT_REPLY
+from app.schemas.tool import QueryOrderArgs, QueryOrderResult
 from tests.tool_fakes import (
     FakeNoContextPolicyRagService,
     FakePolicyRagService,
@@ -78,6 +79,22 @@ def make_complete_ticket_fields() -> dict[str, object]:
         "urgency": "high",
         "need_human_review": True,
     }
+
+
+def make_ticket_agent_query_order_result(order_id: str = "1001") -> QueryOrderResult:
+    return QueryOrderResult(
+        order_id=order_id,
+        order_status="waiting_shipment",
+        payment_status="paid",
+        logistics_message="商家已接单，等待仓库发货。",
+        latest_event="仓库正在准备出库。",
+        can_create_ticket=True,
+        source="java_mock_service",
+    )
+
+
+def fake_execute_ticket_order_query(arguments: QueryOrderArgs) -> QueryOrderResult:
+    return make_ticket_agent_query_order_result(arguments.order_id)
 
 
 class BrokenTicketAgentGraph:
@@ -577,6 +594,11 @@ def test_create_ticket_node_blocks_without_user_confirmation() -> None:
 
     assert update["ticket_creation_status"] == "blocked"
     assert update["ticket_creation_error_code"] == "TICKET_CONFIRMATION_REQUIRED"
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "confirmation_required"
+    assert update["ticket_creation_idempotency_key"] is None
     assert update["final_answer"] == "创建工单前需要先得到用户确认。"
     assert update["node_history"] == ["create_ticket"]
     assert creator.calls == []
@@ -602,6 +624,13 @@ def test_create_ticket_node_calls_creator_after_confirmation(
     assert update["ticket_creation_status"] == "created"
     assert update["ticket_creation_args"]["requester_id"] == "demo_user_001"
     assert update["ticket_creation_args"]["category"] == "complaint"
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "authorized"
+    assert update["ticket_creation_idempotency_key"] == pending_confirmation[
+        "confirmation_id"
+    ]
     assert update["created_ticket"]["ticket_id"] == "T1001"
     assert "工单已创建，工单号：T1001" in update["final_answer"]
     assert update["node_history"] == ["create_ticket"]
@@ -610,6 +639,68 @@ def test_create_ticket_node_calls_creator_after_confirmation(
     assert "ticket_agent_create_ticket_started category=complaint" in caplog.text
     assert "ticket_agent_create_ticket_finished status=created ticket_id=T1001" in caplog.text
     assert "我要投诉订单 1001，物流一直不动" not in caplog.text
+
+
+def test_create_ticket_node_authorizes_write_tool_before_calling_creator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_write_tool(tool_name: str, *, user_confirmed: bool = False):
+        assert tool_name == "create_ticket"
+        assert user_confirmed is True
+        raise AppException(
+            code="TOOL_NOT_ALLOWED",
+            message="工具不在允许列表中，后端已拒绝执行。",
+            status_code=403,
+        )
+
+    fields = make_complete_ticket_fields()
+    pending_confirmation = build_pending_ticket_confirmation(fields)
+    creator = FakeTicketCreator()
+    monkeypatch.setattr(
+        "app.agents.ticket_agent.authorize_tool_call",
+        reject_write_tool,
+    )
+
+    update = create_ticket_node(
+        {
+            "ticket_actor_id": "demo_user_001",
+            "ticket_confirmation_approved": True,
+            "pending_ticket_confirmation": pending_confirmation,
+        },
+        creator=creator,
+    )
+
+    assert update["ticket_creation_status"] == "failed"
+    assert update["ticket_creation_error_code"] == "TOOL_NOT_ALLOWED"
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "tool_not_allowed"
+    assert update["ticket_creation_idempotency_key"] == pending_confirmation[
+        "confirmation_id"
+    ]
+    assert update["final_answer"] == "工具不在允许列表中，后端已拒绝执行。"
+    assert creator.calls == []
+
+
+def test_create_ticket_node_marks_missing_confirmed_fields_as_safety_block() -> None:
+    creator = FakeTicketCreator()
+
+    update = create_ticket_node(
+        {
+            "ticket_confirmation_approved": True,
+        },
+        creator=creator,
+    )
+
+    assert update["ticket_creation_status"] == "failed"
+    assert update["ticket_creation_error_code"] == "TICKET_FIELDS_NOT_FOUND"
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "missing_confirmed_fields"
+    assert update["ticket_creation_idempotency_key"] is None
+    assert creator.calls == []
 
 
 def test_create_ticket_node_writes_failure_state_when_creator_fails() -> None:
@@ -631,6 +722,11 @@ def test_create_ticket_node_writes_failure_state_when_creator_fails() -> None:
 
     assert update["ticket_creation_status"] == "failed"
     assert update["ticket_creation_error_code"] == "TOOL_UPSTREAM_ERROR"
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "authorized"
+    assert update["ticket_creation_idempotency_key"]
     assert update["final_answer"] == "工单业务服务暂时不可用，请稍后重试。"
     assert update["node_history"] == ["create_ticket"]
     assert update["fallback_used"] is True
@@ -654,6 +750,11 @@ def test_create_ticket_node_returns_safe_fallback_when_creator_crashes(
     assert update["ticket_creation_status"] == "failed"
     assert update["ticket_creation_error_code"] == TICKET_CREATION_UNEXPECTED_ERROR_CODE
     assert update["ticket_creation_error_message"] == TICKET_CREATION_UNEXPECTED_ERROR_MESSAGE
+    assert update["ticket_tool_name"] == "create_ticket"
+    assert update["ticket_tool_access_level"] == "write"
+    assert update["ticket_tool_requires_confirmation"] is True
+    assert update["ticket_write_safety_status"] == "authorized"
+    assert update["ticket_creation_idempotency_key"]
     assert update["agent_error_code"] == TICKET_CREATION_UNEXPECTED_ERROR_CODE
     assert update["final_answer"] == TICKET_CREATION_UNEXPECTED_ERROR_MESSAGE
     assert update["fallback_used"] is True
@@ -1186,7 +1287,13 @@ def test_run_ticket_agent_routes_to_expected_business_path(
     message: str,
     expected_intent: str,
     expected_node_history: list[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "app.agents.ticket_agent.execute_ticket_order_query",
+        fake_execute_ticket_order_query,
+    )
+
     result = run_ticket_agent(message)
 
     assert result["intent"] == expected_intent
@@ -1267,7 +1374,14 @@ def test_run_ticket_agent_safely_converts_unexpected_error_to_fallback_state(
     assert "internal stack trace" not in caplog.text
 
 
-def test_stream_ticket_agent_updates_exposes_intent_route() -> None:
+def test_stream_ticket_agent_updates_exposes_intent_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.agents.ticket_agent.execute_ticket_order_query",
+        fake_execute_ticket_order_query,
+    )
+
     chunks = stream_ticket_agent_updates("我的订单 1001 到哪了？")
 
     assert chunks[0]["data"] == {
@@ -1277,12 +1391,13 @@ def test_stream_ticket_agent_updates_exposes_intent_route() -> None:
         }
     }
     assert chunks[1]["data"]["classify_intent"]["intent"] == "order_query"
-    assert chunks[2]["data"] == {
-        "query_order": {
-            "final_answer": "已识别为订单查询问题，后续课程会接入 query_order 工具。",
-            "node_history": ["query_order"],
-        }
-    }
+    query_order_update = chunks[2]["data"]["query_order"]
+    assert query_order_update["order_query_order_id"] == "1001"
+    assert query_order_update["order_query_status"] == "succeeded"
+    assert query_order_update["order_query_result"]["order_id"] == "1001"
+    assert query_order_update["order_query_result"]["source"] == "java_mock_service"
+    assert "查询到订单 1001" in query_order_update["final_answer"]
+    assert query_order_update["node_history"] == ["query_order"]
 
 
 def test_stream_ticket_agent_updates_exposes_rag_answer_update() -> None:
