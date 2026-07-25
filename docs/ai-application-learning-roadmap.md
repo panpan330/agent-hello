@@ -421,8 +421,8 @@ evidence
 | 19 | 接入真实 `query_order` 到 LangGraph | 把阶段 3 的订单查询工具链路接入 `query_order` 节点 |
 | 20 | 工具节点错误处理升级 | 处理 Java 服务超时、404、500、字段异常和上游不可用 |
 | 21 | 工具权限和写操作安全回归 | 复查工具白名单、风险等级、用户确认、幂等和敏感操作边界 |
-| 22 | 持久化 checkpoint 基础 | 理解为什么 `MemorySaver` 不适合生产 |
-| 23 | checkpoint 存储选型 | 对比内存、SQLite、Postgres、Redis 的适用场景 |
+| 22 | 持久化 checkpoint 基础 | 理解为什么 `MemorySaver` 不适合生产，并打通文件型 checkpoint 快照基础 |
+| 23 | checkpoint 存储选型 | 对比内存、文件、SQLite、Postgres、Redis 的适用场景，并确定当前项目推荐路径 |
 | 24 | `thread_id` 生命周期 | 设计 thread 创建、恢复、结束、过期和清理策略 |
 | 25 | 会话过期与清理 | 防止长期堆积 checkpoint、过期确认和无效上下文 |
 | 26 | LangSmith tracing 基础 | 理解 trace、run、metadata、dataset、experiment 在 Agent 里的作用 |

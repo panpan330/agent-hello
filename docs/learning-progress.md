@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 21 节 工具权限和写操作安全回归 已完成。下一步进入阶段 6 第 22 节 持久化 checkpoint 基础。
+当前阶段：阶段 6 生产化与评测进行中，第 23 节 checkpoint 存储选型 已完成。下一步进入阶段 6 第 24 节 thread_id 生命周期。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -204,6 +204,8 @@
 - [x] 完成阶段 6 第 19 节：接入真实 `query_order` 到 LangGraph
 - [x] 完成阶段 6 第 20 节：工具节点错误处理升级
 - [x] 完成阶段 6 第 21 节：工具权限和写操作安全回归
+- [x] 完成阶段 6 第 22 节：持久化 checkpoint 基础
+- [x] 完成阶段 6 第 23 节：checkpoint 存储选型
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -389,8 +391,8 @@
 | 19 | 接入真实 `query_order` 到 LangGraph | 已完成 | `notes/stage6-19-query-order-langgraph.md`、`OrderQueryExecutor`、`execute_ticket_order_query()`、`query_order_node(..., order_query_executor=...)`、`QueryOrderArgs` 参数校验、`QueryOrderResult` 结果写回、缺订单号追问、工具异常结构化兜底、`build_ticket_agent_graph(order_query_executor=...)` 依赖注入、`tests/test_ticket_agent_query_order_node.py`、`tests/test_ticket_agent_intent.py` |
 | 20 | 工具节点错误处理升级 | 已完成 | `notes/stage6-20-tool-node-error-handling.md`、`TicketOrderQueryFailure`、`TicketOrderQueryFailureKind`、`TicketOrderQueryFailureAction`、`classify_ticket_order_query_failure()`、`order_query_error_kind`、`order_query_error_action`、`order_query_retryable`、`order_query_error_status_code`、缺订单号追问状态、订单不存在不可重试、超时/上游错误可重试、工具结果校验失败安全文案、未知异常安全兜底、`tests/test_ticket_agent_query_order_node.py` |
 | 21 | 工具权限和写操作安全回归 | 已完成 | `notes/stage6-21-tool-permission-write-safety-regression.md`、`CREATE_TICKET_TOOL_NAME`、`TicketWriteSafetyStatus`、`build_ticket_write_safety_state()`、`authorize_tool_call("create_ticket", user_confirmed=True)`、`ticket_tool_name`、`ticket_tool_access_level`、`ticket_tool_requires_confirmation`、`ticket_write_safety_status`、`ticket_creation_idempotency_key`、未确认阻断、缺确认字段阻断、授权失败不调用 creator、确认后带幂等键创建、写操作安全回归测试 |
-| 22 | 持久化 checkpoint 基础 | 未开始 | 待新增 |
-| 23 | checkpoint 存储选型 | 未开始 | 待新增 |
+| 22 | 持久化 checkpoint 基础 | 已完成 | `notes/stage6-22-persistent-checkpoint-basics.md`、`app/agents/checkpoint_store.py`、`TicketAgentCheckpointSnapshot`、`FileTicketAgentCheckpointStore`、`normalize_checkpoint_thread_id()`、`build_checkpoint_snapshot_filename()`、UTF-8 JSON 快照、schema_version、saved_at、metadata、thread_id 文件名安全、文件内容 thread_id 校验、`build_ticket_agent_checkpoint_snapshot()`、`save_ticket_agent_checkpoint_snapshot()`、7 条 checkpoint store 测试 |
+| 23 | checkpoint 存储选型 | 已完成 | `notes/stage6-23-checkpoint-storage-selection.md`、checkpointer vs store、MemorySaver/InMemorySaver、文件 JSON 快照、SQLite、Postgres、Redis、持久性、事务、并发、多实例、TTL、审计、运维成本、当前环境扩展包检查、当前项目推荐路径：学习用 MemorySaver + 文件快照，本地练习用 SQLite，生产主 checkpoint 优先 Postgres，Redis 做短期状态和 TTL 辅助 |
 | 24 | `thread_id` 生命周期 | 未开始 | 待新增 |
 | 25 | 会话过期与清理 | 未开始 | 待新增 |
 | 26 | LangSmith tracing 基础 | 未开始 | 待新增 |
@@ -536,6 +538,7 @@ M0/M1 第一阶段完成时，必须满足：
 - [x] interrupt
 - [x] human-in-the-loop
 - [x] thread_id
+- [x] 持久化 checkpoint 快照基础
 - [x] 智能工单 Agent 总流程
 - [x] 意图识别节点
 - [x] RAG 知识库回答节点

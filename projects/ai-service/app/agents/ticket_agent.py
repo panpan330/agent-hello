@@ -5,6 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from operator import add
+from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any, Literal, Protocol
 from typing_extensions import TypedDict
@@ -18,6 +19,10 @@ from pydantic import (
     field_validator,
 )
 
+from app.agents.checkpoint_store import (
+    FileTicketAgentCheckpointStore,
+    TicketAgentCheckpointSnapshot,
+)
 from app.core.config import Settings, TicketAgentModelMode, get_settings
 from app.core.exceptions import AppException
 from app.core.trace import get_trace_id
@@ -2603,6 +2608,34 @@ def run_ticket_agent_in_thread(
 def get_ticket_agent_thread_state(graph: Any, *, thread_id: str) -> TicketAgentState:
     snapshot = graph.get_state(build_ticket_agent_thread_config(thread_id))
     return dict(snapshot.values)
+
+
+def build_ticket_agent_checkpoint_snapshot(
+    graph: Any,
+    *,
+    thread_id: str,
+    metadata: dict[str, Any] | None = None,
+) -> TicketAgentCheckpointSnapshot:
+    return TicketAgentCheckpointSnapshot.create(
+        thread_id=thread_id,
+        values=get_ticket_agent_thread_state(graph, thread_id=thread_id),
+        metadata=metadata,
+    )
+
+
+def save_ticket_agent_checkpoint_snapshot(
+    graph: Any,
+    *,
+    thread_id: str,
+    store: FileTicketAgentCheckpointStore,
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    snapshot = build_ticket_agent_checkpoint_snapshot(
+        graph,
+        thread_id=thread_id,
+        metadata=metadata,
+    )
+    return store.save(snapshot)
 
 
 def approve_ticket_confirmation_and_resume(
