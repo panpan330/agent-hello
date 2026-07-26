@@ -243,11 +243,11 @@ projects/ 练习项目、Demo 和完整作品
 | 25 | 会话过期与清理 | [notes/stage6-25-session-expiration-cleanup.md](notes/stage6-25-session-expiration-cleanup.md) | [projects/ai-service/app/agents/thread_cleanup.py](projects/ai-service/app/agents/thread_cleanup.py)、[projects/ai-service/app/agents/thread_lifecycle.py](projects/ai-service/app/agents/thread_lifecycle.py)、[projects/ai-service/tests/test_ticket_agent_thread_cleanup.py](projects/ai-service/tests/test_ticket_agent_thread_cleanup.py) |
 | 26 | LangSmith tracing 基础 | [notes/stage6-26-langsmith-tracing-basics.md](notes/stage6-26-langsmith-tracing-basics.md) | [projects/ai-service/app/agents/langsmith_tracing.py](projects/ai-service/app/agents/langsmith_tracing.py)、[projects/ai-service/tests/test_ticket_agent_langsmith_tracing.py](projects/ai-service/tests/test_ticket_agent_langsmith_tracing.py) |
 | 27 | OpenTelemetry 基础 | [notes/stage6-27-opentelemetry-basics.md](notes/stage6-27-opentelemetry-basics.md) | [projects/ai-service/app/agents/otel_tracing.py](projects/ai-service/app/agents/otel_tracing.py)、[projects/ai-service/tests/test_ticket_agent_otel_tracing.py](projects/ai-service/tests/test_ticket_agent_otel_tracing.py) |
-| 28 | trace/span/log/metrics 的关系 | 待新增 | 待新增 |
-| 29 | 生产日志字段设计 | 待新增 | 待新增 |
-| 30 | 成本、token 和延迟指标 | 待新增 | 待新增 |
-| 31 | timeout 超时策略 | 待新增 | 待新增 |
-| 32 | retry 重试策略 | 待新增 | 待新增 |
+| 28 | trace/span/log/metrics 的关系 | [notes/stage6-28-trace-span-log-metrics-relationship.md](notes/stage6-28-trace-span-log-metrics-relationship.md) | [projects/ai-service/app/agents/observability_signals.py](projects/ai-service/app/agents/observability_signals.py)、[projects/ai-service/tests/test_ticket_agent_observability_signals.py](projects/ai-service/tests/test_ticket_agent_observability_signals.py) |
+| 29 | 生产日志字段设计 | [notes/stage6-29-production-log-field-design.md](notes/stage6-29-production-log-field-design.md) | [projects/ai-service/app/agents/production_logging.py](projects/ai-service/app/agents/production_logging.py)、[projects/ai-service/tests/test_ticket_agent_production_logging.py](projects/ai-service/tests/test_ticket_agent_production_logging.py) |
+| 30 | 成本、token 和延迟指标 | [notes/stage6-30-cost-token-latency-metrics.md](notes/stage6-30-cost-token-latency-metrics.md) | [projects/ai-service/app/agents/llm_metrics.py](projects/ai-service/app/agents/llm_metrics.py)、[projects/ai-service/tests/test_ticket_agent_llm_metrics.py](projects/ai-service/tests/test_ticket_agent_llm_metrics.py) |
+| 31 | timeout 超时策略 | [notes/stage6-31-timeout-strategy.md](notes/stage6-31-timeout-strategy.md) | [projects/ai-service/app/agents/timeout_strategy.py](projects/ai-service/app/agents/timeout_strategy.py)、[projects/ai-service/tests/test_ticket_agent_timeout_strategy.py](projects/ai-service/tests/test_ticket_agent_timeout_strategy.py) |
+| 32 | retry 重试策略 | [notes/stage6-32-retry-strategy.md](notes/stage6-32-retry-strategy.md) | [projects/ai-service/app/agents/retry_strategy.py](projects/ai-service/app/agents/retry_strategy.py)、[projects/ai-service/tests/test_ticket_agent_retry_strategy.py](projects/ai-service/tests/test_ticket_agent_retry_strategy.py) |
 | 33 | rate limit、circuit breaker 和降级 | 待新增 | 待新增 |
 | 34 | Docker Compose 本地编排 | 待新增 | 待新增 |
 | 35 | health check、readiness 和 CI 自动回归 | 待新增 | 待新增 |

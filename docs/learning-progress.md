@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 27 节 OpenTelemetry 基础 已完成。下一步进入阶段 6 第 28 节 trace/span/log/metrics 的关系。
+当前阶段：阶段 6 生产化与评测进行中，第 32 节 retry 重试策略 已完成。下一步进入阶段 6 第 33 节 rate limit、circuit breaker 和降级。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -210,6 +210,11 @@
 - [x] 完成阶段 6 第 25 节：会话过期与清理
 - [x] 完成阶段 6 第 26 节：LangSmith tracing 基础
 - [x] 完成阶段 6 第 27 节：OpenTelemetry 基础
+- [x] 完成阶段 6 第 28 节：trace/span/log/metrics 的关系
+- [x] 完成阶段 6 第 29 节：生产日志字段设计
+- [x] 完成阶段 6 第 30 节：成本、token 和延迟指标
+- [x] 完成阶段 6 第 31 节：timeout 超时策略
+- [x] 完成阶段 6 第 32 节：retry 重试策略
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -401,11 +406,11 @@
 | 25 | 会话过期与清理 | 已完成 | `notes/stage6-25-session-expiration-cleanup.md`、`app/agents/thread_cleanup.py`、`TicketAgentThreadCleanupPolicy`、`TicketAgentThreadCleanupDecision`、`TicketAgentThreadCleanupPlan`、`evaluate_ticket_agent_thread_cleanup()`、`build_ticket_agent_thread_cleanup_plan()`、keep/expire/archive、checkpoint `delete_after_archive`、retention、grace period、归档前置、清理计划统计、7 条清理策略测试 |
 | 26 | LangSmith tracing 基础 | 已完成 | `notes/stage6-26-langsmith-tracing-basics.md`、`app/agents/langsmith_tracing.py`、`TicketAgentLangSmithTraceContext`、`build_langsmith_trace_tags()`、`build_ticket_agent_langsmith_metadata()`、`build_ticket_agent_langsmith_trace_context()`、LangSmith project / trace / run / thread / tags / metadata 基础、LangGraph `config` 与 LangSmith `tracing_context` 的未来接入形状、trace_id / thread_id / session_id 对齐、安全 metadata 白名单、敏感 payload 排除、tags 归一化、8 条 tracing 上下文测试 |
 | 27 | OpenTelemetry 基础 | 已完成 | `notes/stage6-27-opentelemetry-basics.md`、`app/agents/otel_tracing.py`、`OtelTraceParent`、`OtelTraceContext`、`TicketAgentOtelSpanPlan`、`normalize_otel_trace_id()`、`normalize_otel_span_id()`、`parse_traceparent()`、`build_traceparent()`、`build_otel_trace_context()`、`build_ticket_agent_otel_resource_attributes()`、`build_ticket_agent_otel_span_attributes()`、OpenTelemetry trace/span/context propagation/resource/semantic conventions 基础、W3C `traceparent`、`trace_id`/`span_id` 非零十六进制规则、`X-Trace-Id` 与 `traceparent` 区分、Agent span attributes 安全白名单、13 条 OTel 上下文测试 |
-| 28 | trace/span/log/metrics 的关系 | 未开始 | 待新增 |
-| 29 | 生产日志字段设计 | 未开始 | 待新增 |
-| 30 | 成本、token 和延迟指标 | 未开始 | 待新增 |
-| 31 | timeout 超时策略 | 未开始 | 待新增 |
-| 32 | retry 重试策略 | 未开始 | 待新增 |
+| 28 | trace/span/log/metrics 的关系 | 已完成 | `notes/stage6-28-trace-span-log-metrics-relationship.md`、`app/agents/observability_signals.py`、`TicketAgentSignalCorrelation`、`TicketAgentTraceSignal`、`TicketAgentSpanSignal`、`TicketAgentLogSignal`、`TicketAgentMetricSignal`、`TicketAgentObservabilitySignals`、`build_ticket_agent_observability_signals()`、`build_ticket_agent_investigation_steps()`、trace/span/log/metrics 四类观测信号关系、log 与 trace/span correlation、metrics cardinality、高基数字段不进 metrics、单用户失败/延迟升高/错误率升高/Agent 决策调试的排查顺序、7 条观测信号测试 |
+| 29 | 生产日志字段设计 | 已完成 | `notes/stage6-29-production-log-field-design.md`、`app/agents/production_logging.py`、`TicketAgentLogFieldSpec`、`TicketAgentProductionLogRecord`、`build_ticket_agent_log_field_specs()`、`validate_ticket_agent_event_name()`、`normalize_ticket_agent_log_severity()`、`find_forbidden_ticket_agent_log_fields()`、`build_ticket_agent_production_log_record()`、top-level/resource/attributes/forbidden 字段分层、event_name 稳定命名、severity_text/severity_number、trace_id/span_id/thread_id/app_trace_id/actor_id 区分、error_code/error_node/fallback_used、敏感 payload 不进生产日志、9 条生产日志字段测试 |
+| 30 | 成本、token 和延迟指标 | 已完成 | `notes/stage6-30-cost-token-latency-metrics.md`、`app/agents/llm_metrics.py`、`LLMMetricSpec`、`LLMMetricMeasurement`、`LLMTokenUsageSnapshot`、`LLMTokenPricing`、`LLMEstimatedCost`、`build_llm_metric_specs()`、`normalize_llm_token_usage()`、`estimate_llm_call_cost()`、`build_llm_metric_attributes()`、`build_llm_call_metrics()`、prompt_tokens/completion_tokens/total_tokens、成本估算公式、`gen_ai.client.operation.duration`、`gen_ai.client.token.usage`、counter vs histogram、metrics cardinality、低基数 attributes、高基数和敏感字段过滤、12 条 LLM 指标测试 |
+| 31 | timeout 超时策略 | 已完成 | `notes/stage6-31-timeout-strategy.md`、`app/agents/timeout_strategy.py`、`TimeoutBudget`、`TicketAgentTimeoutPolicy`、`TimeoutFailure`、`build_timeout_budget()`、`build_ticket_agent_timeout_policies()`、`classify_timeout_phase()`、`build_timeout_failure()`、`is_timeout_retry_allowed()`、`sanitize_timeout_metric_attributes()`、connect/read/write/pool/total/operation timeout、LLM/embedding/Java/RAG timeout 策略、读写操作 timeout 差异、写操作幂等 retry 边界、timeout error_code 映射、fallback/retry 边界、13 条 timeout 策略测试 |
+| 32 | retry 重试策略 | 已完成 | `notes/stage6-32-retry-strategy.md`、`app/agents/retry_strategy.py`、`RetryBackoff`、`TicketAgentRetryPolicy`、`RetryDecision`、`build_default_retry_backoff()`、`build_ticket_agent_retry_policies()`、`classify_http_status_for_retry()`、`classify_error_code_for_retry()`、`classify_exception_for_retry()`、`classify_retry_failure()`、`decide_retry()`、`sanitize_retry_metric_attributes()`、attempt vs retry、max_retries vs max_attempts、retryable failure category、408/409/429/5xx retry 边界、400/401/403/404/422 非 retry 边界、exponential backoff、jitter、Retry-After、LLM 成本敏感、SDK 双重 retry 风险、Java 读写工具 retry 差异、写操作幂等键、retry decision 日志和指标字段、16 条 retry 策略测试 |
 | 33 | rate limit、circuit breaker 和降级 | 未开始 | 待新增 |
 | 34 | Docker Compose 本地编排 | 未开始 | 待新增 |
 | 35 | health check、readiness 和 CI 自动回归 | 未开始 | 待新增 |
