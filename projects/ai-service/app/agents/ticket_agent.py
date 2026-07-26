@@ -23,6 +23,7 @@ from app.agents.checkpoint_store import (
     FileTicketAgentCheckpointStore,
     TicketAgentCheckpointSnapshot,
 )
+from app.agents.thread_lifecycle import normalize_ticket_agent_thread_id
 from app.core.config import Settings, TicketAgentModelMode, get_settings
 from app.core.exceptions import AppException
 from app.core.trace import get_trace_id
@@ -2480,11 +2481,11 @@ def build_ticket_agent_input(user_message: str) -> TicketAgentState:
 
 
 def build_ticket_agent_thread_config(thread_id: str) -> dict[str, Any]:
-    normalized_thread_id = thread_id.strip()
-    if not normalized_thread_id:
-        raise ValueError("thread_id 不能为空。")
-
-    return {"configurable": {"thread_id": normalized_thread_id}}
+    return {
+        "configurable": {
+            "thread_id": normalize_ticket_agent_thread_id(thread_id),
+        }
+    }
 
 
 def run_ticket_agent(user_message: str) -> TicketAgentState:

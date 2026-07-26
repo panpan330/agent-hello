@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 23 节 checkpoint 存储选型 已完成。下一步进入阶段 6 第 24 节 thread_id 生命周期。
+当前阶段：阶段 6 生产化与评测进行中，第 27 节 OpenTelemetry 基础 已完成。下一步进入阶段 6 第 28 节 trace/span/log/metrics 的关系。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -206,6 +206,10 @@
 - [x] 完成阶段 6 第 21 节：工具权限和写操作安全回归
 - [x] 完成阶段 6 第 22 节：持久化 checkpoint 基础
 - [x] 完成阶段 6 第 23 节：checkpoint 存储选型
+- [x] 完成阶段 6 第 24 节：thread_id 生命周期
+- [x] 完成阶段 6 第 25 节：会话过期与清理
+- [x] 完成阶段 6 第 26 节：LangSmith tracing 基础
+- [x] 完成阶段 6 第 27 节：OpenTelemetry 基础
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -393,10 +397,10 @@
 | 21 | 工具权限和写操作安全回归 | 已完成 | `notes/stage6-21-tool-permission-write-safety-regression.md`、`CREATE_TICKET_TOOL_NAME`、`TicketWriteSafetyStatus`、`build_ticket_write_safety_state()`、`authorize_tool_call("create_ticket", user_confirmed=True)`、`ticket_tool_name`、`ticket_tool_access_level`、`ticket_tool_requires_confirmation`、`ticket_write_safety_status`、`ticket_creation_idempotency_key`、未确认阻断、缺确认字段阻断、授权失败不调用 creator、确认后带幂等键创建、写操作安全回归测试 |
 | 22 | 持久化 checkpoint 基础 | 已完成 | `notes/stage6-22-persistent-checkpoint-basics.md`、`app/agents/checkpoint_store.py`、`TicketAgentCheckpointSnapshot`、`FileTicketAgentCheckpointStore`、`normalize_checkpoint_thread_id()`、`build_checkpoint_snapshot_filename()`、UTF-8 JSON 快照、schema_version、saved_at、metadata、thread_id 文件名安全、文件内容 thread_id 校验、`build_ticket_agent_checkpoint_snapshot()`、`save_ticket_agent_checkpoint_snapshot()`、7 条 checkpoint store 测试 |
 | 23 | checkpoint 存储选型 | 已完成 | `notes/stage6-23-checkpoint-storage-selection.md`、checkpointer vs store、MemorySaver/InMemorySaver、文件 JSON 快照、SQLite、Postgres、Redis、持久性、事务、并发、多实例、TTL、审计、运维成本、当前环境扩展包检查、当前项目推荐路径：学习用 MemorySaver + 文件快照，本地练习用 SQLite，生产主 checkpoint 优先 Postgres，Redis 做短期状态和 TTL 辅助 |
-| 24 | `thread_id` 生命周期 | 未开始 | 待新增 |
-| 25 | 会话过期与清理 | 未开始 | 待新增 |
-| 26 | LangSmith tracing 基础 | 未开始 | 待新增 |
-| 27 | OpenTelemetry 基础 | 未开始 | 待新增 |
+| 24 | `thread_id` 生命周期 | 已完成 | `notes/stage6-24-thread-id-lifecycle.md`、`app/agents/thread_lifecycle.py`、`TicketAgentThreadBinding`、`TicketAgentThreadResumeDecision`、`generate_ticket_agent_thread_id()`、`normalize_ticket_agent_thread_id()`、`create_ticket_agent_thread_binding()`、`mark_ticket_agent_thread_waiting_confirmation()`、`complete_ticket_agent_thread()`、`close_ticket_agent_thread()`、`is_ticket_agent_thread_expired()`、`evaluate_ticket_agent_thread_resume()`、active/waiting_confirmation/completed/closed/expired 生命周期、actor 绑定校验、确认 TTL、恢复决策、11 条生命周期测试 |
+| 25 | 会话过期与清理 | 已完成 | `notes/stage6-25-session-expiration-cleanup.md`、`app/agents/thread_cleanup.py`、`TicketAgentThreadCleanupPolicy`、`TicketAgentThreadCleanupDecision`、`TicketAgentThreadCleanupPlan`、`evaluate_ticket_agent_thread_cleanup()`、`build_ticket_agent_thread_cleanup_plan()`、keep/expire/archive、checkpoint `delete_after_archive`、retention、grace period、归档前置、清理计划统计、7 条清理策略测试 |
+| 26 | LangSmith tracing 基础 | 已完成 | `notes/stage6-26-langsmith-tracing-basics.md`、`app/agents/langsmith_tracing.py`、`TicketAgentLangSmithTraceContext`、`build_langsmith_trace_tags()`、`build_ticket_agent_langsmith_metadata()`、`build_ticket_agent_langsmith_trace_context()`、LangSmith project / trace / run / thread / tags / metadata 基础、LangGraph `config` 与 LangSmith `tracing_context` 的未来接入形状、trace_id / thread_id / session_id 对齐、安全 metadata 白名单、敏感 payload 排除、tags 归一化、8 条 tracing 上下文测试 |
+| 27 | OpenTelemetry 基础 | 已完成 | `notes/stage6-27-opentelemetry-basics.md`、`app/agents/otel_tracing.py`、`OtelTraceParent`、`OtelTraceContext`、`TicketAgentOtelSpanPlan`、`normalize_otel_trace_id()`、`normalize_otel_span_id()`、`parse_traceparent()`、`build_traceparent()`、`build_otel_trace_context()`、`build_ticket_agent_otel_resource_attributes()`、`build_ticket_agent_otel_span_attributes()`、OpenTelemetry trace/span/context propagation/resource/semantic conventions 基础、W3C `traceparent`、`trace_id`/`span_id` 非零十六进制规则、`X-Trace-Id` 与 `traceparent` 区分、Agent span attributes 安全白名单、13 条 OTel 上下文测试 |
 | 28 | trace/span/log/metrics 的关系 | 未开始 | 待新增 |
 | 29 | 生产日志字段设计 | 未开始 | 待新增 |
 | 30 | 成本、token 和延迟指标 | 未开始 | 待新增 |
@@ -539,6 +543,9 @@ M0/M1 第一阶段完成时，必须满足：
 - [x] human-in-the-loop
 - [x] thread_id
 - [x] 持久化 checkpoint 快照基础
+- [x] thread_id 生命周期 / 归属绑定 / 恢复决策
+- [x] 会话过期与清理计划 / retention / archive / delete_after_archive
+- [x] OpenTelemetry traceparent / span attributes / resource attributes 基础
 - [x] 智能工单 Agent 总流程
 - [x] 意图识别节点
 - [x] RAG 知识库回答节点
