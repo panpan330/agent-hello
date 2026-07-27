@@ -24,7 +24,7 @@ public class OrderQueryService {
             throw new BusinessException(BusinessErrorCode.ORDER_ID_INVALID);
         }
 
-        Order order = orderRepository.findByOrderId(orderId)
+        Order order = orderRepository.findByTenantIdAndOrderId(context.tenantId(), orderId)
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.ORDER_NOT_FOUND));
 
         if (!order.visibleTo(context.userId(), context.tenantId())) {

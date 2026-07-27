@@ -32,7 +32,7 @@
 
 | 层次 | 技术 | 作用 |
 | --- | --- | --- |
-| 业务后端层 | Java mock service、Java business service | mock 服务保留历史学习链路；阶段 7 已新增 Spring Boot 骨架，后续接 MySQL/Redis |
+| 业务后端层 | Java mock service、Java business service | mock 服务保留历史学习链路；阶段 7 已新增 Spring Boot 骨架，订单查询已接入真实 MySQL |
 | AI 服务层 | Python、FastAPI、Pydantic | 提供 AI HTTP API、请求/响应模型、结构化校验 |
 | 模型调用层 | OpenAI-compatible SDK、prompt、structured output | 调用大模型、组织 messages、约束模型输出 |
 | 知识库层 | RAG、embedding、Qdrant、Milvus | 把企业文档变成可检索知识，并支持引用回答 |
@@ -66,12 +66,15 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 本地运行和演示脚本 | [docs/local-run-and-demo.md](docs/local-run-and-demo.md) |
 | 简历描述和面试材料 | [docs/interview-and-resume.md](docs/interview-and-resume.md) |
 | Java-AI API 契约草案 | [docs/java-ai-api-contract.md](docs/java-ai-api-contract.md) |
+| Java business 数据库设计草案 | [docs/java-business-database-design.md](docs/java-business-database-design.md) |
 | Python AI 服务代码 | [projects/ai-service](projects/ai-service) |
 | Java mock 业务服务代码 | [projects/java-mock-service](projects/java-mock-service) |
 | Java business 服务骨架 | [projects/java-business-service](projects/java-business-service) |
 | 阶段 7 第 1 节 | [notes/stage7-01-ai-agent-java-boundary-design.md](notes/stage7-01-ai-agent-java-boundary-design.md) |
 | 阶段 7 第 2 节 | [notes/stage7-02-tool-calling-java-api-contract.md](notes/stage7-02-tool-calling-java-api-contract.md) |
 | 阶段 7 第 3 节 | [notes/stage7-03-spring-boot-service-skeleton-domain-model.md](notes/stage7-03-spring-boot-service-skeleton-domain-model.md) |
+| 阶段 7 第 4 节 | [notes/stage7-04-mysql-business-data-model.md](notes/stage7-04-mysql-business-data-model.md) |
+| 阶段 7 第 5 节 | [notes/stage7-05-spring-boot-mysql-order-query.md](notes/stage7-05-spring-boot-mysql-order-query.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
@@ -89,8 +92,8 @@ python scripts\run_regression.py
 
 当前项目不是完整生产系统，还没有完成：
 
-- 完整真实 Spring Boot 业务服务。当前已有 `projects/java-business-service` 骨架，但还没接 MySQL/Redis。
-- 真实 MySQL/PostgreSQL 订单表、工单表和用户表。
+- 完整真实 Spring Boot 业务服务。当前已有 `projects/java-business-service` 骨架，订单查询读链路已接入真实 MySQL，但工单写入和 Redis 还未真实化。
+- 真实 MySQL/PostgreSQL 工单表、工单事件表和用户表的运行实现。
 - Redis 缓存、分布式锁或生产会话存储。
 - 完整登录认证和权限系统。
 - 前端客服工作台。
@@ -357,10 +360,11 @@ M6 固定为 5 节，目标是把当前 AI 客服工单系统学习项目快速�
 | 1 | AI Agent 调用传统 Java 后端时的边界设计 | [notes/stage7-01-ai-agent-java-boundary-design.md](notes/stage7-01-ai-agent-java-boundary-design.md) | 模型意图和后端执行边界、读写工具分级、DTO/Entity 边界、错误码、幂等、权限、trace_id、阶段 7 改造方向 |
 | 2 | 面向 Tool Calling 的 Java API 契约设计 | [notes/stage7-02-tool-calling-java-api-contract.md](notes/stage7-02-tool-calling-java-api-contract.md) | [docs/java-ai-api-contract.md](docs/java-ai-api-contract.md)、订单查询和工单创建接口契约、统一响应、请求 DTO、响应 DTO、错误码、Header、字段白名单、契约测试清单 |
 | 3 | 真实 Spring Boot 服务骨架和领域模型 | [notes/stage7-03-spring-boot-service-skeleton-domain-model.md](notes/stage7-03-spring-boot-service-skeleton-domain-model.md) | [projects/java-business-service](projects/java-business-service)、Spring Boot 骨架、internal API、统一响应、错误码、Header 校验、订单/工单领域模型、内存 Repository、幂等雏形、MockMvc 契约测试 |
-| 4 | MySQL 业务数据模型 | 待学习 | 用户表、订单表、工单表、工单事件表、索引和基础约束 |
-| 5 | 查询订单读工具真实化 | 待学习 | Python Agent 查询订单走真实 Java + MySQL，并保留权限和错误码边界 |
+| 4 | MySQL 业务数据模型 | 已完成 | [notes/stage7-04-mysql-business-data-model.md](notes/stage7-04-mysql-business-data-model.md)、[docs/java-business-database-design.md](docs/java-business-database-design.md)、用户表、订单表、工单表、工单事件表、索引、唯一约束、幂等字段、AI 写操作审计字段 |
+| 5 | 查询订单读工具真实化 | 已完成 | [notes/stage7-05-spring-boot-mysql-order-query.md](notes/stage7-05-spring-boot-mysql-order-query.md)、Spring Boot DataSource、JDBC、JdbcTemplate、HikariCP、orders 表初始化、JdbcOrderRepository、H2 测试配置、Windows MySQL smoke |
 | 6 | 创建工单写工具真实化 | 待学习 | 用户确认、Java 业务校验、事务、工单持久化 |
 | 7 | Redis 幂等、缓存和限流 | 待学习 | idempotency key、防重复创建、订单查询缓存、工具调用限流 |
+| 7.5 | Java 服务结构传统化重构 + MyBatis | 已规划 | 在第 8 节前执行，把 Java business service 对齐到 `controller/service/service.impl/mapper/entity/dto/config/exception/common` 风格，并用 MyBatis 替换 JdbcTemplate，同时保留 DTO 白名单、权限、幂等、trace_id、错误码和 internal token 边界 |
 | 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
 | 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
 | 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |

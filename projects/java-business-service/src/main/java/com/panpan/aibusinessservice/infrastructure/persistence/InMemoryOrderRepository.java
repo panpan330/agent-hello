@@ -6,12 +6,14 @@ import com.panpan.aibusinessservice.domain.model.PaymentStatus;
 import com.panpan.aibusinessservice.domain.repository.OrderRepository;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@ConditionalOnProperty(name = "app.persistence.orders", havingValue = "memory")
 public class InMemoryOrderRepository implements OrderRepository {
     private final Map<String, Order> orders = Map.of(
-            "A1001", new Order(
+            key("default", "A1001"), new Order(
                     "A1001",
                     "U1001",
                     "default",
@@ -21,7 +23,7 @@ public class InMemoryOrderRepository implements OrderRepository {
                     "包裹已离开发货仓。",
                     true
             ),
-            "A1002", new Order(
+            key("default", "A1002"), new Order(
                     "A1002",
                     "U1001",
                     "default",
@@ -31,7 +33,7 @@ public class InMemoryOrderRepository implements OrderRepository {
                     "仓库正在准备出库。",
                     true
             ),
-            "A2001", new Order(
+            key("default", "A2001"), new Order(
                     "A2001",
                     "U2001",
                     "default",
@@ -44,7 +46,11 @@ public class InMemoryOrderRepository implements OrderRepository {
     );
 
     @Override
-    public Optional<Order> findByOrderId(String orderId) {
-        return Optional.ofNullable(orders.get(orderId));
+    public Optional<Order> findByTenantIdAndOrderId(String tenantId, String orderId) {
+        return Optional.ofNullable(orders.get(key(tenantId, orderId)));
+    }
+
+    private static String key(String tenantId, String orderId) {
+        return tenantId + ":" + orderId;
     }
 }

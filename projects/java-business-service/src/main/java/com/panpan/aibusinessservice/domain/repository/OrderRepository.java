@@ -4,5 +4,5 @@ import com.panpan.aibusinessservice.domain.model.Order;
 import java.util.Optional;
 
 public interface OrderRepository {
-    Optional<Order> findByOrderId(String orderId);
+    Optional<Order> findByTenantIdAndOrderId(String tenantId, String orderId);
 }

@@ -59,7 +59,7 @@ public class TicketApplicationService {
             return;
         }
 
-        Order order = orderRepository.findByOrderId(command.relatedOrderId())
+        Order order = orderRepository.findByTenantIdAndOrderId(context.tenantId(), command.relatedOrderId())
                 .orElseThrow(() -> new BusinessException(BusinessErrorCode.ORDER_NOT_FOUND));
 
         if (!order.visibleTo(context.userId(), context.tenantId())) {
