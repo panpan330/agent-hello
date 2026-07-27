@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务，第 5 节 查询订单读工具真实化 已完成。
+当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务，第 7.5 节 Java 服务结构传统化重构 + MyBatis 已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -64,9 +64,9 @@ M6 完成后，优先进入：
 | 3 | 真实 Spring Boot 服务骨架和领域模型 | 已完成 | `notes/stage7-03-spring-boot-service-skeleton-domain-model.md`、`projects/java-business-service`、Spring Boot 骨架、internal API、统一响应、错误码、Header 校验、订单/工单领域模型、内存 Repository、幂等雏形、MockMvc 契约测试 |
 | 4 | MySQL 业务数据模型 | 已完成 | `notes/stage7-04-mysql-business-data-model.md`、`docs/java-business-database-design.md`、用户表、订单表、工单表、工单事件表、索引、唯一约束、幂等字段、AI 写操作审计字段 |
 | 5 | 查询订单读工具真实化 | 已完成 | `notes/stage7-05-spring-boot-mysql-order-query.md`、Spring Boot DataSource、JDBC、JdbcTemplate、HikariCP、orders 表初始化、JdbcOrderRepository、H2 测试配置、Windows MySQL smoke |
-| 6 | 创建工单写工具真实化 | 待学习 | 用户确认、Java 业务校验、事务、工单持久化 |
-| 7 | Redis 幂等、缓存和限流 | 待学习 | idempotency key、防重复创建、订单查询缓存、工具调用限流 |
-| 7.5 | Java 服务结构传统化重构 + MyBatis | 已规划 | 在第 8 节前执行，把 Java business service 对齐到 `controller/service/service.impl/mapper/entity/dto/config/exception/common` 风格，并用 MyBatis 替换 JdbcTemplate，同时保留 DTO 白名单、权限、幂等、trace_id、错误码和 internal token 边界 |
+| 6 | 创建工单写工具真实化 | 已完成 | `notes/stage7-06-mysql-ticket-write-transaction.md`、tickets 表、ticket_events 表、`@Transactional`、MySQL 唯一索引幂等兜底、request_fingerprint、DuplicateKeyException 处理、真实 MySQL smoke |
+| 7 | Redis 幂等、缓存和限流 | 已完成 | `notes/stage7-07-redis-idempotency-cache-rate-limit.md`、Spring Data Redis、订单 read-through cache、工单幂等缓存、Redis fixed window 限流、Redis 失败降级、真实 Redis/MySQL smoke |
+| 7.5 | Java 服务结构传统化重构 + MyBatis | 已完成 | `notes/stage7-075-java-service-traditional-mybatis-refactor.md`、`notes/stage7-075-java-service-traditional-mybatis-refactor-manual-tasks.md`；Java business service 已对齐到 `controller/service/service.impl/mapper/entity/dto/config/exception/common` 风格，并用 MyBatis Mapper + XML 替换 JdbcTemplate，同时保留 DTO 白名单、权限、幂等、trace_id、错误码和 internal token 边界 |
 | 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
 | 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
 | 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |
@@ -620,9 +620,9 @@ M0/M1 第一阶段完成时，必须满足：
 
 ### Java 集成
 
-- [ ] Spring Boot 业务服务
+- [x] Spring Boot 业务服务
 - [ ] 用户权限接口
-- [ ] 订单查询接口
+- [x] 订单查询接口
 - [ ] 退款查询接口
 - [x] 工单创建接口
 - [x] AI tools 调 Java API
@@ -635,9 +635,9 @@ M0/M1 第一阶段完成时，必须满足：
 - [x] tool 调用日志
 - [x] trace_id
 - [ ] token 成本统计
-- [ ] 限流
+- [x] 限流
 - [x] 重试
-- [ ] 缓存
+- [x] 缓存
 - [ ] Docker Compose
 - [ ] eval.py
 

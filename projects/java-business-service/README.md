@@ -8,31 +8,29 @@
 AI Agent 可以安全、稳定、可追踪调用的 Java 业务系统。
 ```
 
-当前第 3 节完成最小骨架，第 4 节完成 MySQL 业务数据模型设计：
+当前阶段 7 第 7.5 节已完成到 MySQL + Redis + MyBatis 传统结构真实化：
 
 ```text
 Spring Boot 启动入口
 internal API Controller
 统一 ApiResponse
-订单和工单领域模型
-内存 Repository
+传统 controller / service / mapper / entity / dto 目录结构
 内部调用 Header 校验
 trace_id 透传
 创建工单幂等雏形
 基础契约测试
 MySQL 表设计草案
-订单查询 MySQL 读链路
+订单查询 MyBatis + MySQL 读链路
+创建工单 MyBatis + MySQL 写链路
+订单查询 Redis 缓存
+创建工单 Redis 幂等缓存
+internal 工具接口 Redis 限流
 ```
 
 后续阶段会继续接入：
 
 ```text
-工单写入 MySQL
-Redis
-传统 Spring Boot 目录结构重构
-MyBatis 数据访问层
 真实权限
-事务
 Python AI 服务适配
 Docker Compose
 ```
@@ -47,17 +45,28 @@ MySQL 设计文档：
 
 ```text
 orders 表已通过 schema.sql / data.sql 初始化。
-GET /internal/orders/{order_id} 已通过 JdbcOrderRepository 从 MySQL 读取。
-POST /internal/tickets 当前仍是内存工单 Repository，后续阶段再持久化到 MySQL。
+GET /internal/orders/{order_id} 已通过 OrderMapper + OrderMapper.xml 从 MySQL 读取。
+tickets 表和 ticket_events 表已通过 schema.sql 初始化。
+POST /internal/tickets 已通过 TicketMapper + TicketMapper.xml 写入 MySQL。
+创建工单使用 MySQL 唯一索引、request_fingerprint 和事务处理幂等与事件写入。
 ```
 
-结构重构计划：
+当前 Redis 接入状态：
 
 ```text
-阶段 7 第 7.5 节会在第 8 节前执行 Java 服务结构传统化重构。
-目标结构会对齐 controller / service / service.impl / mapper / entity / dto / config / exception / common。
-数据访问层会从 JdbcTemplate 切换到 MyBatis。
-重构时必须保留 AI Agent 调用边界：DTO 白名单、权限、幂等、trace_id、错误码和 internal token。
+默认连接 VMware Ubuntu Docker Redis：192.168.88.10:6379。
+GET /internal/orders/{order_id} 已接入 Redis read-through cache。
+POST /internal/tickets 已接入 Redis 幂等缓存，但仍以 MySQL 唯一索引兜底。
+internal 工具接口已接入 Redis fixed window 限流。
+测试环境默认 app.redis.enabled=false，不依赖真实 Redis。
+```
+
+当前传统结构：
+
+```text
+controller / service / service.impl / mapper / entity / dto / config / exception / common 已落地。
+数据访问层已从 JdbcTemplate 切换到 MyBatis Mapper + XML。
+重构后仍保留 AI Agent 调用边界：DTO 白名单、权限、幂等、trace_id、错误码和 internal token。
 ```
 
 ## 运行
@@ -73,6 +82,26 @@ mysql -u root -h 127.0.0.1 -P 3306 -e "CREATE DATABASE IF NOT EXISTS ai_business
 
 ```powershell
 $env:JAVA_BUSINESS_DB_PASSWORD = "你的 MySQL 密码"
+```
+
+如果需要启用 Redis，先确认 VMware Ubuntu 虚拟机里的 Redis 容器已启动，并且 Windows 可以连通：
+
+```powershell
+Test-NetConnection 192.168.88.10 -Port 6379
+```
+
+Redis 连接配置可以通过环境变量覆盖：
+
+```powershell
+$env:JAVA_BUSINESS_REDIS_ENABLED = "true"
+$env:JAVA_BUSINESS_REDIS_HOST = "192.168.88.10"
+$env:JAVA_BUSINESS_REDIS_PORT = "6379"
+```
+
+如果虚拟机没开，但只想先运行 Java 服务，可以临时关闭 Redis：
+
+```powershell
+$env:JAVA_BUSINESS_REDIS_ENABLED = "false"
 ```
 
 ```powershell
@@ -98,7 +127,8 @@ GET http://127.0.0.1:8002/ready
 mvn test
 ```
 
-测试环境使用 H2 内存数据库，但仍然走 `JdbcOrderRepository` 和 `JdbcTemplate` 查询链路。
+测试环境使用 H2 内存数据库，但仍然走 `OrderMapper`、`TicketMapper` 和 MyBatis XML 链路。
+测试环境默认关闭真实 Redis，使用 NoOp cache / NoOp rate limiter，避免 `mvn test` 依赖 VMware 虚拟机。
 
 ## 当前 internal 接口
 

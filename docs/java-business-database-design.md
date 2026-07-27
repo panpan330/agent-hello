@@ -10,8 +10,12 @@
 
 ```text
 阶段 7 第 5 节已落地 orders 表。
-GET /internal/orders/{order_id} 已通过 JdbcOrderRepository 从 MySQL 读取。
-users、tickets、ticket_events 仍是设计草案，后续阶段继续落地。
+GET /internal/orders/{order_id} 已通过 OrderMapper + OrderMapper.xml 从 MySQL 读取。
+阶段 7 第 6 节已落地 tickets 表和 ticket_events 表。
+POST /internal/tickets 已通过 TicketMapper + TicketMapper.xml 写入 MySQL。
+阶段 7 第 7 节已接入 Redis 订单缓存、工单幂等缓存和工具接口限流。
+阶段 7 第 7.5 节已完成 Java 服务结构传统化重构，并用 MyBatis 替换 JdbcTemplate。
+users 仍是设计草案，后续阶段继续落地。
 ```
 
 ---
@@ -28,7 +32,7 @@ users、tickets、ticket_events 仍是设计草案，后续阶段继续落地。
 Python AI 服务不能绕过 Java 业务边界。
 Java 后端要能校验权限、幂等、业务规则和审计字段。
 MySQL 要保存长期业务事实。
-Redis 后续负责短期状态、缓存、限流和幂等加速。
+Redis 负责短期状态、缓存、限流和幂等加速。
 ```
 
 因此本阶段先设计四张核心表：
@@ -267,6 +271,7 @@ CREATE TABLE tickets (
   source VARCHAR(32) NOT NULL,
   confirmation_id VARCHAR(64) NOT NULL,
   idempotency_key VARCHAR(128) NOT NULL,
+  request_fingerprint VARCHAR(64) NOT NULL,
   created_trace_id VARCHAR(128) NOT NULL,
   created_at DATETIME(6) NOT NULL,
   updated_at DATETIME(6) NOT NULL,
@@ -294,6 +299,7 @@ CREATE TABLE tickets (
 | `source` | 创建来源，例如 ai_agent、manual、system |
 | `confirmation_id` | 用户确认凭证 |
 | `idempotency_key` | 幂等键 |
+| `request_fingerprint` | 幂等请求指纹，用于判断同一个幂等键是否对应同一个请求 |
 | `created_trace_id` | 创建请求对应的 trace_id |
 | `created_at` | 创建时间 |
 | `updated_at` | 更新时间 |
@@ -425,20 +431,32 @@ AI 场景下真正高频查询通常围绕 tenant_id、user_id、order_id、tick
 | 后续新增 `User` | `users` |
 | 后续新增 `TicketEvent` | `ticket_events` |
 
-当前 Repository 还是内存版：
+当前 Repository 落地状态：
 
 ```text
-InMemoryOrderRepository
-InMemoryTicketRepository
+OrderMapper 默认通过 OrderMapper.xml 查询 orders。
+TicketMapper 默认通过 TicketMapper.xml 查询和写入 tickets、ticket_events。
+旧 Repository / JdbcTemplate / memory 实现已经在第 7.5 节移除。
 ```
 
-后续第 5 节会先把订单查询读工具真实化：
+第 5 节已把订单查询读工具真实化：
 
 ```text
-OrderRepository 接口不变
-新增 MySQLOrderRepository
+OrderMapper 接口保持订单查询能力
+OrderMapper.xml 承载订单查询 SQL
 GET /internal/orders/{order_id} 仍然保持契约不变
 Controller 不应该因为换数据库而大幅变化
+```
+
+第 6 节已把创建工单写工具真实化：
+
+```text
+TicketMapper 承载工单写入和事件写入能力
+TicketMapper.xml 承载 tickets 和 ticket_events SQL
+创建工单写入 tickets 表
+同时写入 ticket_events 表
+使用 request_fingerprint 判断幂等键是否对应同一个请求
+使用 MySQL 唯一索引作为幂等最终兜底
 ```
 
 这体现一个重要工程原则：
@@ -450,22 +468,54 @@ Controller 不应该因为换数据库而大幅变化
 
 ---
 
-## 七、后续接入顺序
+## 七、Redis key 契约
 
-阶段 7 后续建议按这个顺序落地：
+Redis 不是 MySQL 表，但它也是系统契约的一部分。
 
-1. 第 5 节：接入 MySQL，先让订单查询从 MySQL 读取。
-2. 第 6 节：让创建工单写入 MySQL，并写入 `ticket_events`。
-3. 第 7 节：接入 Redis，做幂等加速、查询缓存和限流。
-4. 第 8 节：完善 internal token、用户身份、租户和权限边界。
-5. 第 9 节：把 Java 错误码映射成 AI 用户可理解的回答。
-6. 第 10 节：让 trace_id 串联 Python、Java、MySQL 和 Redis。
-7. 第 11 节：补契约测试和集成测试。
-8. 第 12 节：阶段 7 项目整理。
+当前阶段使用这些 key：
+
+| 场景 | Redis key | 默认 TTL | 作用 |
+| --- | --- | --- | --- |
+| 订单查询缓存 | `java-business:order:{tenant_id}:{order_id}` | 300 秒 | 减少重复订单查询打到 MySQL |
+| 创建工单幂等缓存 | `java-business:ticket-idempotency:{tenant_id}:{idempotency_key}` | 86400 秒 | 保存 `request_fingerprint` 和 `ticket_id`，加速重复写请求判断 |
+| internal 工具限流 | `java-business:rate-limit:{tenant_id}:{user_id}:{method}:{uri}` | 60 秒 | 使用 Redis `INCR` + TTL 做 fixed window 计数 |
+
+关键边界：
+
+```text
+订单缓存只缓存订单数据，不缓存权限结果。
+幂等缓存只做加速，最终仍以 MySQL unique(tenant_id, idempotency_key) 兜底。
+限流 key 按 tenant、user、method、uri 拆开，避免不同用户或不同工具互相挤占额度。
+Redis key 里的动态片段统一做 URL encode，避免 URI 等特殊字符破坏 key 结构。
+Redis 故障时，缓存和幂等缓存降级回 MySQL；限流当前选择 warning 后放行。
+```
+
+这体现一个重要工程原则：
+
+```text
+MySQL 保存长期业务事实。
+Redis 保存短期加速和保护状态。
+```
 
 ---
 
-## 八、当前版本的取舍
+## 八、后续接入顺序
+
+阶段 7 后续建议按这个顺序落地：
+
+1. 第 5 节：接入 MySQL，先让订单查询从 MySQL 读取。已完成。
+2. 第 6 节：让创建工单写入 MySQL，并写入 `ticket_events`。已完成。
+3. 第 7 节：接入 Redis，做幂等加速、查询缓存和限流。已完成。
+4. 第 7.5 节：Java 服务结构传统化重构 + MyBatis。已完成。
+5. 第 8 节：完善 internal token、用户身份、租户和权限边界。
+6. 第 9 节：把 Java 错误码映射成 AI 用户可理解的回答。
+7. 第 10 节：让 trace_id 串联 Python、Java、MySQL 和 Redis。
+8. 第 11 节：补契约测试和集成测试。
+9. 第 12 节：阶段 7 项目整理。
+
+---
+
+## 九、当前版本的取舍
 
 本设计暂时不做：
 

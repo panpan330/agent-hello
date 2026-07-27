@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -26,9 +27,12 @@ class InternalTicketControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
     void createTicketReturnsToolFacingView() throws Exception {
-        mockMvc.perform(
+        MvcResult result = mockMvc.perform(
                         withInternalHeaders(post("/internal/tickets"))
                                 .header(TraceHeaders.IDEMPOTENCY_KEY, "ticket-stage7-create-001")
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -40,7 +44,30 @@ class InternalTicketControllerTest {
                 .andExpect(jsonPath("$.data.ticket_id").exists())
                 .andExpect(jsonPath("$.data.ticket_status").value("created"))
                 .andExpect(jsonPath("$.data.related_order_id").value("A1001"))
-                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID))
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode json = objectMapper.readTree(body);
+        String ticketId = json.path("data").path("ticket_id").asText();
+
+        Integer ticketCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND ticket_id = ?",
+                Integer.class,
+                "default",
+                ticketId
+        );
+        Integer eventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ticket_events WHERE tenant_id = ? AND ticket_id = ? AND event_type = ? AND trace_id = ?",
+                Integer.class,
+                "default",
+                ticketId,
+                "created",
+                TRACE_ID
+        );
+
+        org.assertj.core.api.Assertions.assertThat(ticketCount).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(eventCount).isEqualTo(1);
     }
 
     @Test

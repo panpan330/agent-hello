@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.panpan.aibusinessservice.mapper.OrderMapper">
+    <resultMap id="OrderResultMap" type="com.panpan.aibusinessservice.entity.Order">
+        <id column="order_id" property="orderId"/>
+        <result column="user_id" property="ownerUserId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="order_status" property="orderStatus"/>
+        <result column="payment_status" property="paymentStatus"/>
+        <result column="logistics_message" property="logisticsMessage"/>
+        <result column="latest_event" property="latestEvent"/>
+        <result column="can_create_ticket" property="canCreateTicket"/>
+    </resultMap>
+
+    <select id="selectByTenantIdAndOrderId" resultMap="OrderResultMap">
+        SELECT
+          order_id,
+          user_id,
+          tenant_id,
+          order_status,
+          payment_status,
+          logistics_message,
+          latest_event,
+          can_create_ticket
+        FROM orders
+        WHERE tenant_id = #{tenantId}
+          AND order_id = #{orderId}
+    </select>
+</mapper>

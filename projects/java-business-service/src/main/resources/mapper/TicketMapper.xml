@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.panpan.aibusinessservice.mapper.TicketMapper">
+    <resultMap id="TicketResultMap" type="com.panpan.aibusinessservice.entity.Ticket">
+        <id column="ticket_id" property="ticketId"/>
+        <result column="requester_user_id" property="requesterUserId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="ticket_status" property="ticketStatus"/>
+        <result column="title" property="title"/>
+        <result column="description" property="description"/>
+        <result column="category" property="category"/>
+        <result column="priority" property="priority"/>
+        <result column="related_order_id" property="relatedOrderId"/>
+        <result column="source" property="source"/>
+        <result column="confirmation_id" property="confirmationId"/>
+        <result column="idempotency_key" property="idempotencyKey"/>
+        <result column="request_fingerprint" property="requestFingerprint"/>
+        <result column="created_trace_id" property="createdTraceId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="TicketColumns">
+        ticket_id,
+        requester_user_id,
+        tenant_id,
+        ticket_status,
+        title,
+        description,
+        category,
+        priority,
+        related_order_id,
+        source,
+        confirmation_id,
+        idempotency_key,
+        request_fingerprint,
+        created_trace_id,
+        created_at
+    </sql>
+
+    <select id="selectByTenantIdAndIdempotencyKey" resultMap="TicketResultMap">
+        SELECT
+          <include refid="TicketColumns"/>
+        FROM tickets
+        WHERE tenant_id = #{tenantId}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <select id="selectByTenantIdAndTicketId" resultMap="TicketResultMap">
+        SELECT
+          <include refid="TicketColumns"/>
+        FROM tickets
+        WHERE tenant_id = #{tenantId}
+          AND ticket_id = #{ticketId}
+    </select>
+
+    <insert id="insertTicket" parameterType="com.panpan.aibusinessservice.entity.Ticket">
+        INSERT INTO tickets (
+          tenant_id,
+          ticket_id,
+          requester_user_id,
+          related_order_id,
+          title,
+          description,
+          category,
+          priority,
+          ticket_status,
+          source,
+          confirmation_id,
+          idempotency_key,
+          request_fingerprint,
+          created_trace_id,
+          created_at,
+          updated_at
+        ) VALUES (
+          #{tenantId},
+          #{ticketId},
+          #{requesterUserId},
+          #{relatedOrderId},
+          #{title},
+          #{description},
+          #{category},
+          #{priority},
+          #{ticketStatus},
+          #{source},
+          #{confirmationId},
+          #{idempotencyKey},
+          #{requestFingerprint},
+          #{createdTraceId},
+          #{createdAt},
+          #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertTicketEvent">
+        INSERT INTO ticket_events (
+          tenant_id,
+          event_id,
+          ticket_id,
+          event_type,
+          event_payload,
+          operator_type,
+          operator_id,
+          trace_id,
+          created_at
+        ) VALUES (
+          #{tenantId},
+          #{eventId},
+          #{ticketId},
+          #{eventType},
+          #{eventPayload},
+          #{operatorType},
+          #{operatorId},
+          #{traceId},
+          #{createdAt}
+        )
+    </insert>
+</mapper>

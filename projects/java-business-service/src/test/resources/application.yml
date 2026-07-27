@@ -11,8 +11,13 @@ spring:
       mode: always
       encoding: UTF-8
 
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
 app:
   internal:
     token: local-dev-internal-token
-  persistence:
-    orders: mysql
+  redis:
+    enabled: false

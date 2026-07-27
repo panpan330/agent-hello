@@ -11,13 +11,30 @@ spring:
     url: ${JAVA_BUSINESS_DB_URL:jdbc:mysql://127.0.0.1:3306/ai_business?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${JAVA_BUSINESS_DB_USERNAME:root}
     password: ${JAVA_BUSINESS_DB_PASSWORD:}
+  data:
+    redis:
+      host: ${JAVA_BUSINESS_REDIS_HOST:192.168.88.10}
+      port: ${JAVA_BUSINESS_REDIS_PORT:6379}
+      timeout: 2s
   sql:
     init:
       mode: always
       encoding: UTF-8
 
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
 app:
   internal:
     token: ${JAVA_BUSINESS_INTERNAL_TOKEN:local-dev-internal-token}
-  persistence:
-    orders: ${JAVA_BUSINESS_ORDER_PERSISTENCE:mysql}
+  redis:
+    enabled: ${JAVA_BUSINESS_REDIS_ENABLED:true}
+    key-prefix: ${JAVA_BUSINESS_REDIS_KEY_PREFIX:java-business}
+    order-cache-ttl-seconds: ${JAVA_BUSINESS_ORDER_CACHE_TTL_SECONDS:300}
+    ticket-idempotency-ttl-seconds: ${JAVA_BUSINESS_TICKET_IDEMPOTENCY_TTL_SECONDS:86400}
+    rate-limit:
+      enabled: ${JAVA_BUSINESS_RATE_LIMIT_ENABLED:true}
+      limit: ${JAVA_BUSINESS_RATE_LIMIT_LIMIT:60}
+      window-seconds: ${JAVA_BUSINESS_RATE_LIMIT_WINDOW_SECONDS:60}
