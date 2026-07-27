@@ -1,28 +1,105 @@
 # Java + Python + AI 学习项目
 
-这个仓库用于长期沉淀 Java 后端转 AI 应用工程的学习记录、项目代码、实验结论和复盘。
+这是一个 Java + Python 的 AI 客服工单系统学习项目，核心是企业知识库 RAG + LangGraph 智能工单 Agent。
 
-当前主线不是纯算法岗，也不是只做提示词，而是：
+当前项目定位是 AI 应用工程学习项目和作品原型，不是完整生产上线系统。它重点展示如何把传统后端工程能力迁移到 AI 应用里：用 Python FastAPI 承载 AI 服务，用 Java mock service 模拟业务后端，用 RAG 处理企业知识库问答，用 Tool Calling 和 LangGraph 组织订单查询、用户确认和工单创建流程，再用评测、可观测性、稳定性策略、Docker Compose 和 CI 做工程保障。
+
+## 当前状态
+
+| 项目维度 | 当前状态 |
+| --- | --- |
+| 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
+| 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测 |
+| 当前阶段 | M6 作品整理和面试准备快速版 |
+| 当前定位 | AI 应用工程学习项目 / 作品原型 |
+| 不是 | 完整生产上线系统 |
+| 下一条主线 | 真实 Java Spring Boot + MySQL/Redis 业务服务 |
+
+## 核心能力
+
+- 企业知识库问答：文档加载、chunk 切分、embedding、向量检索、引用来源、无上下文拒答。
+- 向量数据库实践：Qdrant 主线、Milvus 对比、metadata filter、索引和选型。
+- 工具调用：订单查询、工单创建、工具参数校验、工具结果校验、权限边界。
+- 智能工单 Agent：意图识别、RAG 回答、订单查询、字段提取、缺字段追问、用户确认、创建工单。
+- Human-in-the-loop：写操作必须经过用户确认，不让模型直接修改业务系统。
+- Agent 状态：checkpoint、thread_id、会话生命周期、过期和清理。
+- 自动化评测：Agent eval dataset、意图/字段/路由/RAG 组合评测、报告、坏例分析、回归评测。
+- 生产化设计：Pydantic 输出校验、prompt 版本管理、模型输出失败处理、日志、trace、metrics。
+- 稳定性保护：timeout、retry、rate limit、circuit breaker、degradation。
+- 本地编排和回归：Docker Compose、health/readiness、GitHub Actions CI、统一回归脚本。
+
+## 技术栈地图
+
+| 层次 | 技术 | 作用 |
+| --- | --- | --- |
+| 业务后端层 | Java mock service | 模拟订单查询和工单创建等业务接口 |
+| AI 服务层 | Python、FastAPI、Pydantic | 提供 AI HTTP API、请求/响应模型、结构化校验 |
+| 模型调用层 | OpenAI-compatible SDK、prompt、structured output | 调用大模型、组织 messages、约束模型输出 |
+| 知识库层 | RAG、embedding、Qdrant、Milvus | 把企业文档变成可检索知识，并支持引用回答 |
+| Agent 编排层 | LangGraph、Tool Calling、Human-in-the-loop | 编排多步骤客服工单流程和安全工具调用 |
+| 评测层 | pytest、eval suite、bad case、regression | 验证代码边界和 AI 效果表现 |
+| 工程保障层 | logging、trace/span/log/metrics、timeout/retry/限流/熔断/降级 | 让系统可排查、可兜底、可持续迭代 |
+| 本地与 CI 层 | Docker Compose、health/readiness、GitHub Actions | 支持本地多服务编排和自动回归 |
+
+## 项目结构
 
 ```text
-Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG + Tool Calling + 工程化上线
+docs/                         学习路线、进度、上下文和项目规划
+notes/                        每节学习笔记、练习答案、阶段复盘
+projects/python-basics/       Python 基础练习项目
+projects/ai-service/          Python FastAPI AI 服务，包含 LLM、RAG、Tool Calling、LangGraph Agent
+projects/java-mock-service/   模拟 Java 业务后端，提供订单和工单相关接口
+compose.yml                   本地多服务编排入口
+compose.env.example           Compose 环境变量示例
+scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 ```
+
+## 快速阅读入口
+
+| 想了解 | 入口 |
+| --- | --- |
+| 当前学习进度 | [docs/learning-progress.md](docs/learning-progress.md) |
+| 总体学习路线 | [docs/ai-application-learning-roadmap.md](docs/ai-application-learning-roadmap.md) |
+| 项目长期上下文 | [docs/learning-context.md](docs/learning-context.md) |
+| 项目架构图和流程图 | [docs/project-diagrams.md](docs/project-diagrams.md) |
+| 本地运行和演示脚本 | [docs/local-run-and-demo.md](docs/local-run-and-demo.md) |
+| 简历描述和面试材料 | [docs/interview-and-resume.md](docs/interview-and-resume.md) |
+| Python AI 服务代码 | [projects/ai-service](projects/ai-service) |
+| Java mock 业务服务代码 | [projects/java-mock-service](projects/java-mock-service) |
+| M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
+| 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
+
+## 本地验证入口
+
+当前统一回归入口：
+
+```powershell
+python scripts\run_regression.py
+```
+
+这会分别验证 `projects/java-mock-service` 和 `projects/ai-service`。完整本地运行说明和演示脚本会在 M6 第 4 节整理。
+
+## 当前边界
+
+当前项目不是完整生产系统，还没有完成：
+
+- 真实 Spring Boot 业务服务。
+- 真实 MySQL/PostgreSQL 订单表、工单表和用户表。
+- Redis 缓存、分布式锁或生产会话存储。
+- 完整登录认证和权限系统。
+- 前端客服工作台。
+- 线上部署、Nginx、HTTPS、正式域名。
+- 生产级监控告警、日志采集和压测。
+
+M6 的目标是快速作品化，不夸大项目；M6 完成后，优先进入真实 Java Spring Boot + MySQL/Redis 业务服务学习。
 
 ## 学习主线
 
-- Java 后端继续负责业务系统、权限、数据库、稳定 API 和工程化能力。
+- Java 后端负责业务系统、权限、数据库、稳定 API 和工程化能力。
 - Python + FastAPI 负责 AI 服务层。
 - LangChain 负责 LLM 调用、RAG、工具调用和结构化输出。
 - LangGraph 负责多步骤、可恢复、可审计的 Agent/Workflow 编排。
-- 项目重点先收敛到企业知识库 RAG 和智能工单 Agent。
-
-## 仓库结构
-
-```text
-docs/      学习路线、进度、上下文和项目规划
-notes/     学习笔记、踩坑记录、复盘
-projects/ 练习项目、Demo 和完整作品
-```
+- 项目重点先收敛到企业知识库 RAG 和智能工单 Agent，再逐步真实化。
 
 ## 核心文档
 
@@ -252,6 +329,18 @@ projects/ 练习项目、Demo 和完整作品
 | 34 | Docker Compose 本地编排 | [notes/stage6-34-docker-compose-local-orchestration.md](notes/stage6-34-docker-compose-local-orchestration.md) | [compose.yml](compose.yml)、[compose.env.example](compose.env.example) |
 | 35 | health check、readiness 和 CI 自动回归 | [notes/stage6-35-health-readiness-ci-regression.md](notes/stage6-35-health-readiness-ci-regression.md) | [projects/ai-service/app/routers/health.py](projects/ai-service/app/routers/health.py)、[projects/java-mock-service/app/routers/health.py](projects/java-mock-service/app/routers/health.py)、[scripts/run_regression.py](scripts/run_regression.py)、[.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | 36 | 阶段 6 项目整理和面试表达 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) | 阶段 6 主线复盘、生产化能力地图、项目 1/3/5 分钟讲法、面试问答、简历表达、当前项目边界和下一阶段方向 |
+
+## M6：作品整理和面试准备快速版
+
+M6 固定为 5 节，目标是把当前 AI 客服工单系统学习项目快速整理成能展示、能讲清楚、能写进简历的作品项目。M6 不把项目强行包装成完整生产系统，完成后进入真实 Java Spring Boot + MySQL/Redis 业务服务学习。
+
+| 顺序 | 主题 | 笔记路径 | 产出 |
+| --- | --- | --- | --- |
+| 1 | 项目定位和作品化目标 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) | 项目定位、作品化边界、README 基础文案、面试回答口径、M6 产出目标 |
+| 2 | 整理 GitHub 首页 README | [notes/m6-02-github-homepage-readme.md](notes/m6-02-github-homepage-readme.md) | README 首页作品化、项目定位、核心能力、技术栈地图、快速阅读入口、当前边界 |
+| 3 | 架构图和核心流程图 | [notes/m6-03-architecture-and-core-flow-diagrams.md](notes/m6-03-architecture-and-core-flow-diagrams.md) | [docs/project-diagrams.md](docs/project-diagrams.md)、整体架构图、RAG 问答流程图、智能工单 Agent 流程图、工具调用安全流程图 |
+| 4 | 本地运行说明和演示脚本 | [notes/m6-04-local-run-and-demo-script.md](notes/m6-04-local-run-and-demo-script.md) | [docs/local-run-and-demo.md](docs/local-run-and-demo.md)、Windows 本地最小运行、真实模型可选演示、Qdrant/Milvus 可选演示、统一回归、常见问题 |
+| 5 | 简历描述、面试讲稿、常见追问 | [notes/m6-05-resume-interview-qa.md](notes/m6-05-resume-interview-qa.md) | [docs/interview-and-resume.md](docs/interview-and-resume.md)、简历 bullet、1/3/5 分钟讲稿、常见面试追问、项目不足和后续路线 |
 
 ## 当前目标
 
