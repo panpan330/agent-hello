@@ -251,7 +251,7 @@ projects/ 练习项目、Demo 和完整作品
 | 33 | rate limit、circuit breaker 和降级 | [notes/stage6-33-rate-limit-circuit-breaker-degradation.md](notes/stage6-33-rate-limit-circuit-breaker-degradation.md) | [projects/ai-service/app/agents/resilience_strategy.py](projects/ai-service/app/agents/resilience_strategy.py)、[projects/ai-service/tests/test_ticket_agent_resilience_strategy.py](projects/ai-service/tests/test_ticket_agent_resilience_strategy.py) |
 | 34 | Docker Compose 本地编排 | [notes/stage6-34-docker-compose-local-orchestration.md](notes/stage6-34-docker-compose-local-orchestration.md) | [compose.yml](compose.yml)、[compose.env.example](compose.env.example) |
 | 35 | health check、readiness 和 CI 自动回归 | [notes/stage6-35-health-readiness-ci-regression.md](notes/stage6-35-health-readiness-ci-regression.md) | [projects/ai-service/app/routers/health.py](projects/ai-service/app/routers/health.py)、[projects/java-mock-service/app/routers/health.py](projects/java-mock-service/app/routers/health.py)、[scripts/run_regression.py](scripts/run_regression.py)、[.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| 36 | 阶段 6 项目整理和面试表达 | 待新增 | 待新增 |
+| 36 | 阶段 6 项目整理和面试表达 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) | 阶段 6 主线复盘、生产化能力地图、项目 1/3/5 分钟讲法、面试问答、简历表达、当前项目边界和下一阶段方向 |
 
 ## 当前目标
 

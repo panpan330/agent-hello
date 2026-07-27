@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 35 节 health check、readiness 和 CI 自动回归 已完成。下一步进入阶段 6 第 36 节 阶段 6 项目整理和面试表达。
+当前阶段：阶段 6 生产化与评测已完成，第 36 节 阶段 6 项目整理和面试表达 已完成。下一步进入 M6 作品整理和面试准备。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -18,7 +18,7 @@
 | M2 | 第 3-4 周 | LangChain + Java 工具调用 | 已完成 | 客服助手 v1、Java mock 业务服务 |
 | M3 | 第 5-7 周 | 企业知识库 RAG | 已完成 | 文档入库、检索问答、引用来源、权限过滤、Milvus 对比、初版评测 |
 | M4 | 第 8-9 周 | LangGraph 智能工单 | 已完成 | 26 节主线，完成可控、可测试、可恢复的工单 Agent v1 |
-| M5 | 第 10-11 周 | 生产化与评测 | 进行中 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
+| M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 未开始 | README、架构图、截图、面试讲稿、简历描述 |
 
 ## 近期任务
@@ -218,6 +218,7 @@
 - [x] 完成阶段 6 第 33 节：rate limit、circuit breaker 和降级
 - [x] 完成阶段 6 第 34 节：Docker Compose 本地编排
 - [x] 完成阶段 6 第 35 节：health check、readiness 和 CI 自动回归
+- [x] 完成阶段 6 第 36 节：阶段 6 项目整理和面试表达
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -417,7 +418,7 @@
 | 33 | rate limit、circuit breaker 和降级 | 已完成 | `notes/stage6-33-rate-limit-circuit-breaker-degradation.md`、`app/agents/resilience_strategy.py`、`RateLimitPolicy`、`RateLimitUsage`、`RateLimitDecision`、`CircuitBreakerPolicy`、`CircuitBreakerSnapshot`、`CircuitBreakerDecision`、`CircuitBreakerResult`、`DegradationPlan`、`TicketAgentResiliencePolicy`、`DependencyProtectionDecision`、`build_ticket_agent_resilience_policies()`、`decide_rate_limit()`、`decide_circuit_breaker()`、`record_circuit_breaker_result()`、`build_degradation_plan()`、`evaluate_dependency_protection()`、`sanitize_resilience_metric_attributes()`、rate limit/throttling、near limit、429、circuit breaker closed/open/half-open、fail fast、half-open probe、failure threshold、degradation/fallback/cache 区分、LLM/Embedding/Java/Qdrant/Milvus 保护策略、写操作 require_manual_review、向量库 cache/no-context 降级、retry storm、低基数指标字段、22 条 resilience 策略测试 |
 | 34 | Docker Compose 本地编排 | 已完成 | `notes/stage6-34-docker-compose-local-orchestration.md`、`compose.yml`、`compose.env.example`、Docker vs Docker Compose、image/container、services、ports、environment、env_file、Compose 根目录 `.env` vs service `env_file`、bind mount vs named volume、networks、服务名 DNS、depends_on、healthcheck、profiles、默认启动 `ai-service`/`java-mock-service`、可选 `qdrant` profile、可选 `milvus` profile、Qdrant/Milvus 端口冲突提醒、Windows `.venv` 与 Linux 容器隔离、`UV_PROJECT_ENVIRONMENT`、Windows + VMware Ubuntu Docker 路径关系、真实密钥不进 compose、无法在当前 Windows 环境实机运行 Docker 的说明 |
 | 35 | health check、readiness 和 CI 自动回归 | 已完成 | `notes/stage6-35-health-readiness-ci-regression.md`、`app/schemas/health.py`、`app/routers/health.py`、`HealthResponse`、`ReadinessCheck`、`ReadinessResponse`、`/health`、`/ready`、liveness/readiness/startup probe 区分、`ai-service` real_llm 缺 API Key 时 `/ready` 返回 503、`java-mock-service` 内存订单/工单 store readiness、Compose healthcheck 改为 `/ready`、`scripts/run_regression.py`、`uv sync --frozen`、`compileall`、`pytest`、`.github/workflows/ci.yml`、GitHub Actions push/PR/workflow_dispatch、`astral-sh/setup-uv`、本地和 CI 复用同一回归入口、Java mock 13 条测试、AI service 880 条测试、CI 不真实调用模型、真实密钥不进 CI |
-| 36 | 阶段 6 项目整理和面试表达 | 未开始 | 待新增 |
+| 36 | 阶段 6 项目整理和面试表达 | 已完成 | `notes/stage6-36-project-summary-interview-expression.md`、阶段 6 主线复盘、demo/可上线雏形/生产级系统区别、Agent eval、真实模型节点、Pydantic 输出边界、工具调用安全、checkpoint/thread_id、LangSmith/OpenTelemetry、trace/span/log/metrics、生产日志、成本/token/延迟、timeout/retry/rate limit/circuit breaker/degradation、Docker Compose、health/readiness、CI 自动回归、项目 1/3/5 分钟讲法、面试问答、简历表达、当前项目边界、M6 作品整理方向 |
 
 ## 当前 Sprint 验收标准
 
