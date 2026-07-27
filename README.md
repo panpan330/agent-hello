@@ -248,9 +248,9 @@ projects/ 练习项目、Demo 和完整作品
 | 30 | 成本、token 和延迟指标 | [notes/stage6-30-cost-token-latency-metrics.md](notes/stage6-30-cost-token-latency-metrics.md) | [projects/ai-service/app/agents/llm_metrics.py](projects/ai-service/app/agents/llm_metrics.py)、[projects/ai-service/tests/test_ticket_agent_llm_metrics.py](projects/ai-service/tests/test_ticket_agent_llm_metrics.py) |
 | 31 | timeout 超时策略 | [notes/stage6-31-timeout-strategy.md](notes/stage6-31-timeout-strategy.md) | [projects/ai-service/app/agents/timeout_strategy.py](projects/ai-service/app/agents/timeout_strategy.py)、[projects/ai-service/tests/test_ticket_agent_timeout_strategy.py](projects/ai-service/tests/test_ticket_agent_timeout_strategy.py) |
 | 32 | retry 重试策略 | [notes/stage6-32-retry-strategy.md](notes/stage6-32-retry-strategy.md) | [projects/ai-service/app/agents/retry_strategy.py](projects/ai-service/app/agents/retry_strategy.py)、[projects/ai-service/tests/test_ticket_agent_retry_strategy.py](projects/ai-service/tests/test_ticket_agent_retry_strategy.py) |
-| 33 | rate limit、circuit breaker 和降级 | 待新增 | 待新增 |
-| 34 | Docker Compose 本地编排 | 待新增 | 待新增 |
-| 35 | health check、readiness 和 CI 自动回归 | 待新增 | 待新增 |
+| 33 | rate limit、circuit breaker 和降级 | [notes/stage6-33-rate-limit-circuit-breaker-degradation.md](notes/stage6-33-rate-limit-circuit-breaker-degradation.md) | [projects/ai-service/app/agents/resilience_strategy.py](projects/ai-service/app/agents/resilience_strategy.py)、[projects/ai-service/tests/test_ticket_agent_resilience_strategy.py](projects/ai-service/tests/test_ticket_agent_resilience_strategy.py) |
+| 34 | Docker Compose 本地编排 | [notes/stage6-34-docker-compose-local-orchestration.md](notes/stage6-34-docker-compose-local-orchestration.md) | [compose.yml](compose.yml)、[compose.env.example](compose.env.example) |
+| 35 | health check、readiness 和 CI 自动回归 | [notes/stage6-35-health-readiness-ci-regression.md](notes/stage6-35-health-readiness-ci-regression.md) | [projects/ai-service/app/routers/health.py](projects/ai-service/app/routers/health.py)、[projects/java-mock-service/app/routers/health.py](projects/java-mock-service/app/routers/health.py)、[scripts/run_regression.py](scripts/run_regression.py)、[.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | 36 | 阶段 6 项目整理和面试表达 | 待新增 | 待新增 |
 
 ## 当前目标

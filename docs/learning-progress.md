@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 6 生产化与评测进行中，第 32 节 retry 重试策略 已完成。下一步进入阶段 6 第 33 节 rate limit、circuit breaker 和降级。
+当前阶段：阶段 6 生产化与评测进行中，第 35 节 health check、readiness 和 CI 自动回归 已完成。下一步进入阶段 6 第 36 节 阶段 6 项目整理和面试表达。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -215,6 +215,9 @@
 - [x] 完成阶段 6 第 30 节：成本、token 和延迟指标
 - [x] 完成阶段 6 第 31 节：timeout 超时策略
 - [x] 完成阶段 6 第 32 节：retry 重试策略
+- [x] 完成阶段 6 第 33 节：rate limit、circuit breaker 和降级
+- [x] 完成阶段 6 第 34 节：Docker Compose 本地编排
+- [x] 完成阶段 6 第 35 节：health check、readiness 和 CI 自动回归
 - [x] 写 FastAPI 项目结构学习笔记
 
 ## 阶段 1 细化学习清单
@@ -411,9 +414,9 @@
 | 30 | 成本、token 和延迟指标 | 已完成 | `notes/stage6-30-cost-token-latency-metrics.md`、`app/agents/llm_metrics.py`、`LLMMetricSpec`、`LLMMetricMeasurement`、`LLMTokenUsageSnapshot`、`LLMTokenPricing`、`LLMEstimatedCost`、`build_llm_metric_specs()`、`normalize_llm_token_usage()`、`estimate_llm_call_cost()`、`build_llm_metric_attributes()`、`build_llm_call_metrics()`、prompt_tokens/completion_tokens/total_tokens、成本估算公式、`gen_ai.client.operation.duration`、`gen_ai.client.token.usage`、counter vs histogram、metrics cardinality、低基数 attributes、高基数和敏感字段过滤、12 条 LLM 指标测试 |
 | 31 | timeout 超时策略 | 已完成 | `notes/stage6-31-timeout-strategy.md`、`app/agents/timeout_strategy.py`、`TimeoutBudget`、`TicketAgentTimeoutPolicy`、`TimeoutFailure`、`build_timeout_budget()`、`build_ticket_agent_timeout_policies()`、`classify_timeout_phase()`、`build_timeout_failure()`、`is_timeout_retry_allowed()`、`sanitize_timeout_metric_attributes()`、connect/read/write/pool/total/operation timeout、LLM/embedding/Java/RAG timeout 策略、读写操作 timeout 差异、写操作幂等 retry 边界、timeout error_code 映射、fallback/retry 边界、13 条 timeout 策略测试 |
 | 32 | retry 重试策略 | 已完成 | `notes/stage6-32-retry-strategy.md`、`app/agents/retry_strategy.py`、`RetryBackoff`、`TicketAgentRetryPolicy`、`RetryDecision`、`build_default_retry_backoff()`、`build_ticket_agent_retry_policies()`、`classify_http_status_for_retry()`、`classify_error_code_for_retry()`、`classify_exception_for_retry()`、`classify_retry_failure()`、`decide_retry()`、`sanitize_retry_metric_attributes()`、attempt vs retry、max_retries vs max_attempts、retryable failure category、408/409/429/5xx retry 边界、400/401/403/404/422 非 retry 边界、exponential backoff、jitter、Retry-After、LLM 成本敏感、SDK 双重 retry 风险、Java 读写工具 retry 差异、写操作幂等键、retry decision 日志和指标字段、16 条 retry 策略测试 |
-| 33 | rate limit、circuit breaker 和降级 | 未开始 | 待新增 |
-| 34 | Docker Compose 本地编排 | 未开始 | 待新增 |
-| 35 | health check、readiness 和 CI 自动回归 | 未开始 | 待新增 |
+| 33 | rate limit、circuit breaker 和降级 | 已完成 | `notes/stage6-33-rate-limit-circuit-breaker-degradation.md`、`app/agents/resilience_strategy.py`、`RateLimitPolicy`、`RateLimitUsage`、`RateLimitDecision`、`CircuitBreakerPolicy`、`CircuitBreakerSnapshot`、`CircuitBreakerDecision`、`CircuitBreakerResult`、`DegradationPlan`、`TicketAgentResiliencePolicy`、`DependencyProtectionDecision`、`build_ticket_agent_resilience_policies()`、`decide_rate_limit()`、`decide_circuit_breaker()`、`record_circuit_breaker_result()`、`build_degradation_plan()`、`evaluate_dependency_protection()`、`sanitize_resilience_metric_attributes()`、rate limit/throttling、near limit、429、circuit breaker closed/open/half-open、fail fast、half-open probe、failure threshold、degradation/fallback/cache 区分、LLM/Embedding/Java/Qdrant/Milvus 保护策略、写操作 require_manual_review、向量库 cache/no-context 降级、retry storm、低基数指标字段、22 条 resilience 策略测试 |
+| 34 | Docker Compose 本地编排 | 已完成 | `notes/stage6-34-docker-compose-local-orchestration.md`、`compose.yml`、`compose.env.example`、Docker vs Docker Compose、image/container、services、ports、environment、env_file、Compose 根目录 `.env` vs service `env_file`、bind mount vs named volume、networks、服务名 DNS、depends_on、healthcheck、profiles、默认启动 `ai-service`/`java-mock-service`、可选 `qdrant` profile、可选 `milvus` profile、Qdrant/Milvus 端口冲突提醒、Windows `.venv` 与 Linux 容器隔离、`UV_PROJECT_ENVIRONMENT`、Windows + VMware Ubuntu Docker 路径关系、真实密钥不进 compose、无法在当前 Windows 环境实机运行 Docker 的说明 |
+| 35 | health check、readiness 和 CI 自动回归 | 已完成 | `notes/stage6-35-health-readiness-ci-regression.md`、`app/schemas/health.py`、`app/routers/health.py`、`HealthResponse`、`ReadinessCheck`、`ReadinessResponse`、`/health`、`/ready`、liveness/readiness/startup probe 区分、`ai-service` real_llm 缺 API Key 时 `/ready` 返回 503、`java-mock-service` 内存订单/工单 store readiness、Compose healthcheck 改为 `/ready`、`scripts/run_regression.py`、`uv sync --frozen`、`compileall`、`pytest`、`.github/workflows/ci.yml`、GitHub Actions push/PR/workflow_dispatch、`astral-sh/setup-uv`、本地和 CI 复用同一回归入口、Java mock 13 条测试、AI service 880 条测试、CI 不真实调用模型、真实密钥不进 CI |
 | 36 | 阶段 6 项目整理和面试表达 | 未开始 | 待新增 |
 
 ## 当前 Sprint 验收标准

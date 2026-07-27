@@ -3,18 +3,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+DependencyProbeStatus = Literal["ok", "configured", "skipped", "not_configured"]
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["ok"] = Field(description="Service health status.")
+    status: Literal["ok"] = Field(description="Liveness status.")
     service: str = Field(description="Service name.")
+    time: str = Field(description="Current UTC time in ISO 8601 format.")
 
 
 class ReadinessCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(description="Readiness check name.")
-    status: Literal["ok"] = Field(description="Readiness check status.")
+    status: DependencyProbeStatus = Field(description="Check result.")
     required: bool = Field(description="Whether this check blocks readiness.")
     message: str = Field(description="Human-readable check result.")
 
@@ -22,7 +26,8 @@ class ReadinessCheck(BaseModel):
 class ReadinessResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["ready"] = Field(description="Readiness status.")
+    status: Literal["ready", "not_ready"] = Field(description="Readiness status.")
     service: str = Field(description="Service name.")
     ready: bool = Field(description="Whether the service can accept traffic.")
     checks: list[ReadinessCheck] = Field(description="Readiness checks.")
+    time: str = Field(description="Current UTC time in ISO 8601 format.")
