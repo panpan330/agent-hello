@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：M6 作品整理和面试准备快速版已完成，第 5 节 简历描述、面试讲稿、常见追问 已完成。下一步进入阶段 7：真实 Java Spring Boot + MySQL/Redis 业务服务。
+当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务，第 3 节 真实 Spring Boot 服务骨架和领域模型 已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -20,6 +20,7 @@
 | M4 | 第 8-9 周 | LangGraph 智能工单 | 已完成 | 26 节主线，完成可控、可测试、可恢复的工单 Agent v1 |
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
+| M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 进行中 | 不重复 Spring Boot 基础，重点补 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和真实 MySQL/Redis 业务服务 |
 
 ## M6 快速版学习清单
 
@@ -46,6 +47,30 @@ M6 完成后，优先进入：
 ```text
 阶段 7：真实 Java Spring Boot + MySQL/Redis 业务服务
 ```
+
+## 阶段 7 学习清单
+
+阶段 7 的定位：
+
+```text
+不重复传统 Spring Boot 基础。
+重点学习如何把传统 Java 后端设计成 AI Agent 可以安全、稳定、可追踪调用的真实业务系统。
+```
+
+| 节 | 主题 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| 1 | AI Agent 调用传统 Java 后端时的边界设计 | 已完成 | `notes/stage7-01-ai-agent-java-boundary-design.md`、模型意图和后端执行边界、读写工具分级、DTO/Entity 边界、错误码、幂等、权限、trace_id、阶段 7 改造方向 |
+| 2 | 面向 Tool Calling 的 Java API 契约设计 | 已完成 | `notes/stage7-02-tool-calling-java-api-contract.md`、`docs/java-ai-api-contract.md`、订单查询和工单创建接口契约、统一响应、请求 DTO、响应 DTO、错误码、Header、字段白名单、契约测试清单 |
+| 3 | 真实 Spring Boot 服务骨架和领域模型 | 已完成 | `notes/stage7-03-spring-boot-service-skeleton-domain-model.md`、`projects/java-business-service`、Spring Boot 骨架、internal API、统一响应、错误码、Header 校验、订单/工单领域模型、内存 Repository、幂等雏形、MockMvc 契约测试 |
+| 4 | MySQL 业务数据模型 | 待学习 | 用户表、订单表、工单表、工单事件表、索引和基础约束 |
+| 5 | 查询订单读工具真实化 | 待学习 | Python Agent 查询订单走真实 Java + MySQL，并保留权限和错误码边界 |
+| 6 | 创建工单写工具真实化 | 待学习 | 用户确认、Java 业务校验、事务、工单持久化 |
+| 7 | Redis 幂等、缓存和限流 | 待学习 | idempotency key、防重复创建、订单查询缓存、工具调用限流 |
+| 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
+| 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
+| 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |
+| 11 | 契约测试和集成测试 | 待学习 | Python client 与 Java API 契约稳定，避免真实模型进入自动化测试 |
+| 12 | 阶段 7 项目整理 | 待学习 | README、架构图、运行说明、面试材料和阶段总结更新 |
 
 ## 近期任务
 

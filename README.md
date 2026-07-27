@@ -2,7 +2,7 @@
 
 这是一个 Java + Python 的 AI 客服工单系统学习项目，核心是企业知识库 RAG + LangGraph 智能工单 Agent。
 
-当前项目定位是 AI 应用工程学习项目和作品原型，不是完整生产上线系统。它重点展示如何把传统后端工程能力迁移到 AI 应用里：用 Python FastAPI 承载 AI 服务，用 Java mock service 模拟业务后端，用 RAG 处理企业知识库问答，用 Tool Calling 和 LangGraph 组织订单查询、用户确认和工单创建流程，再用评测、可观测性、稳定性策略、Docker Compose 和 CI 做工程保障。
+当前项目定位是 AI 应用工程学习项目和作品原型，不是完整生产上线系统。它重点展示如何把传统后端工程能力迁移到 AI 应用里：用 Python FastAPI 承载 AI 服务，用 Java mock service 模拟早期业务后端，并在阶段 7 新增 Spring Boot 业务服务骨架；用 RAG 处理企业知识库问答，用 Tool Calling 和 LangGraph 组织订单查询、用户确认和工单创建流程，再用评测、可观测性、稳定性策略、Docker Compose 和 CI 做工程保障。
 
 ## 当前状态
 
@@ -10,10 +10,10 @@
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
 | 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测 |
-| 当前阶段 | M6 作品整理和面试准备快速版 |
+| 当前阶段 | 阶段 7：真实 Java Spring Boot + MySQL/Redis 业务服务 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
-| 下一条主线 | 真实 Java Spring Boot + MySQL/Redis 业务服务 |
+| 当前主线 | 传统 Java 后端如何变成 AI Agent 可调用的真实业务系统 |
 
 ## 核心能力
 
@@ -32,7 +32,7 @@
 
 | 层次 | 技术 | 作用 |
 | --- | --- | --- |
-| 业务后端层 | Java mock service | 模拟订单查询和工单创建等业务接口 |
+| 业务后端层 | Java mock service、Java business service | mock 服务保留历史学习链路；阶段 7 已新增 Spring Boot 骨架，后续接 MySQL/Redis |
 | AI 服务层 | Python、FastAPI、Pydantic | 提供 AI HTTP API、请求/响应模型、结构化校验 |
 | 模型调用层 | OpenAI-compatible SDK、prompt、structured output | 调用大模型、组织 messages、约束模型输出 |
 | 知识库层 | RAG、embedding、Qdrant、Milvus | 把企业文档变成可检索知识，并支持引用回答 |
@@ -49,6 +49,7 @@ notes/                        每节学习笔记、练习答案、阶段复盘
 projects/python-basics/       Python 基础练习项目
 projects/ai-service/          Python FastAPI AI 服务，包含 LLM、RAG、Tool Calling、LangGraph Agent
 projects/java-mock-service/   模拟 Java 业务后端，提供订单和工单相关接口
+projects/java-business-service/  阶段 7 新增 Spring Boot 业务服务骨架，后续接 MySQL/Redis
 compose.yml                   本地多服务编排入口
 compose.env.example           Compose 环境变量示例
 scripts/run_regression.py     本地和 CI 复用的统一回归脚本
@@ -64,8 +65,13 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 项目架构图和流程图 | [docs/project-diagrams.md](docs/project-diagrams.md) |
 | 本地运行和演示脚本 | [docs/local-run-and-demo.md](docs/local-run-and-demo.md) |
 | 简历描述和面试材料 | [docs/interview-and-resume.md](docs/interview-and-resume.md) |
+| Java-AI API 契约草案 | [docs/java-ai-api-contract.md](docs/java-ai-api-contract.md) |
 | Python AI 服务代码 | [projects/ai-service](projects/ai-service) |
 | Java mock 业务服务代码 | [projects/java-mock-service](projects/java-mock-service) |
+| Java business 服务骨架 | [projects/java-business-service](projects/java-business-service) |
+| 阶段 7 第 1 节 | [notes/stage7-01-ai-agent-java-boundary-design.md](notes/stage7-01-ai-agent-java-boundary-design.md) |
+| 阶段 7 第 2 节 | [notes/stage7-02-tool-calling-java-api-contract.md](notes/stage7-02-tool-calling-java-api-contract.md) |
+| 阶段 7 第 3 节 | [notes/stage7-03-spring-boot-service-skeleton-domain-model.md](notes/stage7-03-spring-boot-service-skeleton-domain-model.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
@@ -83,7 +89,7 @@ python scripts\run_regression.py
 
 当前项目不是完整生产系统，还没有完成：
 
-- 真实 Spring Boot 业务服务。
+- 完整真实 Spring Boot 业务服务。当前已有 `projects/java-business-service` 骨架，但还没接 MySQL/Redis。
 - 真实 MySQL/PostgreSQL 订单表、工单表和用户表。
 - Redis 缓存、分布式锁或生产会话存储。
 - 完整登录认证和权限系统。
@@ -91,7 +97,7 @@ python scripts\run_regression.py
 - 线上部署、Nginx、HTTPS、正式域名。
 - 生产级监控告警、日志采集和压测。
 
-M6 的目标是快速作品化，不夸大项目；M6 完成后，优先进入真实 Java Spring Boot + MySQL/Redis 业务服务学习。
+M6 的目标是快速作品化，不夸大项目；M6 已完成。当前进入阶段 7，开始把 Java mock service 逐步升级为真实 Java Spring Boot + MySQL/Redis 业务服务。
 
 ## 学习主线
 
@@ -341,6 +347,25 @@ M6 固定为 5 节，目标是把当前 AI 客服工单系统学习项目快速�
 | 3 | 架构图和核心流程图 | [notes/m6-03-architecture-and-core-flow-diagrams.md](notes/m6-03-architecture-and-core-flow-diagrams.md) | [docs/project-diagrams.md](docs/project-diagrams.md)、整体架构图、RAG 问答流程图、智能工单 Agent 流程图、工具调用安全流程图 |
 | 4 | 本地运行说明和演示脚本 | [notes/m6-04-local-run-and-demo-script.md](notes/m6-04-local-run-and-demo-script.md) | [docs/local-run-and-demo.md](docs/local-run-and-demo.md)、Windows 本地最小运行、真实模型可选演示、Qdrant/Milvus 可选演示、统一回归、常见问题 |
 | 5 | 简历描述、面试讲稿、常见追问 | [notes/m6-05-resume-interview-qa.md](notes/m6-05-resume-interview-qa.md) | [docs/interview-and-resume.md](docs/interview-and-resume.md)、简历 bullet、1/3/5 分钟讲稿、常见面试追问、项目不足和后续路线 |
+
+## 阶段 7：真实 Java Spring Boot + MySQL/Redis 业务服务
+
+阶段 7 不重复学习传统 Spring Boot 基础。由于已有 Java 后端经验，这一阶段重点学习传统 Java 后端和 AI Agent 接触时新增的工程问题：边界设计、工具接口契约、读写安全、幂等、权限、错误码、trace_id、契约测试，以及 Python AI 服务如何对接真实 Java 业务系统。
+
+| 顺序 | 主题 | 笔记路径 | 产出 |
+| --- | --- | --- | --- |
+| 1 | AI Agent 调用传统 Java 后端时的边界设计 | [notes/stage7-01-ai-agent-java-boundary-design.md](notes/stage7-01-ai-agent-java-boundary-design.md) | 模型意图和后端执行边界、读写工具分级、DTO/Entity 边界、错误码、幂等、权限、trace_id、阶段 7 改造方向 |
+| 2 | 面向 Tool Calling 的 Java API 契约设计 | [notes/stage7-02-tool-calling-java-api-contract.md](notes/stage7-02-tool-calling-java-api-contract.md) | [docs/java-ai-api-contract.md](docs/java-ai-api-contract.md)、订单查询和工单创建接口契约、统一响应、请求 DTO、响应 DTO、错误码、Header、字段白名单、契约测试清单 |
+| 3 | 真实 Spring Boot 服务骨架和领域模型 | [notes/stage7-03-spring-boot-service-skeleton-domain-model.md](notes/stage7-03-spring-boot-service-skeleton-domain-model.md) | [projects/java-business-service](projects/java-business-service)、Spring Boot 骨架、internal API、统一响应、错误码、Header 校验、订单/工单领域模型、内存 Repository、幂等雏形、MockMvc 契约测试 |
+| 4 | MySQL 业务数据模型 | 待学习 | 用户表、订单表、工单表、工单事件表、索引和基础约束 |
+| 5 | 查询订单读工具真实化 | 待学习 | Python Agent 查询订单走真实 Java + MySQL，并保留权限和错误码边界 |
+| 6 | 创建工单写工具真实化 | 待学习 | 用户确认、Java 业务校验、事务、工单持久化 |
+| 7 | Redis 幂等、缓存和限流 | 待学习 | idempotency key、防重复创建、订单查询缓存、工具调用限流 |
+| 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
+| 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
+| 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |
+| 11 | 契约测试和集成测试 | 待学习 | Python client 与 Java API 契约稳定，避免真实模型进入自动化测试 |
+| 12 | 阶段 7 项目整理 | 待学习 | README、架构图、运行说明、面试材料和阶段总结更新 |
 
 ## 当前目标
 

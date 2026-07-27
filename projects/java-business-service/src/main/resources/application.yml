@@ -1,0 +1,12 @@
+server:
+  port: 8002
+
+spring:
+  application:
+    name: java-business-service
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+app:
+  internal:
+    token: ${JAVA_BUSINESS_INTERNAL_TOKEN:local-dev-internal-token}
