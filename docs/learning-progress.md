@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务已完成，第 12 节阶段整理已完成。
+当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 5 节 MCP 生命周期已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -21,6 +21,7 @@
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
+| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 5 节已完成 |
 
 ## M6 快速版学习清单
 
@@ -72,6 +73,50 @@ M6 完成后，优先进入：
 | 10 | trace_id 串联 Python + Java | 已完成 | `notes/stage7-10-trace-id-python-java-chain.md`、`notes/stage7-10-trace-id-python-java-chain-manual-tasks.md`；Python ContextVar + 日志 trace_id、Java TraceFilter + MDC + 响应头、Python client upstream_trace_id 日志，完成最小跨服务排查链路 |
 | 11 | 契约测试和集成测试 | 已完成 | `notes/stage7-11-contract-and-integration-tests.md`、`notes/stage7-11-contract-and-integration-tests-manual-tasks.md`；共享契约 JSON、Java provider 契约测试、Python consumer 契约模型和测试已经落地，自动化测试不真实调用大模型 |
 | 12 | 阶段 7 项目整理 | 已完成 | `notes/stage7-12-project-summary.md`；阶段 7 能力地图、当前项目边界、mock 链路与真实 Java business 链路关系、后续学习方向已整理，并同步更新 README、架构图、运行说明、面试材料和契约文档 |
+
+## 阶段 8 学习清单
+
+阶段 8 的定位：
+
+```text
+MCP 与 AI 工具生态基础。
+重点学习如何用 MCP 把外部工具、资源、prompt 和 AI 应用按统一协议连接起来。
+```
+
+阶段 8 计划记录：
+
+```text
+notes/stage8-00-mcp-learning-plan.md
+```
+
+固定为 24 节：
+
+| 节 | 主题 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| 1 | MCP 是什么 | 已完成 | `notes/stage8-01-what-is-mcp.md`；MCP 的定义、出现原因、Host/Client/Server、Tool/Resource/Prompt、与 HTTP API 和 Tool Calling 的区别、在当前项目中的位置 |
+| 2 | MCP 和 Tool Calling 的区别 | 已完成 | `notes/stage8-02-mcp-vs-tool-calling.md`；Tool Calling 解决模型如何请求工具，MCP 解决 AI 应用如何标准连接工具、资源和 prompt，并说明 MCP 与 tool_registry、JavaOrderClient、LangGraph、RAG 的关系 |
+| 3 | MCP 架构 | 已完成 | `notes/stage8-03-mcp-architecture.md`；MCP Host、Client、Server 的职责边界，一个 Host 管理多个 Client、一个 Client 连接一个 Server，Tools/Resources/Prompts 在架构中的位置，data layer 和 transport layer 的基础区别，以及 MCP 与 ai-service、LangGraph、Tool Calling、RAG、Java business service 的项目映射 |
+| 4 | MCP 通信基础 | 已完成 | `notes/stage8-04-mcp-communication-basics.md`；JSON-RPC、JSON 和 JSON-RPC 的区别、request/response/notification、id/method/params/result/error、initialize 基础、tools/list、tools/call、list_changed notification、协议错误和工具执行错误、MCP 通信与 HTTP REST API 的区别 |
+| 5 | MCP 生命周期 | 已完成 | `notes/stage8-05-mcp-lifecycle.md`；Initialization、Operation、Shutdown，initialize request/response、notifications/initialized、协议版本协商、能力协商、Operation 阶段约束、Shutdown 的 transport 关闭方式、请求超时、初始化失败处理，以及 ai-service 未来连接 MCP Server 的生命周期映射 |
+| 6 | MCP Transport | 待学习 | stdio、Streamable HTTP，先学本地 stdio |
+| 7 | MCP Tools 基础 | 待学习 | 工具暴露、参数 schema、工具返回结果 |
+| 8 | MCP Resources 基础 | 待学习 | 如何把文档、配置、schema、业务资料暴露成上下文 |
+| 9 | MCP Prompts 基础 | 待学习 | 服务器提供可复用 prompt 模板 |
+| 10 | Python 最小 MCP Server | 待学习 | 用 Python SDK 写第一个 MCP server |
+| 11 | MCP Client 调试 | 待学习 | 如何列出工具、调用工具、看返回 |
+| 12 | 工具参数校验 | 待学习 | Pydantic/schema、枚举、必填字段、错误提示 |
+| 13 | MCP 错误处理 | 待学习 | 业务错误、系统错误、协议错误怎么分 |
+| 14 | MCP 安全边界 | 待学习 | 权限、最小暴露、prompt injection、敏感字段过滤 |
+| 15 | 把订单查询封装成 MCP Tool | 待学习 | MCP tool -> Python adapter -> Java business service |
+| 16 | 把创建工单封装成 MCP Tool | 待学习 | 写操作确认、幂等键、用户身份传递 |
+| 17 | MCP Resource 接入项目文档 | 待学习 | 暴露 API 契约、学习笔记、业务规则文档 |
+| 18 | MCP 和现有 Agent 的关系 | 待学习 | MCP 在 LangGraph / Tool Calling / Java API 之间放在哪里 |
+| 19 | MCP 测试和契约测试 | 待学习 | fake client、工具测试、错误映射测试 |
+| 20 | 阶段 8 初版项目整理 | 待学习 | 总结 MCP 基础能力、项目边界、下一步工程化 |
+| 21 | MCP Server 工程结构整理 | 待学习 | 避免只会写单文件 demo，学会项目化组织 |
+| 22 | MCP 配置和环境变量 | 待学习 | 路径、token、Java 地址、权限开关配置化 |
+| 23 | MCP 可观测性 | 待学习 | 日志、trace_id、工具调用耗时、错误码 |
+| 24 | MCP 阶段总结和面试表达 | 待学习 | 把 MCP 和 Agent、RAG、Java 后端的关系讲清楚 |
 
 ## 近期任务
 

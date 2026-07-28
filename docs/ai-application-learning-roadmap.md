@@ -94,6 +94,7 @@ Java 后端能力
 | M5 | 第 10-11 周 | 生产化与评测 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 12 节主线，完成 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，以及 AI 调用传统 Java 后端的边界、契约、权限、幂等、错误码、trace_id 和契约测试 |
+| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 24 节主线，学习 MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、安全、测试、可观测性，以及如何接入 Java business service |
 
 如果每天只有 1-2 小时，可以把 M3 和 M5 各延长 1 周。不要为了赶进度牺牲项目质量。
 
@@ -606,7 +607,62 @@ Python Agent 主链路完全迁移到 java-business-service。
 更多 AI 应用工程进阶技术。
 ```
 
-## 13. 每周执行节奏
+## 13. M8：MCP 与 AI 工具生态基础
+
+M8 当前阶段执行。
+
+阶段定位：
+
+```text
+MCP 与 AI 工具生态基础。
+在已经学过 Tool Calling、LangGraph Agent、RAG 和真实 Java business service 的基础上，学习如何用 MCP 把外部工具、资源、prompt 和 AI 应用按统一协议连接起来。
+```
+
+固定为 24 节：
+
+| 节 | 主题 | 目标 |
+| --- | --- | --- |
+| 1 | MCP 是什么 | MCP 解决什么问题，为什么它不是普通 API，也不是简单 Tool Calling |
+| 2 | MCP 和 Tool Calling 的区别 | Tool Calling、MCP、RAG、插件、API 的关系 |
+| 3 | MCP 架构 | Host、Client、Server 分别是什么 |
+| 4 | MCP 通信基础 | JSON-RPC、请求、响应、通知、能力协商 |
+| 5 | MCP 生命周期 | initialization、operation、shutdown |
+| 6 | MCP Transport | stdio、Streamable HTTP，先学本地 stdio |
+| 7 | MCP Tools 基础 | 工具暴露、参数 schema、工具返回结果 |
+| 8 | MCP Resources 基础 | 如何把文档、配置、schema、业务资料暴露成上下文 |
+| 9 | MCP Prompts 基础 | 服务器提供可复用 prompt 模板 |
+| 10 | Python 最小 MCP Server | 用 Python SDK 写第一个 MCP server |
+| 11 | MCP Client 调试 | 如何列出工具、调用工具、看返回 |
+| 12 | 工具参数校验 | Pydantic/schema、枚举、必填字段、错误提示 |
+| 13 | MCP 错误处理 | 业务错误、系统错误、协议错误怎么分 |
+| 14 | MCP 安全边界 | 权限、最小暴露、prompt injection、敏感字段过滤 |
+| 15 | 把订单查询封装成 MCP Tool | MCP tool -> Python adapter -> Java business service |
+| 16 | 把创建工单封装成 MCP Tool | 写操作确认、幂等键、用户身份传递 |
+| 17 | MCP Resource 接入项目文档 | 暴露 API 契约、学习笔记、业务规则文档 |
+| 18 | MCP 和现有 Agent 的关系 | MCP 在 LangGraph / Tool Calling / Java API 之间放在哪里 |
+| 19 | MCP 测试和契约测试 | fake client、工具测试、错误映射测试 |
+| 20 | 阶段 8 初版项目整理 | 总结 MCP 基础能力、项目边界、下一步工程化 |
+| 21 | MCP Server 工程结构整理 | 避免只会写单文件 demo，学会项目化组织 |
+| 22 | MCP 配置和环境变量 | 路径、token、Java 地址、权限开关配置化 |
+| 23 | MCP 可观测性 | 日志、trace_id、工具调用耗时、错误码 |
+| 24 | MCP 阶段总结和面试表达 | 把 MCP 和 Agent、RAG、Java 后端的关系讲清楚 |
+
+阶段计划笔记：
+
+```text
+notes/stage8-00-mcp-learning-plan.md
+```
+
+默认环境：
+
+```text
+Windows 本地。
+默认不需要打开 VMware Ubuntu。
+默认不需要 Qdrant / Milvus。
+默认不需要真实大模型。
+```
+
+## 14. 每周执行节奏
 
 建议每周固定节奏：
 
@@ -627,7 +683,7 @@ Python Agent 主链路完全迁移到 java-business-service。
 10 分钟：更新笔记
 ```
 
-## 14. 不要提前分散精力
+## 15. 不要提前分散精力
 
 前 8 周不要重点投入：
 
@@ -641,7 +697,7 @@ Python Agent 主链路完全迁移到 java-business-service。
 
 这些东西不是没用，而是当前阶段投入产出比不高。先把 RAG 和工单 Agent 做成可运行项目。
 
-## 15. 通关标准
+## 16. 通关标准
 
 达到下面 6 条，才算具备 AI 应用工程实战基础：
 
@@ -654,7 +710,7 @@ Python Agent 主链路完全迁移到 java-business-service。
 6. 能把项目 Docker 化并写清楚部署文档。
 ```
 
-## 16. 下一步
+## 17. 下一步
 
 立即开始 M0/M1：
 

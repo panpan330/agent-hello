@@ -2,7 +2,7 @@
 
 这是一个 Java + Python 的 AI 客服工单系统学习项目，核心是企业知识库 RAG + LangGraph 智能工单 Agent。
 
-当前项目定位是 AI 应用工程学习项目和作品原型，不是完整生产上线系统。它重点展示如何把传统后端工程能力迁移到 AI 应用里：用 Python FastAPI 承载 AI 服务，用 Java mock service 模拟早期业务后端，并在阶段 7 新增 Spring Boot 业务服务骨架；用 RAG 处理企业知识库问答，用 Tool Calling 和 LangGraph 组织订单查询、用户确认和工单创建流程，再用评测、可观测性、稳定性策略、Docker Compose 和 CI 做工程保障。
+当前项目定位是 AI 应用工程学习项目和作品原型，不是完整生产上线系统。它重点展示如何把传统后端工程能力迁移到 AI 应用里：用 Python FastAPI 承载 AI 服务，用 Java mock service 保留早期学习链路，并在阶段 7 新增真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座；用 RAG 处理企业知识库问答，用 Tool Calling 和 LangGraph 组织订单查询、用户确认和工单创建流程，再用评测、可观测性、稳定性策略、Docker Compose 和 CI 做工程保障。
 
 ## 当前状态
 
@@ -10,7 +10,7 @@
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
 | 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent |
-| 当前阶段 | 阶段 7 已完成，准备进入下一阶段 AI 应用工程强化 |
+| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 5 节已完成 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
 | 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
@@ -88,6 +88,12 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 7 第 11 节 | [notes/stage7-11-contract-and-integration-tests.md](notes/stage7-11-contract-and-integration-tests.md) |
 | 阶段 7 第 11 节手动验证 | [notes/stage7-11-contract-and-integration-tests-manual-tasks.md](notes/stage7-11-contract-and-integration-tests-manual-tasks.md) |
 | 阶段 7 第 12 节 | [notes/stage7-12-project-summary.md](notes/stage7-12-project-summary.md) |
+| 阶段 8 学习计划 | [notes/stage8-00-mcp-learning-plan.md](notes/stage8-00-mcp-learning-plan.md) |
+| 阶段 8 第 1 节 | [notes/stage8-01-what-is-mcp.md](notes/stage8-01-what-is-mcp.md) |
+| 阶段 8 第 2 节 | [notes/stage8-02-mcp-vs-tool-calling.md](notes/stage8-02-mcp-vs-tool-calling.md) |
+| 阶段 8 第 3 节 | [notes/stage8-03-mcp-architecture.md](notes/stage8-03-mcp-architecture.md) |
+| 阶段 8 第 4 节 | [notes/stage8-04-mcp-communication-basics.md](notes/stage8-04-mcp-communication-basics.md) |
+| 阶段 8 第 5 节 | [notes/stage8-05-mcp-lifecycle.md](notes/stage8-05-mcp-lifecycle.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
