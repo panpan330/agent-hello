@@ -9,11 +9,11 @@
 | 项目维度 | 当前状态 |
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
-| 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测 |
-| 当前阶段 | 阶段 7：真实 Java Spring Boot + MySQL/Redis 业务服务 |
+| 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent |
+| 当前阶段 | 阶段 7 已完成，准备进入下一阶段 AI 应用工程强化 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
-| 当前主线 | 传统 Java 后端如何变成 AI Agent 可调用的真实业务系统 |
+| 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
 
 ## 核心能力
 
@@ -32,7 +32,7 @@
 
 | 层次 | 技术 | 作用 |
 | --- | --- | --- |
-| 业务后端层 | Java mock service、Java business service | mock 服务保留历史学习链路；阶段 7 已新增 Spring Boot 骨架，订单查询和创建工单已接入真实 MySQL |
+| 业务后端层 | Java mock service、Java business service | mock 服务保留历史学习链路；阶段 7 已新增真实 Spring Boot 业务服务，订单查询、创建工单、MyBatis、MySQL、Redis、internal API、trace_id 和契约测试已落地 |
 | AI 服务层 | Python、FastAPI、Pydantic | 提供 AI HTTP API、请求/响应模型、结构化校验 |
 | 模型调用层 | OpenAI-compatible SDK、prompt、structured output | 调用大模型、组织 messages、约束模型输出 |
 | 知识库层 | RAG、embedding、Qdrant、Milvus | 把企业文档变成可检索知识，并支持引用回答 |
@@ -49,7 +49,7 @@ notes/                        每节学习笔记、练习答案、阶段复盘
 projects/python-basics/       Python 基础练习项目
 projects/ai-service/          Python FastAPI AI 服务，包含 LLM、RAG、Tool Calling、LangGraph Agent
 projects/java-mock-service/   模拟 Java 业务后端，提供订单和工单相关接口
-projects/java-business-service/  阶段 7 新增 Spring Boot 业务服务骨架，后续接 MySQL/Redis
+projects/java-business-service/  阶段 7 新增真实 Spring Boot 业务服务，已接入 MyBatis、MySQL、Redis、internal API、trace_id 和契约测试
 compose.yml                   本地多服务编排入口
 compose.env.example           Compose 环境变量示例
 scripts/run_regression.py     本地和 CI 复用的统一回归脚本
@@ -69,7 +69,7 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | Java business 数据库设计草案 | [docs/java-business-database-design.md](docs/java-business-database-design.md) |
 | Python AI 服务代码 | [projects/ai-service](projects/ai-service) |
 | Java mock 业务服务代码 | [projects/java-mock-service](projects/java-mock-service) |
-| Java business 服务骨架 | [projects/java-business-service](projects/java-business-service) |
+| Java business 真实业务服务 | [projects/java-business-service](projects/java-business-service) |
 | 阶段 7 第 1 节 | [notes/stage7-01-ai-agent-java-boundary-design.md](notes/stage7-01-ai-agent-java-boundary-design.md) |
 | 阶段 7 第 2 节 | [notes/stage7-02-tool-calling-java-api-contract.md](notes/stage7-02-tool-calling-java-api-contract.md) |
 | 阶段 7 第 3 节 | [notes/stage7-03-spring-boot-service-skeleton-domain-model.md](notes/stage7-03-spring-boot-service-skeleton-domain-model.md) |
@@ -79,6 +79,15 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 7 第 7 节 | [notes/stage7-07-redis-idempotency-cache-rate-limit.md](notes/stage7-07-redis-idempotency-cache-rate-limit.md) |
 | 阶段 7 第 7.5 节 | [notes/stage7-075-java-service-traditional-mybatis-refactor.md](notes/stage7-075-java-service-traditional-mybatis-refactor.md) |
 | 阶段 7 第 7.5 节手动验证 | [notes/stage7-075-java-service-traditional-mybatis-refactor-manual-tasks.md](notes/stage7-075-java-service-traditional-mybatis-refactor-manual-tasks.md) |
+| 阶段 7 第 8 节 | [notes/stage7-08-internal-auth-user-identity.md](notes/stage7-08-internal-auth-user-identity.md) |
+| 阶段 7 第 8 节手动验证 | [notes/stage7-08-internal-auth-user-identity-manual-tasks.md](notes/stage7-08-internal-auth-user-identity-manual-tasks.md) |
+| 阶段 7 第 9 节 | [notes/stage7-09-java-error-code-to-ai-user-answer.md](notes/stage7-09-java-error-code-to-ai-user-answer.md) |
+| 阶段 7 第 9 节手动验证 | [notes/stage7-09-java-error-code-to-ai-user-answer-manual-tasks.md](notes/stage7-09-java-error-code-to-ai-user-answer-manual-tasks.md) |
+| 阶段 7 第 10 节 | [notes/stage7-10-trace-id-python-java-chain.md](notes/stage7-10-trace-id-python-java-chain.md) |
+| 阶段 7 第 10 节手动验证 | [notes/stage7-10-trace-id-python-java-chain-manual-tasks.md](notes/stage7-10-trace-id-python-java-chain-manual-tasks.md) |
+| 阶段 7 第 11 节 | [notes/stage7-11-contract-and-integration-tests.md](notes/stage7-11-contract-and-integration-tests.md) |
+| 阶段 7 第 11 节手动验证 | [notes/stage7-11-contract-and-integration-tests-manual-tasks.md](notes/stage7-11-contract-and-integration-tests-manual-tasks.md) |
+| 阶段 7 第 12 节 | [notes/stage7-12-project-summary.md](notes/stage7-12-project-summary.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
@@ -96,15 +105,16 @@ python scripts\run_regression.py
 
 当前项目不是完整生产系统，还没有完成：
 
-- 完整真实 Spring Boot 业务服务。当前已有 `projects/java-business-service` 骨架，订单查询和创建工单写链路已接入真实 MySQL；Redis 已完成订单缓存、工单幂等缓存和工具接口限流，但真实用户表和完整权限体系还未真实化。
-- 真实 MySQL/PostgreSQL 用户表运行实现。
+- Python Agent 运行时主链路还没有完全从历史 `java-mock-service` 切到 `java-business-service`。
+- 完整真实 Spring Boot 业务系统。当前 `projects/java-business-service` 已完成订单查询、创建工单、MyBatis、MySQL、Redis、internal API、trace_id 和契约测试底座，但还不是完整客服后台。
+- 真实用户表和完整权限体系还未真实化。
 - Redis 分布式锁或生产会话存储。
 - 完整登录认证和权限系统。
 - 前端客服工作台。
 - 线上部署、Nginx、HTTPS、正式域名。
 - 生产级监控告警、日志采集和压测。
 
-M6 的目标是快速作品化，不夸大项目；M6 已完成。当前进入阶段 7，开始把 Java mock service 逐步升级为真实 Java Spring Boot + MySQL/Redis 业务服务。
+M6 的目标是快速作品化，不夸大项目；M6 已完成。阶段 7 已完成真实 Java Spring Boot + MySQL/Redis 业务服务底座，后续可以在这个基础上继续补 Agent、RAG、MCP、评测和生产化能力。
 
 ## 学习主线
 
@@ -369,11 +379,11 @@ M6 固定为 5 节，目标是把当前 AI 客服工单系统学习项目快速�
 | 6 | 创建工单写工具真实化 | 已完成 | [notes/stage7-06-mysql-ticket-write-transaction.md](notes/stage7-06-mysql-ticket-write-transaction.md)、tickets 表、ticket_events 表、`@Transactional`、MySQL 唯一索引幂等兜底、request_fingerprint、DuplicateKeyException 处理、真实 MySQL smoke |
 | 7 | Redis 幂等、缓存和限流 | 已完成 | `notes/stage7-07-redis-idempotency-cache-rate-limit.md`、Spring Data Redis、订单 read-through cache、工单幂等缓存、Redis fixed window 限流、Redis 失败降级、真实 Redis/MySQL smoke |
 | 7.5 | Java 服务结构传统化重构 + MyBatis | 已完成 | [notes/stage7-075-java-service-traditional-mybatis-refactor.md](notes/stage7-075-java-service-traditional-mybatis-refactor.md)；Java business service 已对齐到 `controller/service/service.impl/mapper/entity/dto/config/exception/common` 风格，并用 MyBatis Mapper + XML 替换 JdbcTemplate；保留 DTO 白名单、权限、幂等、trace_id、错误码和 internal token 边界 |
-| 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
-| 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
-| 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |
-| 11 | 契约测试和集成测试 | 待学习 | Python client 与 Java API 契约稳定，避免真实模型进入自动化测试 |
-| 12 | 阶段 7 项目整理 | 待学习 | README、架构图、运行说明、面试材料和阶段总结更新 |
+| 8 | AI 场景下的内部鉴权和用户身份传递 | 已完成 | `notes/stage7-08-internal-auth-user-identity.md`、`notes/stage7-08-internal-auth-user-identity-manual-tasks.md`；internal allowed caller 配置化、`X-Tenant-Id` 必传、trace/caller/user/tenant 基础格式校验、模型不能伪造用户身份、Java 业务权限兜底测试 |
+| 9 | Java 错误码到 AI 用户回答 | 已完成 | `notes/stage7-09-java-error-code-to-ai-user-answer.md`、`notes/stage7-09-java-error-code-to-ai-user-answer-manual-tasks.md`；新增 Python `java_error_mapping.py`，把 Java 机器错误码映射为安全 `AppException` 和用户可理解提示，隐藏 internal auth、服务异常、契约错误等内部细节 |
+| 10 | trace_id 串联 Python + Java | 已完成 | `notes/stage7-10-trace-id-python-java-chain.md`、`notes/stage7-10-trace-id-python-java-chain-manual-tasks.md`；Java 新增 `TraceFilter`，响应头统一返回 `X-Trace-Id`，MDC 写入 `trace_id`，Python Java client 日志记录 `upstream_trace_id` |
+| 11 | 契约测试和集成测试 | 已完成 | `notes/stage7-11-contract-and-integration-tests.md`、`notes/stage7-11-contract-and-integration-tests-manual-tasks.md`；新增共享契约文件 `contracts/java-business-service/internal-api-contract-cases.json`、Java provider 契约测试、Python consumer 契约模型和测试，明确区分历史 mock 链路与真实 Java business contract |
+| 12 | 阶段 7 项目整理 | 已完成 | `notes/stage7-12-project-summary.md`；完成阶段 7 能力地图、当前项目边界、mock 链路与真实 Java business 链路关系、后续学习方向整理，并更新 README、进度、契约、架构图、运行说明和面试材料 |
 
 ## 当前目标
 

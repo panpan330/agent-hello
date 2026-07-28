@@ -1,7 +1,7 @@
 package com.panpan.aibusinessservice.exception;
 
 import com.panpan.aibusinessservice.common.ApiResponse;
-import com.panpan.aibusinessservice.common.trace.TraceHeaders;
+import com.panpan.aibusinessservice.common.trace.TraceFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -54,10 +54,6 @@ public class GlobalExceptionHandler {
     }
 
     private String traceId(HttpServletRequest request) {
-        String traceId = request.getHeader(TraceHeaders.TRACE_ID);
-        if (traceId == null || traceId.isBlank()) {
-            return "-";
-        }
-        return traceId.trim();
+        return TraceFilter.currentTraceId(request);
     }
 }

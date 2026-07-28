@@ -7,8 +7,9 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.core.exceptions import AppException
-from app.core.trace import build_trace_headers
+from app.core.trace import TRACE_ID_HEADER, build_trace_headers
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
+from app.services.java_error_mapping import build_java_error_app_exception
 
 
 logger = logging.getLogger(__name__)
@@ -96,24 +97,23 @@ class JavaTicketClient:
 
         elapsed_ms = (perf_counter() - start_time) * 1000
         logger.info(
-            "java_ticket_create_finished method=POST path=%s status_code=%s elapsed_ms=%.2f",
+            (
+                "java_ticket_create_finished method=POST path=%s status_code=%s "
+                "upstream_trace_id=%s elapsed_ms=%.2f"
+            ),
             path,
             response.status_code,
+            response.headers.get(TRACE_ID_HEADER, "-"),
             elapsed_ms,
         )
 
-        if response.status_code >= 500:
-            raise AppException(
-                code="TOOL_UPSTREAM_ERROR",
-                message="工单业务服务暂时不可用，请稍后重试。",
-                status_code=502,
-            )
-
         if response.status_code != 201:
-            raise AppException(
-                code="TICKET_UPSTREAM_REJECTED",
-                message="工单业务服务拒绝了已经校验过的请求，请联系管理员排查接口契约。",
-                status_code=502,
+            raise build_java_error_app_exception(
+                response,
+                operation="ticket_creation",
+                fallback_code="TICKET_UPSTREAM_REJECTED",
+                fallback_message="工单业务服务拒绝了已经校验过的请求，请联系管理员排查接口契约。",
+                fallback_status_code=502,
             )
 
         try:

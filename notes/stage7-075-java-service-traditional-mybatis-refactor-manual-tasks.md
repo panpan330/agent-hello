@@ -114,7 +114,7 @@ curl.exe http://127.0.0.1:18004/health
 curl.exe -X GET "http://127.0.0.1:18004/internal/orders/A1001" `
   -H "X-Trace-Id: manual-stage7-075-order" `
   -H "X-Caller: ai-service" `
-  -H "X-User-Id: user-001" `
+  -H "X-User-Id: U1001" `
   -H "X-Tenant-Id: default" `
   -H "X-Internal-Token: local-dev-internal-token"
 ```
@@ -135,18 +135,25 @@ Controller -> Service -> MyBatis Mapper -> MySQL -> DTO
 
 ## 6. 创建工单 smoke
 
+Windows PowerShell 直接把一大段 JSON 字符串传给 `curl.exe` 时，容易丢失 JSON 里的双引号。
+所以这里先把请求体写入临时 JSON 文件，再让 `curl.exe` 从文件读取。
+
 执行：
 
 ```powershell
+$ticketBodyPath = Join-Path $env:TEMP "stage7-075-create-ticket.json"
+$ticketBody = '{"title":"order logistics slow","description":"A1001 logistics has not updated for a long time","category":"logistics","priority":"normal","related_order_id":"A1001","source":"ai_agent","confirmation_id":"9f4d0b2f5b0c4f2a9d6c8b1e0a3f7c11"}'
+[System.IO.File]::WriteAllText($ticketBodyPath, $ticketBody, [System.Text.UTF8Encoding]::new($false))
+
 curl.exe -X POST "http://127.0.0.1:18004/internal/tickets" `
   -H "Content-Type: application/json" `
   -H "X-Trace-Id: manual-stage7-075-ticket" `
   -H "X-Caller: ai-service" `
-  -H "X-User-Id: user-001" `
+  -H "X-User-Id: U1001" `
   -H "X-Tenant-Id: default" `
   -H "X-Internal-Token: local-dev-internal-token" `
   -H "Idempotency-Key: manual-stage7-075-ticket-001" `
-  --data-raw "{\"title\":\"order logistics slow\",\"description\":\"A1001 logistics has not updated for a long time\",\"category\":\"logistics\",\"priority\":\"normal\",\"related_order_id\":\"A1001\",\"source\":\"ai_agent\",\"confirmation_id\":\"9f4d0b2f5b0c4f2a9d6c8b1e0a3f7c11\"}"
+  --data-binary "@$ticketBodyPath"
 ```
 
 期望：

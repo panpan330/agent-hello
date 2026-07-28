@@ -17,6 +17,7 @@ Java + Python 的 AI 客服工单系统学习项目
 | 演示路线 | 是否需要模型 API Key | 是否需要 VMware Ubuntu Docker | 适合场景 |
 | --- | --- | --- | --- |
 | 最小演示 | 不需要 | 不需要 | 快速证明两个服务能跑、Python 能调用 Java、回归能跑 |
+| 真实 Java business 演示 | 不需要 | Redis 可选 | 演示阶段 7 的 Spring Boot + MyBatis + MySQL/Redis internal API |
 | 真实模型演示 | 需要 | 不需要 | 演示 `/chat`、结构化输出、真实 LLM 相关能力 |
 | 向量库演示 | 视脚本而定 | 需要 | 演示 Qdrant/Milvus 实机检索或入库 |
 
@@ -27,6 +28,23 @@ Windows 本地最小演示
 ```
 
 它不需要打开虚拟机，也不需要真实模型 API Key。
+
+阶段 7 完成后，项目多了一个真实 Java business 服务：
+
+```text
+projects/java-business-service
+```
+
+它和早期 `java-mock-service` 的关系是：
+
+```text
+java-mock-service：保留历史 Tool Calling / Agent 学习链路，启动轻、依赖少。
+java-business-service：阶段 7 新增真实 Spring Boot + MyBatis + MySQL/Redis 业务服务，适合演示真实后端底座。
+```
+
+如果只是快速演示 Agent 主线，继续用 `java-mock-service` 即可。
+
+如果要演示阶段 7 的真实 Java 后端能力，启动 `java-business-service`。
 
 ## 2. 前置条件
 
@@ -232,7 +250,91 @@ Invoke-RestMethod `
 工具调用有错误处理，不是只处理成功路径。
 ```
 
-## 7. 可选演示：真实模型接口
+## 7. 可选演示：真实 Java business service
+
+这一节用于演示阶段 7 新增的真实 Java Spring Boot 业务服务。
+
+默认不需要真实模型 API Key。
+
+需要：
+
+```text
+JDK 17
+Maven
+Windows MySQL
+```
+
+Redis 是可选的：
+
+```text
+如果 VMware Ubuntu 里的 Redis 开着，可以演示 Redis 缓存、幂等和限流。
+如果 Redis 没开，可以临时设置 JAVA_BUSINESS_REDIS_ENABLED=false，先演示 MySQL + internal API 主线。
+```
+
+启动服务：
+
+```powershell
+cd D:\wendang\java+python+ai\projects\java-business-service
+$env:JAVA_BUSINESS_DB_PASSWORD = "root"
+$env:JAVA_BUSINESS_REDIS_ENABLED = "false"
+$env:JAVA_BUSINESS_INTERNAL_TOKEN = "local-dev-internal-token"
+$env:JAVA_BUSINESS_INTERNAL_ALLOWED_CALLER = "ai-service"
+mvn spring-boot:run
+```
+
+默认端口来自 `application.yml`：
+
+```text
+http://127.0.0.1:8002
+```
+
+如果你在 IDEA 或环境变量里改过端口，以实际启动日志为准。
+
+健康检查：
+
+```powershell
+curl.exe http://127.0.0.1:8002/health
+```
+
+查询订单：
+
+```powershell
+curl.exe -i -X GET "http://127.0.0.1:8002/internal/orders/A1001" `
+  -H "X-Trace-Id: demo-stage7-order" `
+  -H "X-Caller: ai-service" `
+  -H "X-User-Id: U1001" `
+  -H "X-Tenant-Id: default" `
+  -H "X-Internal-Token: local-dev-internal-token"
+```
+
+创建工单时，PowerShell 推荐先写临时 JSON 文件，避免 `curl.exe` 引号解析问题：
+
+```powershell
+$ticketBodyPath = Join-Path $env:TEMP "stage7-demo-create-ticket.json"
+$ticketBody = '{"title":"物流太慢","description":"用户反馈 A1001 订单物流长时间未更新，希望客服跟进。","category":"logistics","priority":"normal","related_order_id":"A1001","source":"ai_agent","confirmation_id":"9f4d0b2f5b0c4f2a9d6c8b1e0a3f7c11"}'
+[System.IO.File]::WriteAllText($ticketBodyPath, $ticketBody, [System.Text.UTF8Encoding]::new($false))
+
+curl.exe -i -X POST "http://127.0.0.1:8002/internal/tickets" `
+  -H "Content-Type: application/json" `
+  -H "X-Trace-Id: demo-stage7-ticket" `
+  -H "X-Caller: ai-service" `
+  -H "X-User-Id: U1001" `
+  -H "X-Tenant-Id: default" `
+  -H "X-Internal-Token: local-dev-internal-token" `
+  -H "Idempotency-Key: demo-stage7-ticket-001" `
+  --data-binary "@$ticketBodyPath"
+```
+
+这条真实 Java 演示证明：
+
+```text
+AI 工具接口不是直接查数据库。
+Python 调 Java 时必须带 internal token、caller、真实 user_id、tenant_id、trace_id。
+写接口必须带 Idempotency-Key。
+Java 侧负责权限、事务、MySQL、Redis 相关边界和机器错误码。
+```
+
+## 8. 可选演示：真实模型接口
 
 这些接口需要配置真实模型 API Key。
 
@@ -331,7 +433,7 @@ Invoke-RestMethod `
 它必须先生成确认单，再由用户确认，最后后端才调用 Java mock service。
 ```
 
-## 8. 可选演示：Qdrant / Milvus
+## 9. 可选演示：Qdrant / Milvus
 
 只有演示向量库实机能力时才需要打开 VMware Ubuntu。
 
@@ -380,7 +482,7 @@ http://192.168.88.10:9091
 如果只做 Windows 本地最小演示，不需要打开 VMware Ubuntu。
 ```
 
-## 9. 统一回归
+## 10. 统一回归
 
 在仓库根目录运行：
 
@@ -410,7 +512,7 @@ pytest
 项目不是只能手工演示，还有自动化回归入口。
 ```
 
-## 10. Agent eval 演示
+## 11. Agent eval 演示
 
 进入 ai-service：
 
@@ -445,7 +547,7 @@ uv run python scripts\agent_eval.py `
 AI Agent 能力不是只靠感觉判断，而是有固定评测集和回归评测。
 ```
 
-## 11. PowerShell 调接口建议
+## 12. PowerShell 调接口建议
 
 在 PowerShell 中优先使用：
 
@@ -472,7 +574,7 @@ JSON 引号和中文输出容易出问题。
 curl.exe
 ```
 
-## 12. 常见问题
+## 13. 常见问题
 
 ### 12.1 端口被占用
 
@@ -565,18 +667,18 @@ $env:PYTHONPATH = (Get-Location).Path
 uv run python scripts\脚本名.py
 ```
 
-## 13. 推荐演示话术
+## 14. 推荐演示话术
 
 可以按这个顺序讲：
 
 ```text
 第一步，我先介绍项目定位：这是一个 Java + Python 的 AI 客服工单系统学习项目，核心是 RAG + LangGraph Agent。
 
-第二步，我打开 README 和 project-diagrams，说明整体架构：Python ai-service 负责 AI 能力，Java mock service 模拟业务后端，RAG 连接向量库，Agent 编排工具调用和工单流程。
+第二步，我打开 README 和 project-diagrams，说明整体架构：Python ai-service 负责 AI 能力，Java mock service 保留历史学习链路，Java business service 是阶段 7 新增的真实 Spring Boot + MySQL/Redis 业务服务底座，RAG 连接向量库，Agent 编排工具调用和工单流程。
 
 第三步，我启动两个本地服务，先验证 /health 和 /ready，说明服务进程和就绪状态。
 
-第四步，我直接调用 Java mock service 查询订单，证明业务服务可用。
+第四步，最小演示时我直接调用 Java mock service 查询订单，证明受控工具链路可用。
 
 第五步，我通过 ai-service 的 /tools/query-order 查询同一订单，证明 Python AI 服务通过受控工具调用 Java 服务，而不是自己编造业务数据。
 
@@ -584,10 +686,12 @@ uv run python scripts\脚本名.py
 
 如果配置了模型 API Key，再演示 /chat、结构化工单提取和用户确认后的创建工单。
 
+如果要演示阶段 7，再启动 java-business-service，演示 /internal/orders 和 /internal/tickets，说明 internal token、user_id、tenant_id、trace_id、幂等键和契约测试。
+
 如果打开了虚拟机，再演示 Qdrant 或 Milvus。
 ```
 
-## 14. 关闭服务
+## 15. 关闭服务
 
 在启动服务的两个 PowerShell 终端中按：
 

@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务，第 7.5 节 Java 服务结构传统化重构 + MyBatis 已完成。
+当前阶段：阶段 7 真实 Java Spring Boot + MySQL/Redis 业务服务已完成，第 12 节阶段整理已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -20,7 +20,7 @@
 | M4 | 第 8-9 周 | LangGraph 智能工单 | 已完成 | 26 节主线，完成可控、可测试、可恢复的工单 Agent v1 |
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
-| M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 进行中 | 不重复 Spring Boot 基础，重点补 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和真实 MySQL/Redis 业务服务 |
+| M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 
 ## M6 快速版学习清单
 
@@ -67,11 +67,11 @@ M6 完成后，优先进入：
 | 6 | 创建工单写工具真实化 | 已完成 | `notes/stage7-06-mysql-ticket-write-transaction.md`、tickets 表、ticket_events 表、`@Transactional`、MySQL 唯一索引幂等兜底、request_fingerprint、DuplicateKeyException 处理、真实 MySQL smoke |
 | 7 | Redis 幂等、缓存和限流 | 已完成 | `notes/stage7-07-redis-idempotency-cache-rate-limit.md`、Spring Data Redis、订单 read-through cache、工单幂等缓存、Redis fixed window 限流、Redis 失败降级、真实 Redis/MySQL smoke |
 | 7.5 | Java 服务结构传统化重构 + MyBatis | 已完成 | `notes/stage7-075-java-service-traditional-mybatis-refactor.md`、`notes/stage7-075-java-service-traditional-mybatis-refactor-manual-tasks.md`；Java business service 已对齐到 `controller/service/service.impl/mapper/entity/dto/config/exception/common` 风格，并用 MyBatis Mapper + XML 替换 JdbcTemplate，同时保留 DTO 白名单、权限、幂等、trace_id、错误码和 internal token 边界 |
-| 8 | AI 场景下的内部鉴权和用户身份传递 | 待学习 | Python 调 Java 的内部鉴权、用户身份、租户边界、权限兜底 |
-| 9 | Java 错误码到 AI 用户回答 | 待学习 | 订单不存在、权限不足、参数错误、超时、重复创建等错误如何传回 Agent |
-| 10 | trace_id 串联 Python + Java | 待学习 | Python、LangGraph、Java、MySQL/Redis 日志串联排查 |
-| 11 | 契约测试和集成测试 | 待学习 | Python client 与 Java API 契约稳定，避免真实模型进入自动化测试 |
-| 12 | 阶段 7 项目整理 | 待学习 | README、架构图、运行说明、面试材料和阶段总结更新 |
+| 8 | AI 场景下的内部鉴权和用户身份传递 | 已完成 | `notes/stage7-08-internal-auth-user-identity.md`、`notes/stage7-08-internal-auth-user-identity-manual-tasks.md`；Python 调 Java 时的服务身份、真实用户身份、租户边界、internal token、allowed caller、header 格式校验、权限兜底 |
+| 9 | Java 错误码到 AI 用户回答 | 已完成 | `notes/stage7-09-java-error-code-to-ai-user-answer.md`、`notes/stage7-09-java-error-code-to-ai-user-answer-manual-tasks.md`；Python `java_error_mapping.py` 集中处理 Java 错误码，区分用户可见业务错误和内部隐藏错误，避免模型自由解释 Java 内部细节 |
+| 10 | trace_id 串联 Python + Java | 已完成 | `notes/stage7-10-trace-id-python-java-chain.md`、`notes/stage7-10-trace-id-python-java-chain-manual-tasks.md`；Python ContextVar + 日志 trace_id、Java TraceFilter + MDC + 响应头、Python client upstream_trace_id 日志，完成最小跨服务排查链路 |
+| 11 | 契约测试和集成测试 | 已完成 | `notes/stage7-11-contract-and-integration-tests.md`、`notes/stage7-11-contract-and-integration-tests-manual-tasks.md`；共享契约 JSON、Java provider 契约测试、Python consumer 契约模型和测试已经落地，自动化测试不真实调用大模型 |
+| 12 | 阶段 7 项目整理 | 已完成 | `notes/stage7-12-project-summary.md`；阶段 7 能力地图、当前项目边界、mock 链路与真实 Java business 链路关系、后续学习方向已整理，并同步更新 README、架构图、运行说明、面试材料和契约文档 |
 
 ## 近期任务
 

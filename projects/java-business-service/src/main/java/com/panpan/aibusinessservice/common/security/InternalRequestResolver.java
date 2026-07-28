@@ -6,11 +6,14 @@ import com.panpan.aibusinessservice.common.rate.ToolRateLimiter;
 import com.panpan.aibusinessservice.common.trace.TraceHeaders;
 import com.panpan.aibusinessservice.config.InternalApiProperties;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 @Component
 public class InternalRequestResolver {
-    private static final String EXPECTED_CALLER = "ai-service";
+    private static final Pattern TRACE_ID_PATTERN = Pattern.compile("^[A-Za-z0-9._:-]{8,128}$");
+    private static final Pattern CALLER_PATTERN = Pattern.compile("^[a-z][a-z0-9-]{1,63}$");
+    private static final Pattern IDENTITY_PATTERN = Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
 
     private final InternalApiProperties properties;
     private final ToolRateLimiter toolRateLimiter;
@@ -21,13 +24,15 @@ public class InternalRequestResolver {
     }
 
     public InternalRequestContext resolve(HttpServletRequest request) {
-        String traceId = requiredHeader(request, TraceHeaders.TRACE_ID);
-        String caller = requiredHeader(request, TraceHeaders.CALLER);
-        String userId = requiredHeader(request, TraceHeaders.USER_ID);
-        String tenantId = optionalHeader(request, TraceHeaders.TENANT_ID, "default");
+        String traceId = requiredHeader(request, TraceHeaders.TRACE_ID, TRACE_ID_PATTERN);
+        String caller = requiredHeader(request, TraceHeaders.CALLER, CALLER_PATTERN);
+        String userId = requiredHeader(request, TraceHeaders.USER_ID, IDENTITY_PATTERN);
+        String tenantId = requiredHeader(request, TraceHeaders.TENANT_ID, IDENTITY_PATTERN);
         String token = requiredHeader(request, TraceHeaders.INTERNAL_TOKEN);
 
-        if (!EXPECTED_CALLER.equals(caller) || !properties.token().equals(token)) {
+        if (!properties.allowedCaller().equals(caller)
+                || properties.token() == null
+                || !properties.token().equals(token)) {
             throw new BusinessException(BusinessErrorCode.INTERNAL_AUTH_FAILED);
         }
 
@@ -44,11 +49,11 @@ public class InternalRequestResolver {
         return value.trim();
     }
 
-    private String optionalHeader(HttpServletRequest request, String name, String defaultValue) {
-        String value = request.getHeader(name);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
+    private String requiredHeader(HttpServletRequest request, String name, Pattern pattern) {
+        String value = requiredHeader(request, name);
+        if (!pattern.matcher(value).matches()) {
+            throw new BusinessException(BusinessErrorCode.INTERNAL_AUTH_FAILED);
         }
-        return value.trim();
+        return value;
     }
 }

@@ -7,7 +7,8 @@ import httpx
 
 from app.core.config import Settings
 from app.core.exceptions import AppException
-from app.core.trace import build_trace_headers
+from app.core.trace import TRACE_ID_HEADER, build_trace_headers
+from app.services.java_error_mapping import build_java_error_app_exception
 
 
 logger = logging.getLogger(__name__)
@@ -78,32 +79,24 @@ class JavaOrderClient:
 
         elapsed_ms = (perf_counter() - start_time) * 1000
         logger.info(
-            "java_order_request_finished method=GET path=%s order_id=%s status_code=%s elapsed_ms=%.2f",
+            (
+                "java_order_request_finished method=GET path=%s order_id=%s "
+                "status_code=%s upstream_trace_id=%s elapsed_ms=%.2f"
+            ),
             path,
             order_id,
             response.status_code,
+            response.headers.get(TRACE_ID_HEADER, "-"),
             elapsed_ms,
         )
 
-        if response.status_code == 404:
-            raise AppException(
-                code="ORDER_NOT_FOUND",
-                message="订单不存在，请确认订单号是否正确。",
-                status_code=404,
-            )
-
-        if response.status_code >= 500:
-            raise AppException(
-                code="TOOL_UPSTREAM_ERROR",
-                message="订单查询服务暂时不可用，请稍后重试。",
-                status_code=502,
-            )
-
         if response.status_code != 200:
-            raise AppException(
-                code="TOOL_UPSTREAM_ERROR",
-                message="订单查询服务返回了无法处理的状态，请稍后重试。",
-                status_code=502,
+            raise build_java_error_app_exception(
+                response,
+                operation="order_query",
+                fallback_code="TOOL_UPSTREAM_ERROR",
+                fallback_message="订单查询服务返回了无法处理的状态，请稍后重试。",
+                fallback_status_code=502,
             )
 
         try:

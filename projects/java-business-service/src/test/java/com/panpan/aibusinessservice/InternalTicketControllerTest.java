@@ -3,6 +3,7 @@ package com.panpan.aibusinessservice;
 import static com.panpan.aibusinessservice.InternalApiTestSupport.TRACE_ID;
 import static com.panpan.aibusinessservice.InternalApiTestSupport.withInternalHeaders;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,6 +40,7 @@ class InternalTicketControllerTest {
                                 .content(validCreateTicketJson())
                 )
                 .andExpect(status().isCreated())
+                .andExpect(header().string(TraceHeaders.TRACE_ID, TRACE_ID))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.data.ticket_id").exists())

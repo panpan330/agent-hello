@@ -1,6 +1,10 @@
 server:
   port: 8002
 
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%logger{36}] trace_id=%X{trace_id} %msg%n"
+
 spring:
   application:
     name: java-business-service
@@ -29,6 +33,7 @@ mybatis:
 app:
   internal:
     token: ${JAVA_BUSINESS_INTERNAL_TOKEN:local-dev-internal-token}
+    allowed-caller: ${JAVA_BUSINESS_INTERNAL_ALLOWED_CALLER:ai-service}
   redis:
     enabled: ${JAVA_BUSINESS_REDIS_ENABLED:true}
     key-prefix: ${JAVA_BUSINESS_REDIS_KEY_PREFIX:java-business}

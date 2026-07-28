@@ -19,5 +19,6 @@ mybatis:
 app:
   internal:
     token: local-dev-internal-token
+    allowed-caller: ai-service
   redis:
     enabled: false

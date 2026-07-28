@@ -37,7 +37,8 @@ AI 应用工程学习项目 / 作品原型
 - 基于 FastAPI 构建 Python AI 服务，提供 LLM 调用、结构化输出、Tool Calling、RAG 问答和智能工单相关接口。
 - 设计企业知识库 RAG 流程，完成文档加载、清洗、chunk 切分、metadata、embedding、Qdrant/Milvus 向量检索、引用来源和无上下文拒答。
 - 使用 LangGraph 编排智能工单 Agent，覆盖意图识别、RAG 回答、订单查询、字段提取、缺字段追问、用户确认和创建工单流程。
-- 通过 Java mock service 模拟订单查询和工单创建业务接口，AI 服务通过受控工具调用访问业务系统，避免模型直接操作业务数据。
+- 早期通过 Java mock service 支撑 Tool Calling 和 Agent 主线，后续新增 Spring Boot + MyBatis + MySQL/Redis 的真实 Java business service 底座。
+- 设计 AI 工具专用 internal API，补充 internal token、caller/user/tenant header、DTO 白名单、机器错误码、Python 错误映射、trace_id 跨服务追踪和共享契约测试。
 - 使用 Pydantic 校验模型输出、工具参数和工具结果，写操作加入用户确认、权限判断和幂等键，强化 Tool Calling 安全边界。
 - 设计 Agent eval 体系，覆盖意图识别、字段提取、路由决策、RAG + Agent 组合评测、坏例分析和回归评测。
 - 补充日志、trace/span/log/metrics、token/成本/延迟指标、timeout/retry/限流/熔断/降级、Docker Compose、health/readiness 和 GitHub Actions CI。
@@ -48,8 +49,8 @@ AI 应用工程学习项目 / 作品原型
 如果简历篇幅有限，可以写：
 
 ```text
-- 基于 FastAPI + LangGraph 构建 AI 客服工单系统原型，结合 RAG、Tool Calling 和 Java mock service，实现知识库问答、订单查询、字段提取、用户确认和创建工单流程。
-- 设计 Agent eval、Pydantic 输出校验、工具权限边界、checkpoint/thread_id、日志追踪、稳定性策略、Docker Compose 和 CI 回归，提升 AI 应用可验证性和工程化能力。
+- 基于 FastAPI + LangGraph 构建 AI 客服工单系统原型，结合 RAG、Tool Calling 和 Java Spring Boot 业务服务底座，实现知识库问答、订单查询、字段提取、用户确认和创建工单流程。
+- 设计 Agent eval、Pydantic 输出校验、工具权限边界、checkpoint/thread_id、Java internal API 契约、跨服务 trace_id、稳定性策略、Docker Compose 和 CI 回归，提升 AI 应用可验证性和工程化能力。
 ```
 
 ### 1.5 不建议写法
@@ -69,7 +70,7 @@ AI 应用工程学习项目 / 作品原型
 AI 应用工程学习项目
 作品原型
 可上线雏形设计
-后续计划补真实 Spring Boot + MySQL/Redis、前端和部署
+已补真实 Java Spring Boot + MySQL/Redis 业务服务底座，后续还需补完整认证授权、前端和部署
 ```
 
 ### 1.6 项目表达原则
@@ -108,11 +109,11 @@ AI 应用工程学习项目
 ```text
 这个项目是一个 Java + Python 的 AI 客服工单系统学习项目，核心是企业知识库 RAG + LangGraph 智能工单 Agent。
 
-Python FastAPI 负责 AI 服务，Java mock service 模拟订单查询和工单创建等业务后端。用户可以问企业政策，系统通过 RAG 检索知识库并带出处回答；用户也可以查订单或创建工单，Agent 会识别意图、调用受控工具、提取字段、追问缺失信息，并在用户确认后创建工单。
+Python FastAPI 负责 AI 服务，早期 Java mock service 支撑 Tool Calling 学习链路，阶段 7 又新增了 Spring Boot + MyBatis + MySQL/Redis 的真实 Java business service 底座。用户可以问企业政策，系统通过 RAG 检索知识库并带出处回答；用户也可以查订单或创建工单，Agent 会识别意图、调用受控工具、提取字段、追问缺失信息，并在用户确认后创建工单。
 
-项目里我重点补了 AI 工程化能力，包括 Pydantic 结构化校验、工具权限边界、用户确认、Agent eval、bad case、regression、checkpoint/thread_id、日志追踪、成本和延迟指标、timeout/retry/限流/熔断/降级、Docker Compose 和 CI。
+项目里我重点补了 AI 工程化能力，包括 Pydantic 结构化校验、工具权限边界、用户确认、Agent eval、bad case、regression、checkpoint/thread_id、日志追踪、Java internal API 契约、跨服务 trace_id、成本和延迟指标、timeout/retry/限流/熔断/降级、Docker Compose 和 CI。
 
-它当前是学习项目和作品原型，不是完整生产系统。下一步会把 Java mock service 升级为真实 Spring Boot + MySQL/Redis 业务服务。
+它当前是学习项目和作品原型，不是完整生产系统。Java 真实业务服务底座已经完成，但还缺完整认证授权、前端工作台、线上部署和生产监控。
 ```
 
 ## 3. 3 分钟项目讲稿
@@ -120,7 +121,7 @@ Python FastAPI 负责 AI 服务，Java mock service 模拟订单查询和工单�
 ```text
 这个项目面向客服场景，目标是让 AI 既能基于企业知识库回答政策问题，也能在用户需要人工处理时收集信息并创建工单。
 
-整体架构分成 Python AI 服务和 Java mock 业务服务。Python 侧用 FastAPI 提供接口，用 RAG 做知识库问答，用 LangGraph 编排智能工单 Agent；Java mock service 模拟订单查询和工单创建接口。向量库部分学习了 Qdrant 和 Milvus，分别用于理解轻量向量库和更复杂向量数据库的设计差异。
+整体架构分成 Python AI 服务、历史 Java mock 业务服务和真实 Java business 服务。Python 侧用 FastAPI 提供接口，用 RAG 做知识库问答，用 LangGraph 编排智能工单 Agent；Java mock service 保留早期学习链路，Java business service 用 Spring Boot + MyBatis + MySQL/Redis 实现订单查询、创建工单、internal API、错误码、trace_id 和契约测试。向量库部分学习了 Qdrant 和 Milvus，分别用于理解轻量向量库和更复杂向量数据库的设计差异。
 
 RAG 部分的流程是：先把 Markdown/txt 文档加载、清洗、切成 chunk，设计 metadata，生成 embedding 后写入向量库；用户提问时先检索相关 chunk，再把上下文交给模型回答，并要求带引用来源。如果没有可靠上下文，就拒答或转人工，避免模型编造。
 
@@ -128,7 +129,7 @@ Agent 部分用 LangGraph 组织流程。用户输入后先做意图识别，根
 
 工程化方面，我补了 Agent eval 和 regression，覆盖意图识别、字段提取、路由决策、RAG 组合评测和坏例分析；也补了 Pydantic 输出校验、工具权限和写操作安全、checkpoint/thread_id、日志追踪、成本和延迟指标、timeout/retry/限流/熔断/降级、Docker Compose、health/readiness 和 GitHub Actions CI。
 
-当前项目不是完整生产上线系统，还缺真实 Spring Boot 业务服务、真实数据库、认证授权、前端工作台、部署和生产监控。下一阶段我会优先补真实 Java Spring Boot + MySQL/Redis，把 mock 业务服务升级得更接近真实后端。
+当前项目不是完整生产上线系统。真实 Java 业务服务底座已经完成，但 Python Agent 运行时主链路还没有完全从历史 mock 服务切过去，也还缺完整认证授权、前端工作台、部署和生产监控。
 ```
 
 ## 4. 5 分钟项目讲稿
@@ -138,7 +139,7 @@ Agent 部分用 LangGraph 组织流程。用户输入后先做意图识别，根
 
 业务上模拟三个典型场景：第一，用户问企业政策，比如退款、物流、账户安全规则，系统需要基于知识库回答；第二，用户问订单状态，AI 不能自己编，需要通过工具调用后端订单服务；第三，用户需要投诉或人工处理，系统要收集信息并创建工单，但写操作必须经过用户确认。
 
-架构上分成 Python AI 服务和 Java mock 业务服务。Python FastAPI 提供 HTTP 接口，内部包含 LLM 服务、RAG 模块、Tool Calling、LangGraph Agent、评测和工程保障。Java mock service 模拟业务后端，提供订单查询和工单创建接口。Qdrant 和 Milvus 用于学习向量数据库，Docker Compose 用于本地多服务编排，GitHub Actions 用于自动回归。
+架构上分成 Python AI 服务、历史 Java mock 业务服务和真实 Java business 服务。Python FastAPI 提供 HTTP 接口，内部包含 LLM 服务、RAG 模块、Tool Calling、LangGraph Agent、评测和工程保障。Java mock service 保留早期学习链路；Java business service 使用 Spring Boot + MyBatis + MySQL/Redis，提供 AI 工具专用 internal API，并补了内部鉴权、用户身份传递、幂等、错误码、trace_id 和契约测试。Qdrant 和 Milvus 用于学习向量数据库，Docker Compose 用于本地多服务编排，GitHub Actions 用于自动回归。
 
 RAG 部分我从基础链路开始做：文档加载、清洗、chunk 切分、metadata、embedding、写入向量库、top_k 检索、payload filter、score_threshold、引用来源、无上下文拒答、混合检索、rerank、安全和性能。后面还补了 RAG 检索评测，避免只靠主观感觉判断检索效果。
 
@@ -150,7 +151,7 @@ Tool Calling 安全是项目重点。模型或规则可以提出工具意图，�
 
 生产化方面，项目补了 Pydantic 模型输出校验、prompt 版本管理、模型输出失败分类、checkpoint/thread_id、会话生命周期、LangSmith 和 OpenTelemetry 基础、trace/span/log/metrics、生产日志字段、token/成本/延迟指标、timeout、retry、rate limit、circuit breaker、degradation、health/readiness 和 CI。
 
-当前边界也很明确：它还不是完整生产系统，Java 服务还是 mock，没有真实数据库、认证授权、前端、线上部署和生产监控。M6 之后我会进入真实化阶段，优先把 Java mock service 升级为真实 Spring Boot + MySQL/Redis 业务服务，再继续补前端和部署。
+当前边界也很明确：它还不是完整生产系统。Java 真实业务服务底座已经完成，但 Python Agent 主链路仍保留历史 mock 服务，完整用户权限、前端、线上部署和生产监控还没有完成。后续会继续补 Agent 深入、MCP、评测、RAG 效果和生产化能力。
 ```
 
 ## 5. 常见面试追问与答案
@@ -168,7 +169,7 @@ Tool Calling 安全是项目重点。模型或规则可以提出工具意图，�
 答：
 
 ```text
-不是完整生产系统。它当前是 AI 应用工程学习项目和作品原型。它已经完成 RAG、Tool Calling、LangGraph Agent、评测和生产化设计，但还缺真实 Spring Boot 业务服务、真实数据库、认证授权、前端、部署和生产监控。
+不是完整生产系统。它当前是 AI 应用工程学习项目和作品原型。它已经完成 RAG、Tool Calling、LangGraph Agent、评测、生产化设计，以及真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，但还缺完整认证授权、前端、部署和生产监控。
 ```
 
 ### 5.3 为什么用 RAG？
@@ -280,7 +281,7 @@ Pydantic 是模型输出和业务系统之间的结构化边界。模型返回 J
 答：
 
 ```text
-最大不足是业务后端还不够真实。Java 服务现在还是 mock，没有真实 Spring Boot 项目结构、数据库表、事务、认证授权和复杂业务规则。另外还没有前端工作台、线上部署和生产监控。下一阶段我会优先补真实 Java Spring Boot + MySQL/Redis。
+最大不足是项目还没有完整生产化。真实 Java business service 底座已经有了，但 Python Agent 运行时主链路还没有完全切到它，真实用户表、完整认证授权、前端工作台、线上部署、生产监控和压测还没有完成。
 ```
 
 ### 5.17 后续怎么真实化？
@@ -288,7 +289,7 @@ Pydantic 是模型输出和业务系统之间的结构化边界。模型返回 J
 答：
 
 ```text
-第一步把 Java mock service 升级成真实 Spring Boot + MySQL/Redis 业务服务，补订单表、工单表、用户表、认证授权、事务和接口鉴权。第二步做前端客服工作台。第三步做 Dockerfile、部署、Nginx、HTTPS、日志采集和监控告警。第四步继续补真实 embedding、多模型路由、MCP 和更大规模评测。
+第一步把 Python Agent 运行时主链路逐步从历史 java-mock-service 迁移到 java-business-service。第二步补真实用户表、完整认证授权和更细的权限模型。第三步做前端客服工作台。第四步做 Dockerfile、部署、Nginx、HTTPS、日志采集和监控告警。第五步继续补真实 embedding、多模型路由、MCP 和更大规模评测。
 ```
 
 ### 5.18 面试追问准备清单

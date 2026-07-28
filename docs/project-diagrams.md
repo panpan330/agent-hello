@@ -25,7 +25,7 @@ RAG 问答怎么流转
 
 ```text
 这个项目整体由哪些部分组成？
-Python AI 服务、Java mock 服务、RAG、Agent、向量库、模型 API 和工程保障是什么关系？
+Python AI 服务、历史 Java mock 服务、真实 Java business 服务、RAG、Agent、向量库、模型 API 和工程保障是什么关系？
 ```
 
 ```mermaid
@@ -41,9 +41,19 @@ flowchart LR
         core["core / middleware<br/>配置、日志、trace_id、异常处理"]
     end
 
-    subgraph java["Java mock 业务服务<br/>projects/java-mock-service"]
-        orders["订单查询 API"]
-        tickets["工单创建 API"]
+    subgraph java_mock["历史 Java mock 业务服务<br/>projects/java-mock-service"]
+        mock_orders["mock 订单查询 API"]
+        mock_tickets["mock 工单创建 API"]
+    end
+
+    subgraph java_business["真实 Java business 服务<br/>projects/java-business-service"]
+        internal_api["internal API<br/>/internal/orders / /internal/tickets"]
+        mybatis["MyBatis Mapper + XML"]
+        mysql["MySQL<br/>orders / tickets / ticket_events"]
+        redis["Redis<br/>缓存 / 幂等 / 限流"]
+        auth["internal token<br/>caller / user / tenant"]
+        trace["TraceFilter + MDC<br/>X-Trace-Id"]
+        contract["provider contract tests"]
     end
 
     subgraph vector["向量数据库"]
@@ -67,8 +77,15 @@ flowchart LR
     services --> agent
     agent --> rag
     agent --> tools
-    tools --> orders
-    tools --> tickets
+    tools --> mock_orders
+    tools --> mock_tickets
+    tools -.阶段 7 契约和后续迁移.-> internal_api
+    internal_api --> auth
+    internal_api --> trace
+    internal_api --> mybatis
+    mybatis --> mysql
+    internal_api --> redis
+    contract -.验证.-> internal_api
     rag --> qdrant
     rag --> milvus
     services --> llm
@@ -77,7 +94,8 @@ flowchart LR
     core -.支撑.-> services
     guard -.验证和保障.-> ai
     compose -.编排.-> ai
-    compose -.编排.-> java
+    compose -.编排.-> mock_orders
+    compose -.后续编排.-> internal_api
     compose -.可选编排.-> vector
     ci -.自动回归.-> tests
     tests -.覆盖.-> ai
@@ -87,7 +105,8 @@ flowchart LR
 
 ```text
 Python AI 服务是核心入口。
-Java mock service 模拟业务系统。
+Java mock service 保留历史学习链路。
+Java business service 是阶段 7 新增的真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座。
 RAG 连接向量数据库。
 LangGraph Agent 连接 RAG、工具和模型。
 工程保障围绕测试、评测、可观测性、稳定性、编排和 CI 展开。
@@ -227,7 +246,7 @@ flowchart TB
     confirmation["用户确认检查"]
     idempotency["幂等键检查或生成"]
 
-    execute["后端执行受控工具<br/>调用 Java mock service"]
+    execute["后端执行受控工具<br/>调用 Java mock 或真实 Java business service"]
     result_map["字段白名单映射"]
     result_validate["工具结果 Pydantic 校验"]
     state["写回 Agent 状态"]
@@ -266,7 +285,7 @@ flowchart TB
 
 ```text
 先讲整体架构图。
-说明 Python FastAPI 是 AI 服务入口，Java mock service 模拟业务后端，RAG 负责知识库问答，LangGraph Agent 负责编排订单查询和工单流程，工程保障包括评测、日志、稳定性、Compose 和 CI。
+说明 Python FastAPI 是 AI 服务入口，Java mock service 保留历史学习链路，Java business service 是阶段 7 新增的真实业务后端底座，RAG 负责知识库问答，LangGraph Agent 负责编排订单查询和工单流程，工程保障包括评测、日志、稳定性、契约测试、Compose 和 CI。
 ```
 
 如果有 3 分钟：

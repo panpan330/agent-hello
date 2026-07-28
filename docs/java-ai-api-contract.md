@@ -5,7 +5,8 @@
 当前目标：
 
 ```text
-把 java-mock-service 的订单查询和工单创建能力，升级为真实 Java Spring Boot + MySQL/Redis 业务服务。
+记录 Python AI 服务调用真实 Java Spring Boot 业务服务时必须遵守的接口契约。
+阶段 7 已完成真实 Java business service 底座，后续 Python 运行时链路迁移应以本文档和共享契约文件为准。
 ```
 
 本契约暂时覆盖两个核心工具接口：
@@ -66,7 +67,7 @@ Python 再做 Pydantic 校验和模型可见字段白名单。
 | `X-Trace-Id` | 是 | 所有接口 | 串联 Python + Java + MySQL/Redis 日志 |
 | `X-Caller` | 是 | 所有接口 | 调用方，例如 `ai-service` |
 | `X-User-Id` | 是 | 业务接口 | 当前真实用户，不由模型生成 |
-| `X-Tenant-Id` | 建议 | 多租户/业务域 | 暂无多租户时可用 `default` |
+| `X-Tenant-Id` | 是 | 业务接口 | 当前租户/业务域，暂无多租户时显式传 `default` |
 | `X-Internal-Token` | 是 | 所有 internal 接口 | 内部服务鉴权 |
 | `Idempotency-Key` | 写接口必填 | 创建/修改类接口 | 防重复写入 |
 
@@ -251,6 +252,7 @@ Idempotency-Key: ticket-create-4f7d-A1001
 
 ```text
 X-User-Id 表示真实用户身份，不建议从请求 body 传 requester_id。
+X-Tenant-Id 表示当前租户/业务域，AI 服务即使暂时只有默认租户，也应该显式传 `default`，避免 Java 服务在权限兜底时缺少边界。
 Idempotency-Key 是写操作必填项。
 ```
 
@@ -368,6 +370,50 @@ Body：
 | `JAVA_SERVICE_TIMEOUT` | 可重试、降级或转人工 |
 | `JAVA_SERVICE_UNAVAILABLE` | 降级或转人工 |
 
+阶段 7 第 9 节补充了 Python AI 服务侧的安全映射原则：
+
+| Java code | Python 对外 code | 用户侧安全提示方向 |
+| --- | --- | --- |
+| `ORDER_NOT_FOUND` | `ORDER_NOT_FOUND` | 告诉用户订单不存在，请确认订单号 |
+| `ORDER_ACCESS_DENIED` | `ORDER_ACCESS_DENIED` | 告诉用户当前账号无权查看或操作该订单 |
+| `ORDER_NOT_SUPPORT_TICKET` | `ORDER_NOT_SUPPORT_TICKET` | 告诉用户当前订单暂不支持创建这类工单 |
+| `IDEMPOTENCY_KEY_CONFLICT` | `IDEMPOTENCY_KEY_CONFLICT` | 告诉用户本次提交和已确认的工单请求不一致，需要重新确认 |
+| `INTERNAL_AUTH_FAILED` | `TOOL_UPSTREAM_ERROR` | 不暴露内部鉴权，提示业务服务暂时不可用 |
+| `JAVA_SERVICE_ERROR` | `TOOL_UPSTREAM_ERROR` | 不暴露内部异常，提示业务服务暂时不可用 |
+| `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID` | `TICKET_UPSTREAM_REJECTED` | 视为 Python/Java 写接口契约问题，不让用户处理幂等键 |
+
+原则：
+
+```text
+Java code 是机器语义，不等于用户话术。
+Java message 不默认直接展示。
+Python AI 服务必须先把 Java 错误响应映射成安全 AppException。
+模型不能自由解释内部错误原因。
+```
+
+## 6.1 trace_id 串联约定
+
+阶段 7 第 10 节补充了 Python + Java 的最小跨服务追踪约定：
+
+| 位置 | 约定 | 目的 |
+| --- | --- | --- |
+| Python 入站请求 | 读取或生成 `X-Trace-Id` | 为一次用户请求确定追踪编号 |
+| Python 日志 | 日志格式输出 `trace_id` | 让 Python Agent、工具调用、异常都能按 trace_id 搜索 |
+| Python 调 Java | 请求头携带 `X-Trace-Id` | 把同一次链路传给 Java |
+| Java Filter | 读取或生成 trace_id，写入 MDC | 让 Java 日志能输出同一个 trace_id |
+| Java 响应头 | 返回 `X-Trace-Id` | 让 Python client、前端或网关能直接读取 |
+| Java 响应体 | 返回 `trace_id` | 让业务错误响应能带排查编号 |
+| Python Java client 日志 | 记录 `upstream_trace_id` | 确认 Java 返回的 trace_id 是否和 Python 当前链路一致 |
+
+原则：
+
+```text
+trace_id 只用于排查，不用于认证或权限判断。
+trace_id 不应该包含手机号、邮箱、token、订单明细等敏感信息。
+成功响应和失败响应都应该带 trace_id。
+缺少 trace_id 的请求仍应生成一个服务端 trace_id 用于排查，但 internal API 可以继续拒绝这类不合规调用。
+```
+
 ## 7. 契约测试清单
 
 后续实现阶段至少测试：
@@ -385,18 +431,53 @@ Python client 能解析成功响应。
 Python client 能把 Java 错误码映射为稳定 AppException。
 ```
 
-## 8. 后续实现顺序
+阶段 7 第 11 节已新增共享契约测试入口：
 
-建议顺序：
+| 入口 | 位置 | 作用 |
+| --- | --- | --- |
+| 共享契约用例 | `contracts/java-business-service/internal-api-contract-cases.json` | 把订单查询、无权限订单、创建工单、缺少幂等键等关键场景写成 Python 和 Java 都能读取的契约事实 |
+| Java provider 契约测试 | `projects/java-business-service/src/test/java/com/panpan/aibusinessservice/InternalApiContractTest.java` | 验证真实 Java business service 返回的状态码、响应头、错误码和 data 字段符合契约 |
+| Python consumer 契约模型 | `projects/ai-service/app/services/java_business_contract.py` | 用 Pydantic 校验 Java 成功响应 envelope 和 AI 工具可见字段 |
+| Python consumer 契约测试 | `projects/ai-service/tests/test_java_business_contract.py` | 验证 Python 能接受合法 Java 响应，也能把 Java 错误码映射为稳定 `AppException` |
+
+注意：当前 Python 运行时链路里仍保留历史 `java-mock-service` 调用代码。本节先把真实 Java business service 的契约锁住；后续迁移 Python 真实运行链路时，应以这份共享契约为准，逐步替换旧 mock 链路。
+
+## 8. 阶段 7 完成状态
+
+阶段 7 已完成：
 
 ```text
-1. 在真实 Spring Boot 服务中定义统一 ApiResponse。
-2. 定义 internal API Header 解析和鉴权占位。
-3. 定义 OrderToolView、TicketToolView、CreateTicketCommand。
-4. 实现 GET /internal/orders/{order_id}。
-5. 实现 POST /internal/tickets。
-6. 接入 MySQL。
-7. 接入 Redis 幂等。
-8. 修改 Python Java client 适配统一响应。
-9. 补契约测试和端到端验证。
+1. 真实 Spring Boot 业务服务骨架。
+2. 传统 controller/service/mapper/entity/dto/config/exception/common 结构。
+3. MyBatis Mapper + XML。
+4. MySQL orders/tickets/ticket_events 业务数据表。
+5. 订单查询读接口。
+6. 创建工单写接口。
+7. Redis 订单缓存、工单幂等缓存和工具限流。
+8. internal token、allowed caller、user_id、tenant_id、trace_id header 边界。
+9. Java 机器错误码和 Python 安全错误映射。
+10. trace_id 跨 Python + Java 串联。
+11. 共享契约 JSON、Java provider 契约测试、Python consumer 契约测试。
+```
+
+仍需注意：
+
+```text
+Python Agent 运行时主链路还没有完全从历史 java-mock-service 切换到 java-business-service。
+真实用户表、完整登录认证、RBAC/ABAC 权限体系和前端客服工作台仍未完成。
+```
+
+## 9. 后续迁移顺序
+
+后续如果要把 Python 运行时主链路从历史 `java-mock-service` 迁移到 `java-business-service`，建议顺序：
+
+```text
+1. 先确认共享契约文件覆盖必要成功和失败场景。
+2. 让 Python Java client 默认调用 /internal/orders/{order_id} 和 /internal/tickets。
+3. 保留 fake/mock 测试模式，避免自动化测试依赖真实 MySQL/Redis。
+4. 调整 Agent 工具节点，使工具结果使用 Java business contract 的字段。
+5. 调整错误处理，使 Java code 全部通过 java_error_mapping.py 映射。
+6. 调整本地运行说明，把 Java mock 演示和真实 Java business 演示分清。
+7. 调整 Agent eval 样本，避免旧 mock 数据和真实 Java 数据冲突。
+8. 最后再清理或降级历史 java-mock-service 的角色。
 ```

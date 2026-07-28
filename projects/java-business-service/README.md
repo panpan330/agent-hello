@@ -8,7 +8,7 @@
 AI Agent 可以安全、稳定、可追踪调用的 Java 业务系统。
 ```
 
-当前阶段 7 第 7.5 节已完成到 MySQL + Redis + MyBatis 传统结构真实化：
+当前阶段 7 第 8 节已完成到 MySQL + Redis + MyBatis 传统结构真实化，并补强 AI 场景下的内部鉴权和用户身份传递：
 
 ```text
 Spring Boot 启动入口
@@ -16,6 +16,9 @@ internal API Controller
 统一 ApiResponse
 传统 controller / service / mapper / entity / dto 目录结构
 内部调用 Header 校验
+内部调用方 allowed-caller 配置化
+X-Tenant-Id 必传
+trace_id / caller / user_id / tenant_id 基础格式校验
 trace_id 透传
 创建工单幂等雏形
 基础契约测试
@@ -30,7 +33,7 @@ internal 工具接口 Redis 限流
 后续阶段会继续接入：
 
 ```text
-真实权限
+真实用户表和完整权限体系
 Python AI 服务适配
 Docker Compose
 ```
@@ -67,6 +70,7 @@ internal 工具接口已接入 Redis fixed window 限流。
 controller / service / service.impl / mapper / entity / dto / config / exception / common 已落地。
 数据访问层已从 JdbcTemplate 切换到 MyBatis Mapper + XML。
 重构后仍保留 AI Agent 调用边界：DTO 白名单、权限、幂等、trace_id、错误码和 internal token。
+InternalRequestResolver 已统一校验 internal token、allowed caller、真实用户身份、租户身份和基础 header 格式。
 ```
 
 ## 运行
@@ -82,6 +86,13 @@ mysql -u root -h 127.0.0.1 -P 3306 -e "CREATE DATABASE IF NOT EXISTS ai_business
 
 ```powershell
 $env:JAVA_BUSINESS_DB_PASSWORD = "你的 MySQL 密码"
+```
+
+设置 internal 接口的内部鉴权配置：
+
+```powershell
+$env:JAVA_BUSINESS_INTERNAL_TOKEN = "local-dev-internal-token"
+$env:JAVA_BUSINESS_INTERNAL_ALLOWED_CALLER = "ai-service"
 ```
 
 如果需要启用 Redis，先确认 VMware Ubuntu 虚拟机里的 Redis 容器已启动，并且 Windows 可以连通：
@@ -138,5 +149,7 @@ POST /internal/tickets
 ```
 
 这两个接口按 [../../docs/java-ai-api-contract.md](../../docs/java-ai-api-contract.md) 的方向设计。
+
+调用时必须携带 `X-Trace-Id`、`X-Caller`、`X-User-Id`、`X-Tenant-Id` 和 `X-Internal-Token`。
 
 后续 MySQL 表结构按 [../../docs/java-business-database-design.md](../../docs/java-business-database-design.md) 落地。
