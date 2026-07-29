@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 5 节 MCP 生命周期已完成。
+当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 10 节 Python 最小 MCP Server 已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -21,7 +21,7 @@
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
-| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 5 节已完成 |
+| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 10 节已完成 |
 
 ## M6 快速版学习清单
 
@@ -98,11 +98,11 @@ notes/stage8-00-mcp-learning-plan.md
 | 3 | MCP 架构 | 已完成 | `notes/stage8-03-mcp-architecture.md`；MCP Host、Client、Server 的职责边界，一个 Host 管理多个 Client、一个 Client 连接一个 Server，Tools/Resources/Prompts 在架构中的位置，data layer 和 transport layer 的基础区别，以及 MCP 与 ai-service、LangGraph、Tool Calling、RAG、Java business service 的项目映射 |
 | 4 | MCP 通信基础 | 已完成 | `notes/stage8-04-mcp-communication-basics.md`；JSON-RPC、JSON 和 JSON-RPC 的区别、request/response/notification、id/method/params/result/error、initialize 基础、tools/list、tools/call、list_changed notification、协议错误和工具执行错误、MCP 通信与 HTTP REST API 的区别 |
 | 5 | MCP 生命周期 | 已完成 | `notes/stage8-05-mcp-lifecycle.md`；Initialization、Operation、Shutdown，initialize request/response、notifications/initialized、协议版本协商、能力协商、Operation 阶段约束、Shutdown 的 transport 关闭方式、请求超时、初始化失败处理，以及 ai-service 未来连接 MCP Server 的生命周期映射 |
-| 6 | MCP Transport | 待学习 | stdio、Streamable HTTP，先学本地 stdio |
-| 7 | MCP Tools 基础 | 待学习 | 工具暴露、参数 schema、工具返回结果 |
-| 8 | MCP Resources 基础 | 待学习 | 如何把文档、配置、schema、业务资料暴露成上下文 |
-| 9 | MCP Prompts 基础 | 待学习 | 服务器提供可复用 prompt 模板 |
-| 10 | Python 最小 MCP Server | 待学习 | 用 Python SDK 写第一个 MCP server |
+| 6 | MCP Transport | 已完成 | `notes/stage8-06-mcp-transport.md`；data layer 和 transport layer 的区别、stdio 的 stdin/stdout/stderr 规则、为什么 stdout 只能输出合法 MCP 消息、Streamable HTTP 的 POST/GET/SSE、MCP endpoint、Origin 校验、localhost 绑定、MCP-Session-Id、MCP-Protocol-Version、本地/远程 MCP Server transport 选型 |
+| 7 | MCP Tools 基础 | 已完成 | `notes/stage8-07-mcp-tools-basics.md`；MCP Tool 的定义、tools capability、tools/list、tools/call、Tool 的 name/title/description/inputSchema/outputSchema、content、structuredContent、isError、协议错误和工具执行错误、工具命名和描述设计、安全要求，以及 query_order/create_ticket 的 MCP Tool 设计映射 |
+| 8 | MCP Resources 基础 | 已完成 | `notes/stage8-08-mcp-resources-basics.md`；MCP Resource 的定义、Resource 和 Tool/RAG 的区别、resources capability、resources/list、resources/read、uri/name/title/description/mimeType/size、text/blob、Resource Template、listChanged、subscribe/updated、常见 URI scheme、权限和 prompt injection 风险，以及 README、学习进度、Java-AI API 契约等项目文档的 Resource 映射 |
+| 9 | MCP Prompts 基础 | 已完成 | `notes/stage8-09-mcp-prompts-basics.md`；MCP Prompt 的定义、Prompt 和 Tool/Resource/system prompt/user prompt 的关系、prompts capability、prompts/list、prompts/get、name/title/description/arguments、Prompt argument 和 Tool inputSchema 的区别、PromptMessage 的 role/content、text/image/audio/embedded resource、listChanged、Prompt 权限和 prompt injection 风险，以及 customer_reply、ticket_summary 等项目模板映射 |
+| 10 | Python 最小 MCP Server | 已完成 | `notes/stage8-10-python-minimal-mcp-server.md`、`notes/stage8-10-python-minimal-mcp-server-manual-tasks.md`；新增 `app/mcp_servers/minimal_server.py`，使用 MCP Python SDK v2 创建 `MCPServer`，注册 `echo`/`add` tools 和 `learning://hello/{name}` resource，并用 in-memory `Client(mcp)` 测试 `list_tools`、`call_tool`、`read_resource` |
 | 11 | MCP Client 调试 | 待学习 | 如何列出工具、调用工具、看返回 |
 | 12 | 工具参数校验 | 待学习 | Pydantic/schema、枚举、必填字段、错误提示 |
 | 13 | MCP 错误处理 | 待学习 | 业务错误、系统错误、协议错误怎么分 |
