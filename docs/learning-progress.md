@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 15 节把订单查询封装成 MCP Tool 已完成。
+当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 20 节阶段 8 初版项目整理已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -21,7 +21,7 @@
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
-| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 15 节已完成 |
+| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 20 节已完成 |
 
 ## M6 快速版学习清单
 
@@ -108,11 +108,11 @@ notes/stage8-00-mcp-learning-plan.md
 | 13 | MCP 错误处理 | 已完成 | `notes/stage8-13-mcp-error-handling.md`；新增 `app/mcp_servers/tool_error_handling.py` 和 `simulate_tool_error_handling` tool，区分 `is_error=true` 与 `structured_content.ok=false`，模拟成功、业务不存在、权限不足、上游超时和未预期异常，使用安全 `ToolError` 包装系统错误，并用测试固定业务错误、系统错误和内部异常不泄露边界 |
 | 14 | MCP 安全边界 | 已完成 | `notes/stage8-14-mcp-security-boundary.md`；新增 `app/mcp_servers/tool_security.py` 和 `inspect_tool_security_boundary` tool，演示工具最小暴露、读写分级、写操作确认、输出白名单、敏感字段过滤、prompt injection 风险识别、危险动作拒绝和安全决策结构化返回，并用测试固定敏感值不泄露、未确认写操作被拒绝、危险 SQL 能力不暴露 |
 | 15 | 把订单查询封装成 MCP Tool | 已完成 | `notes/stage8-15-mcp-query-order-tool.md`；新增 `app/mcp_servers/order_tool.py` 和 MCP `query_order` tool，复用 `QueryOrderArgs`、`fake_order_tool.query_order()`、`JavaOrderClient` 与 `QueryOrderResult`，完成只读工具参数契约、业务错误 `ok=false`、系统错误安全 `ToolError`、订单输出白名单和 fake client MCP 调用测试 |
-| 16 | 把创建工单封装成 MCP Tool | 待学习 | 写操作确认、幂等键、用户身份传递 |
-| 17 | MCP Resource 接入项目文档 | 待学习 | 暴露 API 契约、学习笔记、业务规则文档 |
-| 18 | MCP 和现有 Agent 的关系 | 待学习 | MCP 在 LangGraph / Tool Calling / Java API 之间放在哪里 |
-| 19 | MCP 测试和契约测试 | 待学习 | fake client、工具测试、错误映射测试 |
-| 20 | 阶段 8 初版项目整理 | 待学习 | 总结 MCP 基础能力、项目边界、下一步工程化 |
+| 16 | 把创建工单封装成 MCP Tool | 已完成 | `notes/stage8-16-mcp-create-ticket-tool.md`；新增 `app/mcp_servers/ticket_tool.py` 和 MCP `create_ticket` tool，完成写操作确认边界、`confirmation_id` 格式校验、使用 `confirmation_id` 作为幂等键、复用 `CreateTicketArgs`/`JavaTicketClient` 风格 creator、业务错误 `ok=false`、系统错误安全 `ToolError`、创建结果输出白名单和 fake creator MCP 调用测试 |
+| 17 | MCP Resource 接入项目文档 | 已完成 | `notes/stage8-17-mcp-project-resources.md`；新增 `app/mcp_servers/project_resources.py`，用白名单 URI 暴露 `README.md`、学习进度、Java-AI API 契约、阶段 8 计划和第 16 节 create_ticket 笔记为 `text/markdown` MCP Resources，补充 `resources/list`、`resources/read`、Resource Template 对比、路径逃逸防护和 fake/in-memory client 测试 |
+| 18 | MCP 和现有 Agent 的关系 | 已完成 | `notes/stage8-18-mcp-and-existing-agent-relationship.md`；系统梳理 MCP 与 Tool Calling、LangGraph、RAG、Java business service、FastAPI ai-service 的分层关系，明确 MCP 是标准连接层而非替代 Agent/RAG/Java 后端，补充内部 Python tool 与 MCP tool 的取舍、当前项目推荐架构、MCP-backed Agent adapter 迁移路线、权限/trace_id/测试边界和面试表达 |
+| 19 | MCP 测试和契约测试 | 已完成 | `notes/stage8-19-mcp-testing-and-contract-tests.md`、`tests/test_mcp_contracts.py`；系统学习 MCP 测试分层、fake client 与 in-memory MCP Client 区别、Tool/Resource 契约测试、业务错误和系统错误测试边界，新增工具名、input_schema、写操作未确认返回、Resource URI/mime_type/read 结果的公共契约测试 |
+| 20 | 阶段 8 初版项目整理 | 已完成 | `notes/stage8-20-mcp-initial-project-summary.md`；按概念层、协议层、代码层、项目接入层、测试和工程保障层整理阶段 8 前 19 节成果，梳理 MCP Server/Client/Tools/Resources/契约测试文件地图、当前项目能力、边界、不足和第 21-24 节工程化必要性，并补充阶段性面试表达 |
 | 21 | MCP Server 工程结构整理 | 待学习 | 避免只会写单文件 demo，学会项目化组织 |
 | 22 | MCP 配置和环境变量 | 待学习 | 路径、token、Java 地址、权限开关配置化 |
 | 23 | MCP 可观测性 | 待学习 | 日志、trace_id、工具调用耗时、错误码 |

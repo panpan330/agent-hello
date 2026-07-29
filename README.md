@@ -10,7 +10,7 @@
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
 | 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent |
-| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 15 节已完成 |
+| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 20 节已完成 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
 | 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
@@ -26,6 +26,7 @@
 - 自动化评测：Agent eval dataset、意图/字段/路由/RAG 组合评测、报告、坏例分析、回归评测。
 - 生产化设计：Pydantic 输出校验、prompt 版本管理、模型输出失败处理、日志、trace、metrics。
 - 稳定性保护：timeout、retry、rate limit、circuit breaker、degradation。
+- MCP 工具生态：Python MCP Server/Client、Tools、Resources、参数校验、错误处理、安全边界、契约测试。
 - 本地编排和回归：Docker Compose、health/readiness、GitHub Actions CI、统一回归脚本。
 
 ## 技术栈地图
@@ -106,6 +107,11 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 8 第 13 节 | [notes/stage8-13-mcp-error-handling.md](notes/stage8-13-mcp-error-handling.md) |
 | 阶段 8 第 14 节 | [notes/stage8-14-mcp-security-boundary.md](notes/stage8-14-mcp-security-boundary.md) |
 | 阶段 8 第 15 节 | [notes/stage8-15-mcp-query-order-tool.md](notes/stage8-15-mcp-query-order-tool.md) |
+| 阶段 8 第 16 节 | [notes/stage8-16-mcp-create-ticket-tool.md](notes/stage8-16-mcp-create-ticket-tool.md) |
+| 阶段 8 第 17 节 | [notes/stage8-17-mcp-project-resources.md](notes/stage8-17-mcp-project-resources.md) |
+| 阶段 8 第 18 节 | [notes/stage8-18-mcp-and-existing-agent-relationship.md](notes/stage8-18-mcp-and-existing-agent-relationship.md) |
+| 阶段 8 第 19 节 | [notes/stage8-19-mcp-testing-and-contract-tests.md](notes/stage8-19-mcp-testing-and-contract-tests.md) |
+| 阶段 8 第 20 节 | [notes/stage8-20-mcp-initial-project-summary.md](notes/stage8-20-mcp-initial-project-summary.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 

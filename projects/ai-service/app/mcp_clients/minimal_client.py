@@ -15,6 +15,8 @@ async def collect_minimal_mcp_debug_snapshot() -> dict[str, Any]:
     """Call the minimal MCP server and return a JSON-friendly debug snapshot."""
     async with Client(mcp) as client:
         tools_response = await client.list_tools()
+        resources_response = await client.list_resources()
+        resource_templates_response = await client.list_resource_templates()
         add_result = await client.call_tool("add", {"a": 7, "b": 5})
         echo_result = await client.call_tool("echo", {"message": "hello mcp"})
         ticket_validation_result = await client.call_tool(
@@ -43,6 +45,7 @@ async def collect_minimal_mcp_debug_snapshot() -> dict[str, Any]:
             {"scenario": "write_without_confirmation"},
         )
         resource_result = await client.read_resource("learning://hello/panpan")
+        stage8_plan_result = await client.read_resource("learning://project/stage8-plan")
 
     return {
         "server": "ai-service-learning-mcp",
@@ -54,6 +57,26 @@ async def collect_minimal_mcp_debug_snapshot() -> dict[str, Any]:
                 "output_schema": tool.output_schema,
             }
             for tool in tools_response.tools
+        ],
+        "resources": [
+            {
+                "uri": str(resource.uri),
+                "name": resource.name,
+                "title": resource.title,
+                "description": resource.description,
+                "mime_type": resource.mime_type,
+            }
+            for resource in resources_response.resources
+        ],
+        "resource_templates": [
+            {
+                "uri_template": template.uri_template,
+                "name": template.name,
+                "title": template.title,
+                "description": template.description,
+                "mime_type": template.mime_type,
+            }
+            for template in resource_templates_response.resource_templates
         ],
         "tool_calls": {
             "add": {
@@ -94,5 +117,8 @@ async def collect_minimal_mcp_debug_snapshot() -> dict[str, Any]:
         },
         "resource_reads": {
             "learning://hello/panpan": _extract_text_items(resource_result.contents),
+            "learning://project/stage8-plan": _extract_text_items(
+                stage8_plan_result.contents
+            ),
         },
     }

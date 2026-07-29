@@ -1,0 +1,79 @@
+"""Allowlisted project document resources for MCP learning examples."""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class ProjectResourceSpec:
+    uri: str
+    title: str
+    description: str
+    relative_path: str
+    mime_type: str = "text/markdown"
+
+
+PROJECT_RESOURCE_SPECS: dict[str, ProjectResourceSpec] = {
+    "learning://project/readme": ProjectResourceSpec(
+        uri="learning://project/readme",
+        title="Project README",
+        description="GitHub homepage and project learning entry.",
+        relative_path="README.md",
+    ),
+    "learning://project/progress": ProjectResourceSpec(
+        uri="learning://project/progress",
+        title="Learning Progress",
+        description="Current learning stage, lesson status, and roadmap progress.",
+        relative_path="docs/learning-progress.md",
+    ),
+    "learning://project/java-ai-contract": ProjectResourceSpec(
+        uri="learning://project/java-ai-contract",
+        title="Java AI API Contract",
+        description="Contract between Python AI service and Java business service.",
+        relative_path="docs/java-ai-api-contract.md",
+    ),
+    "learning://project/stage8-plan": ProjectResourceSpec(
+        uri="learning://project/stage8-plan",
+        title="Stage 8 MCP Learning Plan",
+        description="Planned lessons for MCP and AI tool ecosystem basics.",
+        relative_path="notes/stage8-00-mcp-learning-plan.md",
+    ),
+    "learning://project/mcp-create-ticket-note": ProjectResourceSpec(
+        uri="learning://project/mcp-create-ticket-note",
+        title="MCP Create Ticket Tool Note",
+        description="Stage 8 lesson 16 note about wrapping create_ticket as an MCP tool.",
+        relative_path="notes/stage8-16-mcp-create-ticket-tool.md",
+    ),
+}
+
+
+def find_learning_repo_root() -> Path:
+    current_file = Path(__file__).resolve()
+    for parent in current_file.parents:
+        if (parent / "README.md").is_file() and (
+            parent / "projects" / "ai-service"
+        ).is_dir():
+            return parent
+    raise RuntimeError("Could not locate the learning repository root.")
+
+
+def list_project_resource_specs() -> list[ProjectResourceSpec]:
+    return list(PROJECT_RESOURCE_SPECS.values())
+
+
+def get_project_resource_spec(uri: str) -> ProjectResourceSpec:
+    try:
+        return PROJECT_RESOURCE_SPECS[uri]
+    except KeyError as exc:
+        raise ValueError(f"Project resource is not allowlisted: {uri}") from exc
+
+
+def read_project_resource(uri: str) -> str:
+    spec = get_project_resource_spec(uri)
+    repo_root = find_learning_repo_root()
+    resource_path = (repo_root / spec.relative_path).resolve()
+
+    if repo_root.resolve() not in resource_path.parents and resource_path != repo_root:
+        raise ValueError("Project resource path escaped the repository root.")
+
+    return resource_path.read_text(encoding="utf-8")

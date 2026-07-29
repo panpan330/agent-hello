@@ -15,7 +15,20 @@ def test_minimal_mcp_client_debug_snapshot() -> None:
             "simulate_tool_error_handling",
             "inspect_tool_security_boundary",
             "query_order",
+            "create_ticket",
         }.issubset(tool_names)
+        resource_uris = {resource["uri"] for resource in snapshot["resources"]}
+        assert {
+            "learning://project/readme",
+            "learning://project/progress",
+            "learning://project/java-ai-contract",
+            "learning://project/stage8-plan",
+            "learning://project/mcp-create-ticket-note",
+        }.issubset(resource_uris)
+        template_uris = {
+            template["uri_template"] for template in snapshot["resource_templates"]
+        }
+        assert "learning://hello/{name}" in template_uris
         assert snapshot["tool_calls"]["add"]["is_error"] is False
         assert snapshot["tool_calls"]["add"]["structured_content"] == {"result": 12}
         assert snapshot["tool_calls"]["echo"]["structured_content"] == {
@@ -61,5 +74,6 @@ def test_minimal_mcp_client_debug_snapshot() -> None:
         assert snapshot["resource_reads"]["learning://hello/panpan"] == [
             "Hello, panpan. This resource comes from ai-service minimal MCP server."
         ]
+        assert "阶段 8" in snapshot["resource_reads"]["learning://project/stage8-plan"][0]
 
     asyncio.run(run())
