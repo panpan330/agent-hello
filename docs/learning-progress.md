@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 8 MCP 与 AI 工具生态基础已完成，准备进入下一阶段。
+当前阶段：阶段 9 RAG 进阶与检索质量优化已规划，准备开始。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -22,6 +22,7 @@
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
+| M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已规划 | 阶段 9 固定为 24 节：query rewrite、multi query、查询意图识别、hybrid search、检索分数、rerank、引用校验、上下文压缩、metadata filter、RAG prompt injection 防护、评测集、检索指标、回答质量评测、bad case 分析、参数调优、缓存降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收和面试表达 |
 
 ## M6 快速版学习清单
 
@@ -117,6 +118,50 @@ notes/stage8-00-mcp-learning-plan.md
 | 22 | MCP 配置和环境变量 | 已完成 | `notes/stage8-22-mcp-config-and-env.md`；新增 `MCP_SERVER_NAME`、`MCP_ENABLE_LEARNING_RESOURCES`、`MCP_ENABLE_PROJECT_RESOURCES`、`MCP_PROJECT_RESOURCE_ROOT` 配置和 `.env.example` 示例，`server_factory` 读取 Settings 装配 MCPServer，Resource registration 支持按配置启用/禁用学习资源和项目文档资源，项目资源读取支持配置化 repo_root，并补默认配置、环境变量、env 文件、factory 配置和 Resource 契约测试 |
 | 23 | MCP 可观测性 | 已完成 | `notes/stage8-23-mcp-observability.md`、`observability.py`、`tests/test_mcp_observability.py`；新增 MCP Tool/Resource 统一可观测性包装，记录 started/finished/failed、trace_id、tool_name/resource_uri、action_type、status、error_code/error_type、elapsed_ms，并用测试确认工具参数、用户正文、Resource 正文和内部敏感信息不进入 MCP 日志 |
 | 24 | MCP 阶段总结和面试表达 | 已完成 | `notes/stage8-24-mcp-summary-and-interview-expression.md`；完整复盘阶段 8 六大模块，整理 MCP 和 Tool Calling、LangGraph、RAG、Java business service 的关系，梳理当前 MCP Server 的 Tools、Resources、测试、配置、可观测性、安全边界、项目不足、下一阶段方向和 30 秒/1 分钟/3 分钟面试表达 |
+
+## 阶段 9 学习清单
+
+阶段 9 的定位：
+
+```text
+RAG 进阶与检索质量优化。
+重点把基础 RAG 从“能跑通”推进到“能调优、能评测、能解释、能用于真实项目”。
+```
+
+阶段 9 计划记录：
+
+```text
+notes/stage9-00-rag-advanced-learning-plan.md
+```
+
+固定为 24 节：
+
+| 节 | 主题 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| 1 | RAG 进阶总览：为什么基础 RAG 还不够 | 未开始 | 建立阶段 9 的完整学习地图，理解基础 RAG 在真实项目中的典型短板 |
+| 2 | Query Rewrite：用户问题改写 | 未开始 | 学会把口语化、含糊、不完整的问题改写成更适合检索的问题 |
+| 3 | Multi Query：一个问题生成多个检索问题 | 未开始 | 理解为什么一个用户问题可能需要多种检索角度，提高召回覆盖面 |
+| 4 | 查询意图识别：区分查政策、查订单、查流程、闲聊 | 未开始 | 学会在 RAG 前判断问题类型，避免所有问题都盲目查知识库 |
+| 5 | Hybrid Search 进阶：关键词检索 + 向量检索融合 | 未开始 | 学习关键词检索和向量检索的互补关系，以及初步融合策略 |
+| 6 | 检索分数理解：score、distance、相似度到底怎么看 | 未开始 | 理解不同检索系统分数方向、含义和不可直接横向比较的问题 |
+| 7 | Rerank 进阶：召回后为什么还要重排序 | 未开始 | 理解粗召回和精排序的分工，知道 rerank 解决什么质量问题 |
+| 8 | 真实 Rerank 模型接入 | 未开始 | 学会接入真实 rerank 模型，并保留 fake rerank 方便测试 |
+| 9 | 引用来源校验：回答必须能对应原文 | 未开始 | 学会检查答案是否真的来自召回文档，减少编造和错引 |
+| 10 | Context Compression：上下文压缩 | 未开始 | 理解为什么不能把所有 chunk 都塞给模型，学习压缩上下文的方法 |
+| 11 | Metadata Filter：用户、租户、权限、业务域过滤 | 未开始 | 把检索范围限定在用户有权访问的文档和业务域内 |
+| 12 | RAG Prompt Injection 防护 | 未开始 | 学习文档内容中恶意提示的风险，以及模型侧和系统侧防护边界 |
+| 13 | RAG 评测集设计 | 未开始 | 学会设计问题、期望答案、期望来源、权限场景和拒答场景 |
+| 14 | 检索指标：命中率、召回率、Top-K 命中 | 未开始 | 用指标判断检索是否把正确资料找出来，而不是只看最终回答 |
+| 15 | 回答质量评测：正确性、引用一致性、拒答合理性 | 未开始 | 评估最终回答是否正确、是否引用一致、是否该拒答时拒答 |
+| 16 | Bad Case 分析：怎么定位 RAG 答错的原因 | 未开始 | 建立 RAG 问题排查路径，区分数据、检索、排序、生成和权限问题 |
+| 17 | 参数调优：chunk_size、overlap、top_k、score_threshold | 未开始 | 学会用可观察结果调整 RAG 参数，而不是凭感觉乱调 |
+| 18 | RAG 缓存、超时、降级和性能优化 | 未开始 | 学习真实服务里 RAG 的响应时间、成本和可用性保护 |
+| 19 | RAG 可观测性：记录 query、召回、rerank、引用、耗时 | 未开始 | 给 RAG 链路补齐排查所需日志和指标 |
+| 20 | RAG 数据更新：增量入库、删除、重新索引 | 未开始 | 理解知识库文档变化后，向量库和索引如何保持一致 |
+| 21 | RAG 多知识库路由 | 未开始 | 学习用户问题应该查哪个知识库，而不是所有资料混在一起检索 |
+| 22 | RAG 与 Agent 的组合边界 | 未开始 | 讲清楚 RAG 负责查资料，Agent 负责流程决策和工具编排 |
+| 23 | RAG 生产化验收清单：质量、安全、性能、成本、可观测性 | 未开始 | 整理一个真实 RAG 功能上线前应该检查什么 |
+| 24 | 阶段 9 总复盘和面试表达强化 | 未开始 | 把阶段 9 的能力整理成项目表达、面试回答和后续学习路线 |
 
 ## 近期任务
 

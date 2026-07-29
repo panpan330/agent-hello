@@ -10,7 +10,7 @@
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
 | 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent、MCP 与 AI 工具生态基础 |
-| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础已完成，准备进入下一阶段 |
+| 当前阶段 | 阶段 9：RAG 进阶与检索质量优化已规划，准备开始 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
 | 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
@@ -116,6 +116,7 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 8 第 22 节 | [notes/stage8-22-mcp-config-and-env.md](notes/stage8-22-mcp-config-and-env.md) |
 | 阶段 8 第 23 节 | [notes/stage8-23-mcp-observability.md](notes/stage8-23-mcp-observability.md) |
 | 阶段 8 第 24 节 | [notes/stage8-24-mcp-summary-and-interview-expression.md](notes/stage8-24-mcp-summary-and-interview-expression.md) |
+| 阶段 9 学习计划 | [notes/stage9-00-rag-advanced-learning-plan.md](notes/stage9-00-rag-advanced-learning-plan.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
