@@ -10,7 +10,7 @@
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
 | 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent |
-| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 10 节已完成 |
+| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 15 节已完成 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
 | 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
@@ -100,6 +100,12 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 8 第 9 节 | [notes/stage8-09-mcp-prompts-basics.md](notes/stage8-09-mcp-prompts-basics.md) |
 | 阶段 8 第 10 节 | [notes/stage8-10-python-minimal-mcp-server.md](notes/stage8-10-python-minimal-mcp-server.md) |
 | 阶段 8 第 10 节手动验证 | [notes/stage8-10-python-minimal-mcp-server-manual-tasks.md](notes/stage8-10-python-minimal-mcp-server-manual-tasks.md) |
+| 阶段 8 第 11 节 | [notes/stage8-11-mcp-client-debugging.md](notes/stage8-11-mcp-client-debugging.md) |
+| 阶段 8 第 11 节手动验证 | [notes/stage8-11-mcp-client-debugging-manual-tasks.md](notes/stage8-11-mcp-client-debugging-manual-tasks.md) |
+| 阶段 8 第 12 节 | [notes/stage8-12-mcp-tool-parameter-validation.md](notes/stage8-12-mcp-tool-parameter-validation.md) |
+| 阶段 8 第 13 节 | [notes/stage8-13-mcp-error-handling.md](notes/stage8-13-mcp-error-handling.md) |
+| 阶段 8 第 14 节 | [notes/stage8-14-mcp-security-boundary.md](notes/stage8-14-mcp-security-boundary.md) |
+| 阶段 8 第 15 节 | [notes/stage8-15-mcp-query-order-tool.md](notes/stage8-15-mcp-query-order-tool.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 

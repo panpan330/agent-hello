@@ -13,6 +13,10 @@ def test_minimal_mcp_server_exposes_tools() -> None:
 
             assert "echo" in tool_names
             assert "add" in tool_names
+            assert "validate_ticket_draft" in tool_names
+            assert "simulate_tool_error_handling" in tool_names
+            assert "inspect_tool_security_boundary" in tool_names
+            assert "query_order" in tool_names
 
     asyncio.run(run())
 

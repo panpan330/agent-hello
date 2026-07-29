@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 10 节 Python 最小 MCP Server 已完成。
+当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 15 节把订单查询封装成 MCP Tool 已完成。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -21,7 +21,7 @@
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
-| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 10 节已完成 |
+| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 15 节已完成 |
 
 ## M6 快速版学习清单
 
@@ -103,11 +103,11 @@ notes/stage8-00-mcp-learning-plan.md
 | 8 | MCP Resources 基础 | 已完成 | `notes/stage8-08-mcp-resources-basics.md`；MCP Resource 的定义、Resource 和 Tool/RAG 的区别、resources capability、resources/list、resources/read、uri/name/title/description/mimeType/size、text/blob、Resource Template、listChanged、subscribe/updated、常见 URI scheme、权限和 prompt injection 风险，以及 README、学习进度、Java-AI API 契约等项目文档的 Resource 映射 |
 | 9 | MCP Prompts 基础 | 已完成 | `notes/stage8-09-mcp-prompts-basics.md`；MCP Prompt 的定义、Prompt 和 Tool/Resource/system prompt/user prompt 的关系、prompts capability、prompts/list、prompts/get、name/title/description/arguments、Prompt argument 和 Tool inputSchema 的区别、PromptMessage 的 role/content、text/image/audio/embedded resource、listChanged、Prompt 权限和 prompt injection 风险，以及 customer_reply、ticket_summary 等项目模板映射 |
 | 10 | Python 最小 MCP Server | 已完成 | `notes/stage8-10-python-minimal-mcp-server.md`、`notes/stage8-10-python-minimal-mcp-server-manual-tasks.md`；新增 `app/mcp_servers/minimal_server.py`，使用 MCP Python SDK v2 创建 `MCPServer`，注册 `echo`/`add` tools 和 `learning://hello/{name}` resource，并用 in-memory `Client(mcp)` 测试 `list_tools`、`call_tool`、`read_resource` |
-| 11 | MCP Client 调试 | 待学习 | 如何列出工具、调用工具、看返回 |
-| 12 | 工具参数校验 | 待学习 | Pydantic/schema、枚举、必填字段、错误提示 |
-| 13 | MCP 错误处理 | 待学习 | 业务错误、系统错误、协议错误怎么分 |
-| 14 | MCP 安全边界 | 待学习 | 权限、最小暴露、prompt injection、敏感字段过滤 |
-| 15 | 把订单查询封装成 MCP Tool | 待学习 | MCP tool -> Python adapter -> Java business service |
+| 11 | MCP Client 调试 | 已完成 | `notes/stage8-11-mcp-client-debugging.md`、`notes/stage8-11-mcp-client-debugging-manual-tasks.md`；新增 `app/mcp_clients/minimal_client.py` 和 `scripts/mcp_client_smoke.py`，用 in-memory `Client(mcp)` 调试最小 MCP Server，输出 JSON-friendly 快照，覆盖 `list_tools`、`call_tool`、`read_resource` 和 `structured_content`/`content`/`is_error` 观察方法 |
+| 12 | MCP 工具参数校验 | 已完成 | `notes/stage8-12-mcp-tool-parameter-validation.md`；新增 `app/mcp_servers/ticket_validation.py` 和 `validate_ticket_draft` tool，用 `Annotated + Field` 暴露 minLength/maxLength，用 `Literal` 暴露 enum，用 Pydantic 做 trim、`extra="forbid"`、`ValidationError` 简化和 `ok=false` 安全返回，并用测试覆盖 schema、合法参数、业务校验错误和非法枚举 schema 层拦截 |
+| 13 | MCP 错误处理 | 已完成 | `notes/stage8-13-mcp-error-handling.md`；新增 `app/mcp_servers/tool_error_handling.py` 和 `simulate_tool_error_handling` tool，区分 `is_error=true` 与 `structured_content.ok=false`，模拟成功、业务不存在、权限不足、上游超时和未预期异常，使用安全 `ToolError` 包装系统错误，并用测试固定业务错误、系统错误和内部异常不泄露边界 |
+| 14 | MCP 安全边界 | 已完成 | `notes/stage8-14-mcp-security-boundary.md`；新增 `app/mcp_servers/tool_security.py` 和 `inspect_tool_security_boundary` tool，演示工具最小暴露、读写分级、写操作确认、输出白名单、敏感字段过滤、prompt injection 风险识别、危险动作拒绝和安全决策结构化返回，并用测试固定敏感值不泄露、未确认写操作被拒绝、危险 SQL 能力不暴露 |
+| 15 | 把订单查询封装成 MCP Tool | 已完成 | `notes/stage8-15-mcp-query-order-tool.md`；新增 `app/mcp_servers/order_tool.py` 和 MCP `query_order` tool，复用 `QueryOrderArgs`、`fake_order_tool.query_order()`、`JavaOrderClient` 与 `QueryOrderResult`，完成只读工具参数契约、业务错误 `ok=false`、系统错误安全 `ToolError`、订单输出白名单和 fake client MCP 调用测试 |
 | 16 | 把创建工单封装成 MCP Tool | 待学习 | 写操作确认、幂等键、用户身份传递 |
 | 17 | MCP Resource 接入项目文档 | 待学习 | 暴露 API 契约、学习笔记、业务规则文档 |
 | 18 | MCP 和现有 Agent 的关系 | 待学习 | MCP 在 LangGraph / Tool Calling / Java API 之间放在哪里 |
