@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 8 MCP 与 AI 工具生态基础，第 20 节阶段 8 初版项目整理已完成。
+当前阶段：阶段 8 MCP 与 AI 工具生态基础已完成，准备进入下一阶段。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 ```
@@ -21,7 +21,7 @@
 | M5 | 第 10-11 周 | 生产化与评测 | 已完成 | 36 节主线，补 Agent 评测、真实模型节点、持久化状态、追踪监控、稳定性保护和部署编排 |
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
-| M8 | 当前阶段 | MCP 与 AI 工具生态基础 | 进行中 | 阶段 8 计划共 24 节：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达；第 20 节已完成 |
+| M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 
 ## M6 快速版学习清单
 
@@ -113,10 +113,10 @@ notes/stage8-00-mcp-learning-plan.md
 | 18 | MCP 和现有 Agent 的关系 | 已完成 | `notes/stage8-18-mcp-and-existing-agent-relationship.md`；系统梳理 MCP 与 Tool Calling、LangGraph、RAG、Java business service、FastAPI ai-service 的分层关系，明确 MCP 是标准连接层而非替代 Agent/RAG/Java 后端，补充内部 Python tool 与 MCP tool 的取舍、当前项目推荐架构、MCP-backed Agent adapter 迁移路线、权限/trace_id/测试边界和面试表达 |
 | 19 | MCP 测试和契约测试 | 已完成 | `notes/stage8-19-mcp-testing-and-contract-tests.md`、`tests/test_mcp_contracts.py`；系统学习 MCP 测试分层、fake client 与 in-memory MCP Client 区别、Tool/Resource 契约测试、业务错误和系统错误测试边界，新增工具名、input_schema、写操作未确认返回、Resource URI/mime_type/read 结果的公共契约测试 |
 | 20 | 阶段 8 初版项目整理 | 已完成 | `notes/stage8-20-mcp-initial-project-summary.md`；按概念层、协议层、代码层、项目接入层、测试和工程保障层整理阶段 8 前 19 节成果，梳理 MCP Server/Client/Tools/Resources/契约测试文件地图、当前项目能力、边界、不足和第 21-24 节工程化必要性，并补充阶段性面试表达 |
-| 21 | MCP Server 工程结构整理 | 待学习 | 避免只会写单文件 demo，学会项目化组织 |
-| 22 | MCP 配置和环境变量 | 待学习 | 路径、token、Java 地址、权限开关配置化 |
-| 23 | MCP 可观测性 | 待学习 | 日志、trace_id、工具调用耗时、错误码 |
-| 24 | MCP 阶段总结和面试表达 | 待学习 | 把 MCP 和 Agent、RAG、Java 后端的关系讲清楚 |
+| 21 | MCP Server 工程结构整理 | 已完成 | `notes/stage8-21-mcp-server-engineering-structure.md`、`server_factory.py`、`tool_registration.py`、`resource_registration.py`；把 `minimal_server.py` 从大装配文件整理为兼容入口，新增 MCP Server factory、Tool registration、Resource registration 分层，保留旧 `mcp` 导入路径，并用契约测试和 factory 测试确认工具/资源对外契约不变 |
+| 22 | MCP 配置和环境变量 | 已完成 | `notes/stage8-22-mcp-config-and-env.md`；新增 `MCP_SERVER_NAME`、`MCP_ENABLE_LEARNING_RESOURCES`、`MCP_ENABLE_PROJECT_RESOURCES`、`MCP_PROJECT_RESOURCE_ROOT` 配置和 `.env.example` 示例，`server_factory` 读取 Settings 装配 MCPServer，Resource registration 支持按配置启用/禁用学习资源和项目文档资源，项目资源读取支持配置化 repo_root，并补默认配置、环境变量、env 文件、factory 配置和 Resource 契约测试 |
+| 23 | MCP 可观测性 | 已完成 | `notes/stage8-23-mcp-observability.md`、`observability.py`、`tests/test_mcp_observability.py`；新增 MCP Tool/Resource 统一可观测性包装，记录 started/finished/failed、trace_id、tool_name/resource_uri、action_type、status、error_code/error_type、elapsed_ms，并用测试确认工具参数、用户正文、Resource 正文和内部敏感信息不进入 MCP 日志 |
+| 24 | MCP 阶段总结和面试表达 | 已完成 | `notes/stage8-24-mcp-summary-and-interview-expression.md`；完整复盘阶段 8 六大模块，整理 MCP 和 Tool Calling、LangGraph、RAG、Java business service 的关系，梳理当前 MCP Server 的 Tools、Resources、测试、配置、可观测性、安全边界、项目不足、下一阶段方向和 30 秒/1 分钟/3 分钟面试表达 |
 
 ## 近期任务
 

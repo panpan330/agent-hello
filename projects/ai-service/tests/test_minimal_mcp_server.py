@@ -2,7 +2,9 @@ import asyncio
 
 from mcp import Client
 
+from app.core.config import Settings
 from app.mcp_servers.minimal_server import mcp
+from app.mcp_servers.server_factory import create_learning_mcp_server
 
 
 def test_minimal_mcp_server_exposes_tools() -> None:
@@ -18,6 +20,52 @@ def test_minimal_mcp_server_exposes_tools() -> None:
             assert "inspect_tool_security_boundary" in tool_names
             assert "query_order" in tool_names
             assert "create_ticket" in tool_names
+
+    asyncio.run(run())
+
+
+def test_mcp_server_factory_creates_registered_server() -> None:
+    async def run() -> None:
+        server = create_learning_mcp_server()
+        async with Client(server) as client:
+            tools = await client.list_tools()
+            resources = await client.list_resources()
+
+        assert {tool.name for tool in tools.tools} == {
+            "echo",
+            "add",
+            "validate_ticket_draft",
+            "simulate_tool_error_handling",
+            "inspect_tool_security_boundary",
+            "query_order",
+            "create_ticket",
+        }
+        assert "learning://project/stage8-plan" in {
+            str(resource.uri) for resource in resources.resources
+        }
+
+    asyncio.run(run())
+
+
+def test_mcp_server_factory_uses_mcp_settings() -> None:
+    async def run() -> None:
+        server = create_learning_mcp_server(
+            Settings(
+                mcp_server_name="custom-learning-mcp",
+                mcp_enable_learning_resources=False,
+                mcp_enable_project_resources=False,
+                _env_file=None,
+            )
+        )
+        async with Client(server) as client:
+            tools = await client.list_tools()
+            resources = await client.list_resources()
+            resource_templates = await client.list_resource_templates()
+
+        assert server.name == "custom-learning-mcp"
+        assert "query_order" in {tool.name for tool in tools.tools}
+        assert resources.resources == []
+        assert resource_templates.resource_templates == []
 
     asyncio.run(run())
 

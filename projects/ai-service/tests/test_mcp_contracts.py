@@ -16,11 +16,26 @@ EXPECTED_TOOL_NAMES = {
 }
 
 EXPECTED_RESOURCE_CONTRACTS = {
-    "learning://project/readme": "Project README",
-    "learning://project/progress": "Learning Progress",
-    "learning://project/java-ai-contract": "Java AI API Contract",
-    "learning://project/stage8-plan": "Stage 8 MCP Learning Plan",
-    "learning://project/mcp-create-ticket-note": "MCP Create Ticket Tool Note",
+    "learning://project/readme": {
+        "name": "project_readme_resource",
+        "title": "Project README",
+    },
+    "learning://project/progress": {
+        "name": "project_progress_resource",
+        "title": "Learning Progress",
+    },
+    "learning://project/java-ai-contract": {
+        "name": "java_ai_contract_resource",
+        "title": "Java AI API Contract",
+    },
+    "learning://project/stage8-plan": {
+        "name": "stage8_plan_resource",
+        "title": "Stage 8 MCP Learning Plan",
+    },
+    "learning://project/mcp-create-ticket-note": {
+        "name": "mcp_create_ticket_note_resource",
+        "title": "MCP Create Ticket Tool Note",
+    },
 }
 
 
@@ -144,6 +159,7 @@ def test_project_resource_contracts_are_stable() -> None:
 
         resource_contracts = {
             str(resource.uri): {
+                "name": resource.name,
                 "title": resource.title,
                 "mime_type": resource.mime_type,
             }
@@ -151,9 +167,10 @@ def test_project_resource_contracts_are_stable() -> None:
         }
 
         assert set(resource_contracts) == set(EXPECTED_RESOURCE_CONTRACTS)
-        for uri, title in EXPECTED_RESOURCE_CONTRACTS.items():
+        for uri, expected in EXPECTED_RESOURCE_CONTRACTS.items():
             assert resource_contracts[uri] == {
-                "title": title,
+                "name": expected["name"],
+                "title": expected["title"],
                 "mime_type": "text/markdown",
             }
 

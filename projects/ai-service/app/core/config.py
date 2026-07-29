@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     embedding_batch_size: int = Field(default=64, ge=1, le=256)
     embedding_request_dimensions: bool = Field(default=False)
     tool_confirmation_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    mcp_server_name: str = Field(
+        default="ai-service-learning-mcp",
+        min_length=1,
+        max_length=100,
+    )
+    mcp_enable_learning_resources: bool = Field(default=True)
+    mcp_enable_project_resources: bool = Field(default=True)
+    mcp_project_resource_root: str | None = Field(default=None)
     log_level: str = Field(default="INFO")
     cors_allowed_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173"
@@ -117,6 +125,17 @@ class Settings(BaseSettings):
             if base_url and base_url.strip():
                 return base_url.strip().rstrip("/")
         return None
+
+    @property
+    def resolved_mcp_server_name(self) -> str:
+        server_name = self.mcp_server_name.strip()
+        return server_name or "ai-service-learning-mcp"
+
+    @property
+    def resolved_mcp_project_resource_root(self) -> Path | None:
+        if not self.mcp_project_resource_root or not self.mcp_project_resource_root.strip():
+            return None
+        return Path(self.mcp_project_resource_root.strip()).expanduser().resolve()
 
 
 @lru_cache

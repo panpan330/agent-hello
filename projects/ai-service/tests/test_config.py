@@ -49,6 +49,12 @@ def test_settings_use_default_values() -> None:
     assert settings.embedding_batch_size == 64
     assert settings.embedding_request_dimensions is False
     assert settings.tool_confirmation_ttl_seconds == 300
+    assert settings.mcp_server_name == "ai-service-learning-mcp"
+    assert settings.resolved_mcp_server_name == "ai-service-learning-mcp"
+    assert settings.mcp_enable_learning_resources is True
+    assert settings.mcp_enable_project_resources is True
+    assert settings.mcp_project_resource_root is None
+    assert settings.resolved_mcp_project_resource_root is None
     assert settings.log_level == "INFO"
     assert settings.cors_allowed_origins == "http://localhost:5173,http://127.0.0.1:5173"
     assert settings.cors_allowed_origin_list == [
@@ -96,6 +102,10 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("EMBEDDING_BATCH_SIZE", "10")
     monkeypatch.setenv("EMBEDDING_REQUEST_DIMENSIONS", "true")
     monkeypatch.setenv("TOOL_CONFIRMATION_TTL_SECONDS", "120")
+    monkeypatch.setenv("MCP_SERVER_NAME", " local-learning-mcp ")
+    monkeypatch.setenv("MCP_ENABLE_LEARNING_RESOURCES", "false")
+    monkeypatch.setenv("MCP_ENABLE_PROJECT_RESOURCES", "true")
+    monkeypatch.setenv("MCP_PROJECT_RESOURCE_ROOT", "D:/learning/mcp-root")
     monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 
     settings = Settings(_env_file=None)
@@ -138,6 +148,12 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.embedding_batch_size == 10
     assert settings.embedding_request_dimensions is True
     assert settings.tool_confirmation_ttl_seconds == 120
+    assert settings.resolved_mcp_server_name == "local-learning-mcp"
+    assert settings.mcp_enable_learning_resources is False
+    assert settings.mcp_enable_project_resources is True
+    assert str(settings.resolved_mcp_project_resource_root).replace("\\", "/").endswith(
+        "D:/learning/mcp-root"
+    )
     assert settings.cors_allowed_origin_list == ["http://localhost:3000"]
 
 
@@ -249,6 +265,10 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
                 "EMBEDDING_BATCH_SIZE=10",
                 "EMBEDDING_REQUEST_DIMENSIONS=true",
                 "TOOL_CONFIRMATION_TTL_SECONDS=240",
+                'MCP_SERVER_NAME="file-learning-mcp"',
+                "MCP_ENABLE_LEARNING_RESOURCES=false",
+                "MCP_ENABLE_PROJECT_RESOURCES=true",
+                'MCP_PROJECT_RESOURCE_ROOT=""',
                 'CORS_ALLOWED_ORIGINS="http://localhost:5173, http://localhost:3000"',
                 'OPENAI_API_KEY=""',
             ]
@@ -294,6 +314,10 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
     assert settings.embedding_batch_size == 10
     assert settings.embedding_request_dimensions is True
     assert settings.tool_confirmation_ttl_seconds == 240
+    assert settings.resolved_mcp_server_name == "file-learning-mcp"
+    assert settings.mcp_enable_learning_resources is False
+    assert settings.mcp_enable_project_resources is True
+    assert settings.resolved_mcp_project_resource_root is None
     assert settings.cors_allowed_origin_list == [
         "http://localhost:5173",
         "http://localhost:3000",
@@ -408,6 +432,15 @@ def test_settings_reject_tool_confirmation_ttl_outside_allowed_range() -> None:
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("tool_confirmation_ttl_seconds",)
     assert error["type"] == "greater_than_equal"
+
+
+def test_settings_reject_empty_mcp_server_name() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(mcp_server_name="", _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("mcp_server_name",)
+    assert error["type"] == "string_too_short"
 
 
 def test_settings_reject_negative_llm_max_retries() -> None:

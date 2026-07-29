@@ -68,12 +68,15 @@ def get_project_resource_spec(uri: str) -> ProjectResourceSpec:
         raise ValueError(f"Project resource is not allowlisted: {uri}") from exc
 
 
-def read_project_resource(uri: str) -> str:
+def read_project_resource(uri: str, *, repo_root: Path | None = None) -> str:
     spec = get_project_resource_spec(uri)
-    repo_root = find_learning_repo_root()
-    resource_path = (repo_root / spec.relative_path).resolve()
+    resolved_repo_root = (repo_root or find_learning_repo_root()).resolve()
+    resource_path = (resolved_repo_root / spec.relative_path).resolve()
 
-    if repo_root.resolve() not in resource_path.parents and resource_path != repo_root:
+    if (
+        resolved_repo_root not in resource_path.parents
+        and resource_path != resolved_repo_root
+    ):
         raise ValueError("Project resource path escaped the repository root.")
 
     return resource_path.read_text(encoding="utf-8")

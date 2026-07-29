@@ -9,8 +9,8 @@
 | 项目维度 | 当前状态 |
 | --- | --- |
 | 学习主线 | Java 后端 + Python AI 服务 + LLM API + RAG + Tool Calling + LangGraph + 工程化 |
-| 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent |
-| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础，第 20 节已完成 |
+| 已完成阶段 | Python 基础、FastAPI、LLM API、Tool Calling、RAG、LangGraph Agent、生产化与评测、真实 Java 后端接入 AI Agent、MCP 与 AI 工具生态基础 |
+| 当前阶段 | 阶段 8：MCP 与 AI 工具生态基础已完成，准备进入下一阶段 |
 | 当前定位 | AI 应用工程学习项目 / 作品原型 |
 | 不是 | 完整生产上线系统 |
 | 当前主线 | 在真实 Java 业务服务底座上继续补 Agent、RAG、MCP、评测和生产化能力 |
@@ -26,7 +26,7 @@
 - 自动化评测：Agent eval dataset、意图/字段/路由/RAG 组合评测、报告、坏例分析、回归评测。
 - 生产化设计：Pydantic 输出校验、prompt 版本管理、模型输出失败处理、日志、trace、metrics。
 - 稳定性保护：timeout、retry、rate limit、circuit breaker、degradation。
-- MCP 工具生态：Python MCP Server/Client、Tools、Resources、参数校验、错误处理、安全边界、契约测试。
+- MCP 工具生态：Python MCP Server/Client、Tools、Resources、参数校验、错误处理、安全边界、契约测试、配置和可观测性。
 - 本地编排和回归：Docker Compose、health/readiness、GitHub Actions CI、统一回归脚本。
 
 ## 技术栈地图
@@ -112,6 +112,10 @@ scripts/run_regression.py     本地和 CI 复用的统一回归脚本
 | 阶段 8 第 18 节 | [notes/stage8-18-mcp-and-existing-agent-relationship.md](notes/stage8-18-mcp-and-existing-agent-relationship.md) |
 | 阶段 8 第 19 节 | [notes/stage8-19-mcp-testing-and-contract-tests.md](notes/stage8-19-mcp-testing-and-contract-tests.md) |
 | 阶段 8 第 20 节 | [notes/stage8-20-mcp-initial-project-summary.md](notes/stage8-20-mcp-initial-project-summary.md) |
+| 阶段 8 第 21 节 | [notes/stage8-21-mcp-server-engineering-structure.md](notes/stage8-21-mcp-server-engineering-structure.md) |
+| 阶段 8 第 22 节 | [notes/stage8-22-mcp-config-and-env.md](notes/stage8-22-mcp-config-and-env.md) |
+| 阶段 8 第 23 节 | [notes/stage8-23-mcp-observability.md](notes/stage8-23-mcp-observability.md) |
+| 阶段 8 第 24 节 | [notes/stage8-24-mcp-summary-and-interview-expression.md](notes/stage8-24-mcp-summary-and-interview-expression.md) |
 | M6 项目定位说明 | [notes/m6-01-project-positioning-and-portfolio-goals.md](notes/m6-01-project-positioning-and-portfolio-goals.md) |
 | 阶段 6 生产化复盘 | [notes/stage6-36-project-summary-interview-expression.md](notes/stage6-36-project-summary-interview-expression.md) |
 
