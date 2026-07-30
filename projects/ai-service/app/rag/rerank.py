@@ -1,11 +1,16 @@
 from collections import Counter
 from collections.abc import Iterable, Sequence
+from time import perf_counter
+from typing import Any
 from typing import Protocol
 
+import httpx
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.config import Settings
 from app.rag.documents import Metadata, RetrievedChunk
 from app.rag.hybrid import HybridSearchResult, KeywordSearchResult, extract_keyword_terms
+from app.rag.score_interpretation import RetrievalScoreMeaning
 
 
 DEFAULT_RERANK_TOP_K = 3
@@ -13,6 +18,11 @@ CONTENT_MATCH_WEIGHT = 0.55
 TITLE_SECTION_MATCH_WEIGHT = 0.2
 RETRIEVAL_SCORE_WEIGHT = 0.15
 SOURCE_AGREEMENT_WEIGHT = 0.1
+RERANK_ENDPOINT_PATH = "/rerank"
+
+
+class RerankModelError(RuntimeError):
+    pass
 
 
 class RerankCandidate(BaseModel):
@@ -51,6 +61,28 @@ class RerankedChunk(BaseModel):
     matched_terms: list[str] = Field(default_factory=list)
 
 
+class RerankReport(BaseModel):
+    query: str = Field(min_length=1)
+    top_k: int = Field(gt=0)
+    candidate_count: int = Field(ge=0)
+    returned_count: int = Field(ge=0)
+    top_before_chunk_id: str | None = None
+    top_after_chunk_id: str | None = None
+    moved_count: int = Field(ge=0)
+    promoted_chunk_ids: list[str] = Field(default_factory=list)
+    dropped_chunk_ids: list[str] = Field(default_factory=list)
+    retrieval_score_direction: str = Field(min_length=1)
+    results: list[RerankedChunk] = Field(default_factory=list)
+    debug_lines: list[str] = Field(default_factory=list)
+
+
+class RerankExecutionResult(BaseModel):
+    results: list[RerankedChunk] = Field(default_factory=list)
+    used_fallback: bool = False
+    fallback_reason: str | None = None
+    elapsed_ms: float = Field(ge=0)
+
+
 class Reranker(Protocol):
     def rerank(
         self,
@@ -58,6 +90,7 @@ class Reranker(Protocol):
         candidates: Sequence[RerankCandidate],
         *,
         top_k: int = DEFAULT_RERANK_TOP_K,
+        retrieval_score_meaning: RetrievalScoreMeaning | None = None,
     ) -> list[RerankedChunk]:
         """Reorder already-retrieved candidates for a query."""
 
@@ -69,8 +102,132 @@ class RuleBasedReranker:
         candidates: Sequence[RerankCandidate],
         *,
         top_k: int = DEFAULT_RERANK_TOP_K,
+        retrieval_score_meaning: RetrievalScoreMeaning | None = None,
     ) -> list[RerankedChunk]:
-        return rerank_candidates(query, candidates, top_k=top_k)
+        return rerank_candidates(
+            query,
+            candidates,
+            top_k=top_k,
+            retrieval_score_meaning=retrieval_score_meaning,
+        )
+
+
+class HttpReranker:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        timeout_seconds: float,
+        api_key: str | None = None,
+        max_retries: int = 0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        if not base_url.strip():
+            raise ValueError("rerank base_url must not be blank")
+        if not model.strip():
+            raise ValueError("rerank model must not be blank")
+        if timeout_seconds <= 0:
+            raise ValueError("rerank timeout_seconds must be greater than 0")
+        if not isinstance(max_retries, int) or isinstance(max_retries, bool):
+            raise ValueError("rerank max_retries must be an integer")
+        if max_retries < 0:
+            raise ValueError("rerank max_retries must be greater than or equal to 0")
+
+        self.base_url = base_url.strip().rstrip("/")
+        self.model = model.strip()
+        self.timeout_seconds = timeout_seconds
+        self.api_key = api_key.strip() if api_key and api_key.strip() else None
+        self.max_retries = max_retries
+        self.transport = transport
+
+    @classmethod
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> "HttpReranker":
+        base_url = settings.resolved_rerank_base_url
+        if base_url is None:
+            raise ValueError("RERANK_BASE_URL is not configured")
+        return cls(
+            base_url=base_url,
+            model=settings.rerank_model,
+            timeout_seconds=settings.rerank_timeout_seconds,
+            api_key=settings.resolved_rerank_api_key,
+            max_retries=settings.rerank_max_retries,
+            transport=transport,
+        )
+
+    def rerank(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+        *,
+        top_k: int = DEFAULT_RERANK_TOP_K,
+        retrieval_score_meaning: RetrievalScoreMeaning | None = None,
+    ) -> list[RerankedChunk]:
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError("query must not be blank")
+        _validate_positive_top_k(top_k)
+        if not candidates:
+            return []
+
+        model_results = self._request_rerank(
+            normalized_query,
+            candidates,
+            top_k=top_k,
+        )
+        return _build_reranked_chunks_from_model_results(
+            normalized_query,
+            candidates,
+            model_results,
+            retrieval_score_meaning=retrieval_score_meaning,
+        )
+
+    def _request_rerank(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+        *,
+        top_k: int,
+    ) -> list[dict[str, float | int]]:
+        request_body = {
+            "model": self.model,
+            "query": query,
+            "documents": [candidate.content for candidate in candidates],
+            "top_n": top_k,
+            "return_documents": False,
+        }
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                with httpx.Client(
+                    base_url=self.base_url,
+                    timeout=self.timeout_seconds,
+                    headers=self._headers(),
+                    transport=self.transport,
+                ) as client:
+                    response = client.post(RERANK_ENDPOINT_PATH, json=request_body)
+                if response.status_code in {408, 429} or response.status_code >= 500:
+                    if attempt < self.max_retries:
+                        continue
+                _raise_for_bad_rerank_response(response)
+                return _extract_model_rerank_results(
+                    _parse_rerank_response_json(response),
+                    candidate_count=len(candidates),
+                )
+            except httpx.RequestError as exc:
+                if attempt >= self.max_retries:
+                    raise RerankModelError("rerank provider request failed") from exc
+        raise RerankModelError("rerank provider request failed")
+
+    def _headers(self) -> dict[str, str]:
+        if self.api_key is None:
+            return {}
+        return {"Authorization": f"Bearer {self.api_key}"}
 
 
 def make_rerank_candidates_from_retrieved_chunks(
@@ -125,6 +282,7 @@ def rerank_candidates(
     candidates: Sequence[RerankCandidate],
     *,
     top_k: int = DEFAULT_RERANK_TOP_K,
+    retrieval_score_meaning: RetrievalScoreMeaning | None = None,
 ) -> list[RerankedChunk]:
     normalized_query = query.strip()
     if not normalized_query:
@@ -143,6 +301,14 @@ def rerank_candidates(
         ),
         default=0.0,
     )
+    min_retrieval_score = min(
+        (
+            candidate.retrieval_score
+            for candidate in candidates
+            if candidate.retrieval_score is not None
+        ),
+        default=0.0,
+    )
 
     scored_payloads: list[dict[str, object]] = []
     for original_rank, candidate in enumerate(candidates, start=1):
@@ -150,6 +316,8 @@ def rerank_candidates(
             query_terms,
             candidate,
             max_retrieval_score=max_retrieval_score,
+            min_retrieval_score=min_retrieval_score,
+            retrieval_score_meaning=retrieval_score_meaning,
         )
         matched_terms = _merge_terms(
             candidate.matched_terms,
@@ -197,6 +365,92 @@ def rerank_candidates(
     ]
 
 
+def build_rerank_report(
+    query: str,
+    candidates: Sequence[RerankCandidate],
+    *,
+    top_k: int = DEFAULT_RERANK_TOP_K,
+    retrieval_score_meaning: RetrievalScoreMeaning | None = None,
+) -> RerankReport:
+    results = rerank_candidates(
+        query,
+        candidates,
+        top_k=top_k,
+        retrieval_score_meaning=retrieval_score_meaning,
+    )
+    returned_chunk_ids = {chunk.chunk_id for chunk in results}
+    promoted_chunk_ids = [
+        chunk.chunk_id
+        for chunk in results
+        if chunk.original_rank > chunk.rerank_rank
+    ]
+    dropped_chunk_ids = [
+        candidate.chunk_id
+        for candidate in candidates
+        if candidate.chunk_id not in returned_chunk_ids
+    ]
+    return RerankReport(
+        query=query.strip(),
+        top_k=top_k,
+        candidate_count=len(candidates),
+        returned_count=len(results),
+        top_before_chunk_id=candidates[0].chunk_id if candidates else None,
+        top_after_chunk_id=results[0].chunk_id if results else None,
+        moved_count=sum(
+            1
+            for chunk in results
+            if chunk.original_rank != chunk.rerank_rank
+        ),
+        promoted_chunk_ids=promoted_chunk_ids,
+        dropped_chunk_ids=dropped_chunk_ids,
+        retrieval_score_direction=(
+            retrieval_score_meaning.direction
+            if retrieval_score_meaning is not None
+            else "higher_is_better"
+        ),
+        results=results,
+        debug_lines=format_reranked_chunks_for_debug(results),
+    )
+
+
+def rerank_with_fallback(
+    query: str,
+    candidates: Sequence[RerankCandidate],
+    *,
+    primary_reranker: Reranker,
+    fallback_reranker: Reranker | None = None,
+    top_k: int = DEFAULT_RERANK_TOP_K,
+    retrieval_score_meaning: RetrievalScoreMeaning | None = None,
+) -> RerankExecutionResult:
+    fallback = fallback_reranker or RuleBasedReranker()
+    start_time = perf_counter()
+    try:
+        results = primary_reranker.rerank(
+            query,
+            candidates,
+            top_k=top_k,
+            retrieval_score_meaning=retrieval_score_meaning,
+        )
+        return RerankExecutionResult(
+            results=results,
+            used_fallback=False,
+            elapsed_ms=_elapsed_ms_since(start_time),
+        )
+    except Exception as exc:
+        results = fallback.rerank(
+            query,
+            candidates,
+            top_k=top_k,
+            retrieval_score_meaning=retrieval_score_meaning,
+        )
+        return RerankExecutionResult(
+            results=results,
+            used_fallback=True,
+            fallback_reason=type(exc).__name__,
+            elapsed_ms=_elapsed_ms_since(start_time),
+        )
+
+
 def reranked_chunks_to_retrieved_chunks(
     chunks: Sequence[RerankedChunk],
 ) -> list[RetrievedChunk]:
@@ -238,6 +492,8 @@ def _build_score_breakdown(
     candidate: RerankCandidate,
     *,
     max_retrieval_score: float,
+    min_retrieval_score: float,
+    retrieval_score_meaning: RetrievalScoreMeaning | None,
 ) -> RerankScoreBreakdown:
     content_score = _weighted_overlap_score(
         query_terms,
@@ -250,6 +506,8 @@ def _build_score_breakdown(
     normalized_retrieval_score = _normalize_score(
         candidate.retrieval_score,
         max_retrieval_score,
+        min_retrieval_score=min_retrieval_score,
+        retrieval_score_meaning=retrieval_score_meaning,
     )
     return RerankScoreBreakdown(
         content_match_score=content_score,
@@ -257,6 +515,62 @@ def _build_score_breakdown(
         normalized_retrieval_score=normalized_retrieval_score,
         source_agreement_score=_source_agreement_score(candidate.retrieval_sources),
     )
+
+
+def _build_reranked_chunks_from_model_results(
+    query: str,
+    candidates: Sequence[RerankCandidate],
+    model_results: Sequence[dict[str, float | int]],
+    *,
+    retrieval_score_meaning: RetrievalScoreMeaning | None,
+) -> list[RerankedChunk]:
+    query_terms = extract_keyword_terms(query)
+    max_retrieval_score = max(
+        (
+            candidate.retrieval_score
+            for candidate in candidates
+            if candidate.retrieval_score is not None
+        ),
+        default=0.0,
+    )
+    min_retrieval_score = min(
+        (
+            candidate.retrieval_score
+            for candidate in candidates
+            if candidate.retrieval_score is not None
+        ),
+        default=0.0,
+    )
+    chunks: list[RerankedChunk] = []
+    for rerank_rank, model_result in enumerate(model_results, start=1):
+        candidate = candidates[int(model_result["index"])]
+        breakdown = _build_score_breakdown(
+            query_terms,
+            candidate,
+            max_retrieval_score=max_retrieval_score,
+            min_retrieval_score=min_retrieval_score,
+            retrieval_score_meaning=retrieval_score_meaning,
+        )
+        matched_terms = _merge_terms(
+            candidate.matched_terms,
+            _matched_terms(query_terms, extract_keyword_terms(candidate.content)),
+            _matched_terms(query_terms, _title_section_terms(candidate.metadata)),
+        )
+        chunks.append(
+            RerankedChunk(
+                chunk_id=candidate.chunk_id,
+                content=candidate.content,
+                metadata=candidate.metadata,
+                retrieval_score=candidate.retrieval_score,
+                rerank_score=round(float(model_result["relevance_score"]), 6),
+                original_rank=int(model_result["index"]) + 1,
+                rerank_rank=rerank_rank,
+                score_breakdown=breakdown,
+                retrieval_sources=candidate.retrieval_sources,
+                matched_terms=matched_terms,
+            )
+        )
+    return chunks
 
 
 def _title_section_terms(metadata: Metadata) -> list[str]:
@@ -296,8 +610,26 @@ def _matched_terms(
     ]
 
 
-def _normalize_score(score: float | None, max_score: float) -> float:
-    if score is None or max_score <= 0:
+def _normalize_score(
+    score: float | None,
+    max_score: float,
+    *,
+    min_retrieval_score: float,
+    retrieval_score_meaning: RetrievalScoreMeaning | None,
+) -> float:
+    if score is None:
+        return 0.0
+    if (
+        retrieval_score_meaning is not None
+        and retrieval_score_meaning.direction == "lower_is_better"
+    ):
+        if max_score <= min_retrieval_score:
+            return 1.0
+        return round(
+            1 - ((score - min_retrieval_score) / (max_score - min_retrieval_score)),
+            6,
+        )
+    if max_score <= 0:
         return 0.0
     return round(min(score / max_score, 1.0), 6)
 
@@ -332,3 +664,62 @@ def _format_optional_score(score: float | None) -> str:
     if score is None:
         return "none"
     return f"{score:.4f}"
+
+
+def _raise_for_bad_rerank_response(response: httpx.Response) -> None:
+    if response.status_code < 400:
+        return
+    raise RerankModelError(
+        f"rerank provider returned status {response.status_code}"
+    )
+
+
+def _parse_rerank_response_json(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise RerankModelError("rerank provider returned invalid JSON") from exc
+
+
+def _extract_model_rerank_results(
+    data: Any,
+    *,
+    candidate_count: int,
+) -> list[dict[str, float | int]]:
+    if not isinstance(data, dict):
+        raise RerankModelError("rerank response must be an object")
+    results = data.get("results")
+    if not isinstance(results, list):
+        raise RerankModelError("rerank response results must be a list")
+
+    parsed_results: list[dict[str, float | int]] = []
+    seen_indexes: set[int] = set()
+    for item in results:
+        if not isinstance(item, dict):
+            raise RerankModelError("rerank response result must be an object")
+        index = item.get("index")
+        relevance_score = item.get("relevance_score")
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise RerankModelError("rerank result index must be an integer")
+        if index < 0 or index >= candidate_count or index in seen_indexes:
+            raise RerankModelError("rerank result index is out of range or duplicated")
+        if (
+            not isinstance(relevance_score, int | float)
+            or isinstance(relevance_score, bool)
+        ):
+            raise RerankModelError("rerank result relevance_score must be a number")
+        parsed_results.append(
+            {
+                "index": index,
+                "relevance_score": float(relevance_score),
+            }
+        )
+        seen_indexes.add(index)
+    return sorted(
+        parsed_results,
+        key=lambda result: (-float(result["relevance_score"]), int(result["index"])),
+    )
+
+
+def _elapsed_ms_since(start_time: float) -> float:
+    return round((perf_counter() - start_time) * 1000, 3)

@@ -8,6 +8,10 @@ from app.rag.documents import Metadata, RetrievedChunk
 from app.rag.embeddings import EmbeddedChunk, Vector
 from app.rag.filters import normalize_payload_filter
 from app.rag.metadata import build_qdrant_payload
+from app.rag.score_interpretation import (
+    describe_milvus_score,
+    is_score_passing_threshold,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -764,9 +768,12 @@ def _apply_score_threshold(
 ) -> list[RetrievedChunk]:
     if score_threshold is None:
         return list(chunks)
-    if metric_type == "L2":
-        return [chunk for chunk in chunks if chunk.score <= score_threshold]
-    return [chunk for chunk in chunks if chunk.score >= score_threshold]
+    meaning = describe_milvus_score(metric_type)
+    return [
+        chunk
+        for chunk in chunks
+        if is_score_passing_threshold(chunk.score, score_threshold, meaning)
+    ]
 
 
 def _find_field(description: Any, field_name: str) -> Mapping[str, Any] | None:

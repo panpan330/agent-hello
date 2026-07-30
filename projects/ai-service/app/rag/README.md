@@ -23,12 +23,15 @@ milvus_store.py Build Milvus entities, create schema/index, upsert embedded chun
 ingestion.py  Orchestrate load -> split -> embed -> upsert, document deletion, and directory refresh flows.
 retriever.py  Convert a user query into a vector and retrieve filtered top_k chunks above an optional score threshold.
 generator.py  Build RAG context from retrieved chunks, ask the model for a grounded answer, return backend-generated citations, and handle no-context fallbacks.
+citation_verification.py Verify that RAG answer citations point back to the retrieved chunks used as generation context.
+context_compression.py Compress retrieved chunks into a smaller generation context with budget reports and debug lines.
 query_rewrite.py Rewrite colloquial user questions into retrieval-oriented queries for learning and testing.
 multi_query.py Generate multiple retrieval-oriented query variants from one query.
 query_intent.py Classify user questions before RAG into policy, order, ticket, process, smalltalk, unsafe, or unclear routes.
+score_interpretation.py Explain retrieval score direction, threshold comparison, and cross-backend comparability.
 tuning.py     Build chunk and retrieval tuning reports for observing chunk_size, chunk_overlap, top_k, and score_threshold effects.
 hybrid.py     Provide simple keyword retrieval, vector + keyword result fusion, and debug-friendly hybrid fusion reports.
-rerank.py     Rerank retrieved candidates with explainable rule-based scores.
+rerank.py     Rerank retrieved candidates with rule-based or HTTP model rerankers, score-direction-aware normalization, fallback, and rank-change reports.
 security.py   Inspect retrieved chunks for permission, prompt-injection, and sensitive-data risks before model context construction.
 performance.py Build learning utilities for retrieval cache keys, TTL caching, batch planning, timing classification, and degradation decisions.
 evaluation.py Build retrieval evaluation cases, Hit Rate@K, Recall@K, Precision@K, MRR@K, and bad case reports.
@@ -124,3 +127,23 @@ Stage 9 lesson 5 strengthens hybrid search explainability: hybrid fusion keeps
 vector and keyword scores visible, records vector-only, keyword-only, and
 overlapped results, and formats debug lines for retrieval tuning and bad-case
 analysis.
+Stage 9 lesson 6 adds retrieval score interpretation: Qdrant and Milvus metrics
+are described with explicit score direction, threshold operator, range hints, and
+cross-backend comparability warnings, and Milvus threshold filtering reuses the
+shared interpretation helper.
+Stage 9 lesson 7 strengthens rerank explainability: rerank can normalize
+lower-is-better retrieval scores such as L2 distance, and `RerankReport` records
+top-before/top-after changes, promoted chunks, dropped chunks, and debug lines.
+Stage 9 lesson 8 adds a real-rerank adapter boundary: `HttpReranker` posts
+query/candidate pairs to a generic rerank endpoint, validates provider results,
+builds `RerankedChunk` objects from model scores, and `rerank_with_fallback`
+falls back to rule-based rerank when the provider fails.
+Stage 9 lesson 9 adds citation source verification after answer generation:
+`RagAnswer` citations can be checked against the retrieved chunks that formed
+the model context, catching missing citations, fake chunk IDs, source-index
+mismatches, source metadata mismatches, duplicate citations, and low lexical
+support warnings.
+Stage 9 lesson 10 adds context compression before answer generation: retrieved
+chunks can be kept, compressed, or dropped under a character budget, while
+preserving `RetrievedChunk` compatibility and recording compression metadata,
+per-chunk actions, saved characters, and debug lines.

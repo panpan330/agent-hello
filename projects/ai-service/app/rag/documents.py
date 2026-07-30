@@ -51,5 +51,5 @@ class RetrievedChunk(BaseModel):
         description="Retrieved chunk metadata copied from the vector-store payload.",
     )
     score: float = Field(
-        description="Vector-store similarity score for this query.",
+        description="Raw retrieval score or distance returned by the vector store.",
     )

@@ -1,16 +1,23 @@
+import httpx
 import pytest
 
+from app.core.config import Settings
 from app.rag.hybrid import HybridSearchResult, KeywordSearchResult
 from app.rag.rerank import (
+    HttpReranker,
     RerankCandidate,
+    RerankModelError,
     RuleBasedReranker,
+    build_rerank_report,
     format_reranked_chunks_for_debug,
     make_rerank_candidates_from_hybrid_results,
     make_rerank_candidates_from_keyword_results,
     make_rerank_candidates_from_retrieved_chunks,
     rerank_candidates,
+    rerank_with_fallback,
     reranked_chunks_to_retrieved_chunks,
 )
+from app.rag.score_interpretation import describe_milvus_score
 from tests.rag_fakes import make_retrieved_chunk
 
 
@@ -83,6 +90,70 @@ def test_rerank_candidates_records_score_breakdown() -> None:
     assert result.score_breakdown.source_agreement_score == 1
     assert result.retrieval_sources == ["vector", "keyword"]
     assert "退款" in result.matched_terms
+
+
+def test_rerank_candidates_can_normalize_lower_is_better_retrieval_scores() -> None:
+    candidates = [
+        RerankCandidate(
+            chunk_id="far_l2_distance",
+            content="generic placeholder text",
+            retrieval_score=0.9,
+            retrieval_sources=["vector"],
+        ),
+        RerankCandidate(
+            chunk_id="near_l2_distance",
+            content="generic placeholder text",
+            retrieval_score=0.2,
+            retrieval_sources=["vector"],
+        ),
+    ]
+
+    results = rerank_candidates(
+        "refund arrival",
+        candidates,
+        top_k=2,
+        retrieval_score_meaning=describe_milvus_score("L2"),
+    )
+
+    assert [result.chunk_id for result in results] == [
+        "near_l2_distance",
+        "far_l2_distance",
+    ]
+    assert results[0].score_breakdown.normalized_retrieval_score == 1
+    assert results[1].score_breakdown.normalized_retrieval_score == 0
+
+
+def test_build_rerank_report_summarizes_rank_changes() -> None:
+    candidates = [
+        make_candidate(
+            chunk_id="weak_first",
+            content="物流异常不能直接退款，需要先确认订单状态。",
+            retrieval_score=0.99,
+        ),
+        make_candidate(
+            chunk_id="strong_second",
+            content="退款到账时间通常为 1 到 3 个工作日。",
+            metadata={"source": "refund.md", "section": "退款到账时间"},
+            retrieval_score=0.72,
+        ),
+        make_candidate(
+            chunk_id="dropped_third",
+            content="售后工单会在 24 小时内处理。",
+            retrieval_score=0.4,
+        ),
+    ]
+
+    report = build_rerank_report("退款多久到账", candidates, top_k=2)
+
+    assert report.candidate_count == 3
+    assert report.returned_count == 2
+    assert report.top_before_chunk_id == "weak_first"
+    assert report.top_after_chunk_id == "strong_second"
+    assert report.moved_count == 2
+    assert report.promoted_chunk_ids == ["strong_second"]
+    assert report.dropped_chunk_ids == ["dropped_third"]
+    assert report.retrieval_score_direction == "higher_is_better"
+    assert report.debug_lines[0].startswith("1. rerank_score=")
 
 
 def test_rerank_candidates_limits_top_k_and_uses_stable_tie_breaker() -> None:
@@ -174,6 +245,138 @@ def test_rule_based_reranker_delegates_to_rerank_candidates() -> None:
 
     assert results[0].chunk_id == "refund_arrival_chunk"
     assert results[0].rerank_rank == 1
+
+
+def test_http_reranker_posts_candidates_and_builds_ranked_chunks() -> None:
+    captured_request: dict | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = {
+            "path": request.url.path,
+            "headers": dict(request.headers),
+            "json": request.read().decode("utf-8"),
+        }
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"index": 1, "relevance_score": 0.93},
+                    {"index": 0, "relevance_score": 0.41},
+                ]
+            },
+            request=request,
+        )
+
+    reranker = HttpReranker(
+        base_url="https://rerank.example.com/v1",
+        model="rerank-demo",
+        timeout_seconds=3,
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+    candidates = [
+        make_candidate(chunk_id="first", content="refund policy"),
+        make_candidate(chunk_id="second", content="refund arrival time"),
+    ]
+
+    results = reranker.rerank("refund arrival", candidates, top_k=2)
+
+    assert [result.chunk_id for result in results] == ["second", "first"]
+    assert results[0].rerank_score == 0.93
+    assert results[0].original_rank == 2
+    assert results[0].rerank_rank == 1
+    assert captured_request is not None
+    assert captured_request["path"] == "/v1/rerank"
+    assert captured_request["headers"]["authorization"] == "Bearer test-key"
+    assert '"model":"rerank-demo"' in captured_request["json"]
+    assert '"top_n":2' in captured_request["json"]
+
+
+def test_http_reranker_from_settings_uses_rerank_config() -> None:
+    reranker = HttpReranker.from_settings(
+        Settings(
+            rerank_base_url=" https://rerank.example.com/api/ ",
+            rerank_model="real-rerank",
+            rerank_api_key="rerank-key",
+            rerank_timeout_seconds=4.5,
+            rerank_max_retries=2,
+            _env_file=None,
+        ),
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"results": []},
+                request=request,
+            )
+        ),
+    )
+
+    assert reranker.base_url == "https://rerank.example.com/api"
+    assert reranker.model == "real-rerank"
+    assert reranker.api_key == "rerank-key"
+    assert reranker.timeout_seconds == 4.5
+    assert reranker.max_retries == 2
+
+
+def test_http_reranker_validates_provider_response() -> None:
+    reranker = HttpReranker(
+        base_url="https://rerank.example.com",
+        model="rerank-demo",
+        timeout_seconds=3,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"results": [{"index": 9, "relevance_score": 0.5}]},
+                request=request,
+            )
+        ),
+    )
+
+    with pytest.raises(RerankModelError, match="index"):
+        reranker.rerank("refund", [make_candidate()], top_k=1)
+
+
+def test_rerank_with_fallback_uses_rule_based_reranker_on_provider_failure() -> None:
+    primary = HttpReranker(
+        base_url="https://rerank.example.com",
+        model="rerank-demo",
+        timeout_seconds=3,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                500,
+                json={"error": "temporary unavailable"},
+                request=request,
+            )
+        ),
+    )
+    candidates = [
+        make_candidate(
+            chunk_id="weak_first",
+            content="物流异常不能直接退款，需要先确认订单状态。",
+            retrieval_score=0.99,
+        ),
+        make_candidate(
+            chunk_id="strong_second",
+            content="退款到账时间通常为 1 到 3 个工作日。",
+            metadata={"source": "refund.md", "section": "退款到账时间"},
+            retrieval_score=0.72,
+        ),
+    ]
+
+    result = rerank_with_fallback(
+        "退款多久到账",
+        candidates,
+        primary_reranker=primary,
+        top_k=2,
+    )
+
+    assert result.used_fallback is True
+    assert result.fallback_reason == "RerankModelError"
+    assert [chunk.chunk_id for chunk in result.results] == [
+        "strong_second",
+        "weak_first",
+    ]
 
 
 def test_reranked_chunks_to_retrieved_chunks_uses_rerank_score() -> None:

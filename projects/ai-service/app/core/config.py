@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     embedding_dimension: int = Field(default=1536, gt=0)
     embedding_batch_size: int = Field(default=64, ge=1, le=256)
     embedding_request_dimensions: bool = Field(default=False)
+    rerank_provider: str = Field(default="http-compatible")
+    rerank_model: str = Field(default="mock-rerank-model")
+    rerank_base_url: str | None = Field(default=None)
+    rerank_api_key: str | None = Field(default=None, repr=False)
+    rerank_timeout_seconds: float = Field(default=10.0, gt=0)
+    rerank_max_retries: int = Field(default=1, ge=0, le=3)
     tool_confirmation_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     mcp_server_name: str = Field(
         default="ai-service-learning-mcp",
@@ -118,6 +124,23 @@ class Settings(BaseSettings):
     @property
     def has_embedding_api_key(self) -> bool:
         return self.resolved_embedding_api_key is not None
+
+    @property
+    def resolved_rerank_api_key(self) -> str | None:
+        for api_key in (self.rerank_api_key, self.llm_api_key, self.openai_api_key):
+            if api_key and api_key.strip():
+                return api_key.strip()
+        return None
+
+    @property
+    def has_rerank_api_key(self) -> bool:
+        return self.resolved_rerank_api_key is not None
+
+    @property
+    def resolved_rerank_base_url(self) -> str | None:
+        if not self.rerank_base_url or not self.rerank_base_url.strip():
+            return None
+        return self.rerank_base_url.strip().rstrip("/")
 
     @property
     def resolved_embedding_base_url(self) -> str | None:
