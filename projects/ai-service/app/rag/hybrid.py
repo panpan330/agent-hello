@@ -95,6 +95,22 @@ class HybridSearchResult(BaseModel):
     matched_terms: list[str] = Field(default_factory=list)
 
 
+class HybridFusionReport(BaseModel):
+    top_k: int = Field(gt=0)
+    vector_weight: float = Field(ge=0)
+    keyword_weight: float = Field(ge=0)
+    vector_result_count: int = Field(ge=0)
+    keyword_result_count: int = Field(ge=0)
+    fused_result_count: int = Field(ge=0)
+    vector_only_count: int = Field(ge=0)
+    keyword_only_count: int = Field(ge=0)
+    both_count: int = Field(ge=0)
+    overlap_chunk_ids: list[str] = Field(default_factory=list)
+    top_chunk_id: str | None = None
+    results: list[HybridSearchResult] = Field(default_factory=list)
+    debug_lines: list[str] = Field(default_factory=list)
+
+
 class HybridSearchWeights(BaseModel):
     vector_weight: float = Field(default=DEFAULT_VECTOR_WEIGHT, ge=0)
     keyword_weight: float = Field(default=DEFAULT_KEYWORD_WEIGHT, ge=0)
@@ -189,6 +205,66 @@ def fuse_hybrid_results(
             result.chunk_id,
         ),
     )[:top_k]
+
+
+def build_hybrid_fusion_report(
+    vector_chunks: Sequence[RetrievedChunk],
+    keyword_results: Sequence[KeywordSearchResult],
+    *,
+    top_k: int = DEFAULT_HYBRID_TOP_K,
+    vector_weight: float = DEFAULT_VECTOR_WEIGHT,
+    keyword_weight: float = DEFAULT_KEYWORD_WEIGHT,
+) -> HybridFusionReport:
+    results = fuse_hybrid_results(
+        vector_chunks,
+        keyword_results,
+        top_k=top_k,
+        vector_weight=vector_weight,
+        keyword_weight=keyword_weight,
+    )
+    vector_chunk_ids = {chunk.chunk_id for chunk in vector_chunks}
+    keyword_chunk_ids = {result.chunk_id for result in keyword_results}
+    returned_chunk_ids = {result.chunk_id for result in results}
+    overlap_chunk_ids = sorted(vector_chunk_ids & keyword_chunk_ids)
+
+    return HybridFusionReport(
+        top_k=top_k,
+        vector_weight=vector_weight,
+        keyword_weight=keyword_weight,
+        vector_result_count=len(vector_chunks),
+        keyword_result_count=len(keyword_results),
+        fused_result_count=len(results),
+        vector_only_count=len(
+            (vector_chunk_ids - keyword_chunk_ids) & returned_chunk_ids
+        ),
+        keyword_only_count=len(
+            (keyword_chunk_ids - vector_chunk_ids) & returned_chunk_ids
+        ),
+        both_count=len((vector_chunk_ids & keyword_chunk_ids) & returned_chunk_ids),
+        overlap_chunk_ids=overlap_chunk_ids,
+        top_chunk_id=results[0].chunk_id if results else None,
+        results=results,
+        debug_lines=format_hybrid_results_for_debug(results),
+    )
+
+
+def format_hybrid_results_for_debug(results: Sequence[HybridSearchResult]) -> list[str]:
+    lines: list[str] = []
+    for index, result in enumerate(results, start=1):
+        sources = ",".join(result.retrieval_sources) or "unknown"
+        matched = ",".join(result.matched_terms[:6]) or "-"
+        source = result.metadata.get("source", "unknown-source")
+        section = result.metadata.get("section", "unknown-section")
+        lines.append(
+            (
+                f"{index}. hybrid_score={result.hybrid_score:.4f} "
+                f"vector_score={_format_optional_score(result.vector_score)} "
+                f"keyword_score={_format_optional_score(result.keyword_score)} "
+                f"sources={sources} source={source} section={section} "
+                f"chunk_id={result.chunk_id} matched={matched}"
+            )
+        )
+    return lines
 
 
 def hybrid_retrieve(
@@ -314,6 +390,12 @@ def _normalize_score(score: float, max_score: float) -> float:
     if max_score <= 0:
         return 0.0
     return score / max_score
+
+
+def _format_optional_score(score: float | None) -> str:
+    if score is None:
+        return "none"
+    return f"{score:.4f}"
 
 
 def _validate_positive_top_k(top_k: int) -> None:

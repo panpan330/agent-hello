@@ -5,7 +5,9 @@ from app.rag.hybrid import (
     HybridSearchWeights,
     KeywordSearchResult,
     SimpleKeywordRetriever,
+    build_hybrid_fusion_report,
     extract_keyword_terms,
+    format_hybrid_results_for_debug,
     fuse_hybrid_results,
     hybrid_retrieve,
 )
@@ -163,6 +165,71 @@ def test_fuse_hybrid_results_merges_by_chunk_id_and_scores_sources() -> None:
     assert results[0].vector_score == 0.6
     assert results[0].keyword_score == 1.0
     assert results[0].matched_terms == ["退款", "到账"]
+
+
+def test_build_hybrid_fusion_report_summarizes_source_mix() -> None:
+    vector_chunks = [
+        make_retrieved_chunk(chunk_id="chunk-vector-only", score=0.9),
+        make_retrieved_chunk(chunk_id="chunk-both", score=0.6),
+    ]
+    keyword_results = [
+        KeywordSearchResult(
+            chunk_id="chunk-both",
+            content="退款到账时间通常为 1 到 3 个工作日。",
+            metadata={"source": "refund.md", "section": "退款到账"},
+            score=1.0,
+            matched_terms=["退款", "到账"],
+        ),
+        KeywordSearchResult(
+            chunk_id="chunk-keyword-only",
+            content="退款申请需要先完成订单状态校验。",
+            metadata={"source": "refund.md", "section": "退款申请"},
+            score=0.8,
+            matched_terms=["退款"],
+        ),
+    ]
+
+    report = build_hybrid_fusion_report(
+        vector_chunks,
+        keyword_results,
+        top_k=3,
+        vector_weight=0.6,
+        keyword_weight=0.4,
+    )
+
+    assert report.vector_result_count == 2
+    assert report.keyword_result_count == 2
+    assert report.fused_result_count == 3
+    assert report.vector_only_count == 1
+    assert report.keyword_only_count == 1
+    assert report.both_count == 1
+    assert report.overlap_chunk_ids == ["chunk-both"]
+    assert report.top_chunk_id == "chunk-both"
+    assert report.debug_lines[0].startswith("1. hybrid_score=")
+    assert "sources=vector,keyword" in report.debug_lines[0]
+
+
+def test_format_hybrid_results_for_debug_includes_scores_and_terms() -> None:
+    results = fuse_hybrid_results(
+        [make_retrieved_chunk(chunk_id="chunk-vector-only", score=0.9)],
+        [
+            KeywordSearchResult(
+                chunk_id="chunk-keyword-only",
+                content="退款到账时间通常为 1 到 3 个工作日。",
+                metadata={"source": "refund.md", "section": "退款到账"},
+                score=1.0,
+                matched_terms=["退款", "到账"],
+            )
+        ],
+        top_k=2,
+    )
+
+    lines = format_hybrid_results_for_debug(results)
+
+    assert lines[0].startswith("1. hybrid_score=")
+    assert "vector_score=" in lines[0]
+    assert "keyword_score=" in lines[0]
+    assert "chunk_id=" in lines[0]
 
 
 def test_hybrid_weights_reject_zero_total_and_bool() -> None:

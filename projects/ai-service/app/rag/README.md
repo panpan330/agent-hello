@@ -23,8 +23,11 @@ milvus_store.py Build Milvus entities, create schema/index, upsert embedded chun
 ingestion.py  Orchestrate load -> split -> embed -> upsert, document deletion, and directory refresh flows.
 retriever.py  Convert a user query into a vector and retrieve filtered top_k chunks above an optional score threshold.
 generator.py  Build RAG context from retrieved chunks, ask the model for a grounded answer, return backend-generated citations, and handle no-context fallbacks.
+query_rewrite.py Rewrite colloquial user questions into retrieval-oriented queries for learning and testing.
+multi_query.py Generate multiple retrieval-oriented query variants from one query.
+query_intent.py Classify user questions before RAG into policy, order, ticket, process, smalltalk, unsafe, or unclear routes.
 tuning.py     Build chunk and retrieval tuning reports for observing chunk_size, chunk_overlap, top_k, and score_threshold effects.
-hybrid.py     Provide simple keyword retrieval and vector + keyword result fusion.
+hybrid.py     Provide simple keyword retrieval, vector + keyword result fusion, and debug-friendly hybrid fusion reports.
 rerank.py     Rerank retrieved candidates with explainable rule-based scores.
 security.py   Inspect retrieved chunks for permission, prompt-injection, and sensitive-data risks before model context construction.
 performance.py Build learning utilities for retrieval cache keys, TTL caching, batch planning, timing classification, and degradation decisions.
@@ -105,3 +108,19 @@ Stage 4 lesson 39 closes the RAG phase with a final review of the ingestion
 chain, question-answering chain, module ownership, Qdrant/Milvus selection,
 retrieval quality, security, performance, evaluation, and the transition into
 LangGraph-based agent orchestration. It does not add new runtime code.
+Stage 9 lesson 2 adds query rewrite basics: a deterministic rule-based rewriter
+maps common colloquial customer-service questions to retrieval-oriented policy
+queries, records rewrite reasons, preserves detected business entities, and emits
+warnings for queries that may need tool calling or contain instruction-like text.
+Stage 9 lesson 3 adds multi-query basics: a deterministic rule-based generator
+keeps the original query, expands safe policy questions into multiple retrieval
+angles, avoids expansion when business entities or instruction-like text are
+detected, and exposes debug-friendly query type and reason metadata.
+Stage 9 lesson 4 adds query intent classification before RAG: a deterministic
+classifier routes questions to policy RAG, process RAG, order tool calling,
+ticket write flow, direct smalltalk answer, safety guard, or clarification, and
+marks whether query rewrite and multi-query expansion should run.
+Stage 9 lesson 5 strengthens hybrid search explainability: hybrid fusion keeps
+vector and keyword scores visible, records vector-only, keyword-only, and
+overlapped results, and formats debug lines for retrieval tuning and bad-case
+analysis.
