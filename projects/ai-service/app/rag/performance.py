@@ -4,7 +4,7 @@ from enum import Enum
 import hashlib
 import json
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -168,6 +168,40 @@ class RagDegradationDecision(BaseModel):
     user_message: str = Field(min_length=1)
 
 
+RagPerformanceProtectionArea = Literal[
+    "cache",
+    "timeout",
+    "degradation",
+    "batching",
+    "retrieval",
+    "rerank",
+    "generation",
+]
+RagPerformanceProtectionPriority = Literal["high", "medium", "low"]
+
+
+class RagPerformanceProtectionRecommendation(BaseModel):
+    area: RagPerformanceProtectionArea
+    priority: RagPerformanceProtectionPriority
+    reason: str = Field(min_length=1)
+    evidence: str = Field(min_length=1)
+    suggested_action: str = Field(min_length=1)
+    risk: str = Field(min_length=1)
+
+
+class RagPerformanceProtectionReport(BaseModel):
+    timing_count: int = Field(ge=0)
+    timed_out_stages: list[RagOperationStage] = Field(default_factory=list)
+    near_timeout_stages: list[RagOperationStage] = Field(default_factory=list)
+    cache_hit_rate: float | None = Field(default=None, ge=0, le=1)
+    degradation_mode: RagDegradationMode | None = None
+    recommendation_count: int = Field(ge=0)
+    high_priority_count: int = Field(ge=0)
+    recommendations: list[RagPerformanceProtectionRecommendation] = Field(
+        default_factory=list
+    )
+
+
 def build_retrieval_cache_key(
     query: str,
     *,
@@ -304,6 +338,80 @@ def choose_degradation_decision(
     )
 
 
+def build_rag_performance_protection_report(
+    *,
+    timings: Sequence[RagOperationTiming] = (),
+    cache_stats: RagCacheStats | None = None,
+    degradation_decision: RagDegradationDecision | None = None,
+) -> RagPerformanceProtectionReport:
+    timed_out_stages = [
+        timing.stage
+        for timing in timings
+        if timing.status is RagOperationStatus.TIMED_OUT
+    ]
+    near_timeout_stages = [
+        timing.stage
+        for timing in timings
+        if timing.status is RagOperationStatus.NEAR_TIMEOUT
+    ]
+    cache_hit_rate = _cache_hit_rate(cache_stats) if cache_stats else None
+    recommendations: list[RagPerformanceProtectionRecommendation] = []
+
+    _append_timing_recommendations(recommendations, timings)
+    if cache_stats is not None:
+        _append_cache_recommendations(
+            recommendations,
+            cache_stats=cache_stats,
+            cache_hit_rate=cache_hit_rate,
+        )
+    if degradation_decision is not None:
+        _append_degradation_recommendations(recommendations, degradation_decision)
+
+    deduped_recommendations = _dedupe_recommendations(recommendations)
+    return RagPerformanceProtectionReport(
+        timing_count=len(timings),
+        timed_out_stages=timed_out_stages,
+        near_timeout_stages=near_timeout_stages,
+        cache_hit_rate=cache_hit_rate,
+        degradation_mode=(
+            degradation_decision.mode if degradation_decision is not None else None
+        ),
+        recommendation_count=len(deduped_recommendations),
+        high_priority_count=sum(
+            1 for recommendation in deduped_recommendations if recommendation.priority == "high"
+        ),
+        recommendations=deduped_recommendations,
+    )
+
+
+def format_rag_performance_protection_report(
+    report: RagPerformanceProtectionReport,
+) -> list[str]:
+    cache_hit_rate = (
+        "-" if report.cache_hit_rate is None else f"{report.cache_hit_rate:.4f}"
+    )
+    lines = [
+        "RAG performance protection report",
+        f"timings: {report.timing_count}",
+        f"timed_out_stages: {_format_stage_list(report.timed_out_stages)}",
+        f"near_timeout_stages: {_format_stage_list(report.near_timeout_stages)}",
+        f"cache_hit_rate: {cache_hit_rate}",
+        (
+            "degradation_mode: "
+            f"{report.degradation_mode.value if report.degradation_mode else '-'}"
+        ),
+        f"recommendations: {report.recommendation_count}",
+        f"high_priority: {report.high_priority_count}",
+    ]
+    for recommendation in report.recommendations:
+        lines.append(
+            f"- {recommendation.priority} {recommendation.area}: "
+            f"{recommendation.reason} evidence={recommendation.evidence} "
+            f"action={recommendation.suggested_action} risk={recommendation.risk}"
+        )
+    return lines
+
+
 def _normalize_cache_key(key: str) -> str:
     normalized = key.strip()
     if not normalized:
@@ -341,3 +449,196 @@ def _validate_score_threshold(score_threshold: float | None) -> None:
         raise ValueError("score_threshold must be a number")
     if score_threshold < 0:
         raise ValueError("score_threshold must be greater than or equal to 0")
+
+
+def _append_timing_recommendations(
+    recommendations: list[RagPerformanceProtectionRecommendation],
+    timings: Sequence[RagOperationTiming],
+) -> None:
+    for timing in timings:
+        if timing.status is RagOperationStatus.TIMED_OUT:
+            recommendations.append(
+                _performance_recommendation(
+                    area="timeout",
+                    priority="high",
+                    reason=f"{timing.stage.value} reached its timeout budget.",
+                    evidence=(
+                        f"elapsed_ms={timing.elapsed_ms:.2f}, "
+                        f"timeout_seconds={timing.timeout_seconds:.2f}"
+                    ),
+                    suggested_action=(
+                        "Set an explicit timeout, record the failure, and route "
+                        "the request to a degradation path."
+                    ),
+                    risk="Timeouts that are too strict can reject valid slow requests.",
+                )
+            )
+            recommendations.append(
+                _performance_recommendation(
+                    area="degradation",
+                    priority="high",
+                    reason="A timed-out stage needs a defined fallback behavior.",
+                    evidence=f"stage={timing.stage.value}",
+                    suggested_action=(
+                        "Prefer cached retrieval when safe, otherwise return a "
+                        "safe fallback or no-context response."
+                    ),
+                    risk="Fallback responses may be less complete than normal RAG answers.",
+                )
+            )
+        elif timing.status is RagOperationStatus.NEAR_TIMEOUT:
+            area: RagPerformanceProtectionArea = (
+                "rerank"
+                if timing.stage is RagOperationStage.RERANK
+                else "generation"
+                if timing.stage is RagOperationStage.GENERATION
+                else "retrieval"
+            )
+            recommendations.append(
+                _performance_recommendation(
+                    area=area,
+                    priority="medium",
+                    reason=f"{timing.stage.value} is close to its timeout budget.",
+                    evidence=(
+                        f"elapsed_ms={timing.elapsed_ms:.2f}, "
+                        f"timeout_seconds={timing.timeout_seconds:.2f}"
+                    ),
+                    suggested_action=(
+                        "Review candidate count, model/provider latency, and "
+                        "whether this stage needs batching or fallback."
+                    ),
+                    risk="Optimizing latency by reducing candidates can hurt answer quality.",
+                )
+            )
+
+
+def _append_cache_recommendations(
+    recommendations: list[RagPerformanceProtectionRecommendation],
+    *,
+    cache_stats: RagCacheStats,
+    cache_hit_rate: float | None,
+) -> None:
+    request_count = cache_stats.hit_count + cache_stats.miss_count
+    if request_count == 0:
+        return
+    if cache_hit_rate is not None and cache_hit_rate < 0.3:
+        recommendations.append(
+            _performance_recommendation(
+                area="cache",
+                priority="medium",
+                reason="Retrieval cache hit rate is low.",
+                evidence=f"cache_hit_rate={cache_hit_rate:.4f}",
+                suggested_action=(
+                    "Review cache TTL, cache key components, query normalization, "
+                    "and whether repeated read-only requests are cacheable."
+                ),
+                risk="Over-broad caching can leak scoped data or serve stale knowledge.",
+            )
+        )
+    if cache_stats.evicted_count > cache_stats.set_count:
+        recommendations.append(
+            _performance_recommendation(
+                area="cache",
+                priority="low",
+                reason="Cache eviction count is higher than set count.",
+                evidence=(
+                    f"evicted={cache_stats.evicted_count}, set={cache_stats.set_count}"
+                ),
+                suggested_action="Review cache max_entries and TTL settings.",
+                risk="Increasing cache size raises memory usage.",
+            )
+        )
+
+
+def _append_degradation_recommendations(
+    recommendations: list[RagPerformanceProtectionRecommendation],
+    decision: RagDegradationDecision,
+) -> None:
+    if decision.mode is RagDegradationMode.USE_CACHED_RETRIEVAL:
+        recommendations.append(
+            _performance_recommendation(
+                area="cache",
+                priority="high",
+                reason="Current degradation path depends on cached retrieval.",
+                evidence=f"stage={decision.stage.value}",
+                suggested_action=(
+                    "Ensure cache keys include tenant, permission scope, retrieval "
+                    "parameters, embedding model, and collection version."
+                ),
+                risk="Unsafe cache keys can leak data across users or tenants.",
+            )
+        )
+    elif decision.mode is RagDegradationMode.RETURN_SAFE_FALLBACK:
+        recommendations.append(
+            _performance_recommendation(
+                area="degradation",
+                priority="medium",
+                reason="The system can return safe retrieved evidence without model generation.",
+                evidence=f"stage={decision.stage.value}",
+                suggested_action=(
+                    "Make the fallback response explicit and avoid presenting it as "
+                    "a full model-generated answer."
+                ),
+                risk="Users may need a follow-up when only evidence is returned.",
+            )
+        )
+    else:
+        recommendations.append(
+            _performance_recommendation(
+                area="degradation",
+                priority="high",
+                reason="The system has no cache or safe chunks available for fallback.",
+                evidence=f"stage={decision.stage.value}",
+                suggested_action=(
+                    "Return a clear no-context/service-unavailable message and log "
+                    "the failed stage for observability."
+                ),
+                risk="Frequent no-context fallbacks can reduce user trust.",
+            )
+        )
+
+
+def _cache_hit_rate(stats: RagCacheStats) -> float | None:
+    request_count = stats.hit_count + stats.miss_count
+    if request_count == 0:
+        return None
+    return round(stats.hit_count / request_count, 6)
+
+
+def _performance_recommendation(
+    *,
+    area: RagPerformanceProtectionArea,
+    priority: RagPerformanceProtectionPriority,
+    reason: str,
+    evidence: str,
+    suggested_action: str,
+    risk: str,
+) -> RagPerformanceProtectionRecommendation:
+    return RagPerformanceProtectionRecommendation(
+        area=area,
+        priority=priority,
+        reason=reason,
+        evidence=evidence,
+        suggested_action=suggested_action,
+        risk=risk,
+    )
+
+
+def _dedupe_recommendations(
+    recommendations: Sequence[RagPerformanceProtectionRecommendation],
+) -> list[RagPerformanceProtectionRecommendation]:
+    deduped: list[RagPerformanceProtectionRecommendation] = []
+    seen: set[tuple[str, str]] = set()
+    for recommendation in recommendations:
+        key = (recommendation.area, recommendation.reason)
+        if key in seen:
+            continue
+        deduped.append(recommendation)
+        seen.add(key)
+    return deduped
+
+
+def _format_stage_list(stages: Sequence[RagOperationStage]) -> str:
+    if not stages:
+        return "-"
+    return ", ".join(stage.value for stage in stages)

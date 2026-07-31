@@ -34,6 +34,18 @@ RagAnswerQualityDimension = Literal[
     "refusal",
 ]
 RagAnswerQualitySeverity = Literal["warning", "blocking"]
+RagBadCaseLayer = Literal[
+    "data",
+    "retrieval",
+    "ranking",
+    "generation",
+    "citation",
+    "refusal",
+    "access_control",
+    "security",
+    "evaluation",
+    "unknown",
+]
 
 
 class RagEvalAccessContext(BaseModel):
@@ -596,6 +608,31 @@ class RetrievalEvalSummary(BaseModel):
     results: list[RetrievalEvalCaseResult] = Field(default_factory=list)
 
 
+class RagBadCaseCause(BaseModel):
+    layer: RagBadCaseLayer
+    severity: RagAnswerQualitySeverity
+    code: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    evidence: str | None = None
+    suggested_action: str = Field(min_length=1)
+
+
+class RagBadCaseAnalysis(BaseModel):
+    case_id: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    failed: bool
+    primary_layer: RagBadCaseLayer | None = None
+    causes: list[RagBadCaseCause] = Field(default_factory=list)
+
+
+class RagBadCaseReport(BaseModel):
+    analyzed_case_count: int = Field(ge=0)
+    failed_case_count: int = Field(ge=0)
+    blocking_cause_count: int = Field(ge=0)
+    layer_counts: dict[str, int] = Field(default_factory=dict)
+    analyses: list[RagBadCaseAnalysis] = Field(default_factory=list)
+
+
 def load_retrieval_eval_cases(path: Path | str) -> list[RetrievalEvalCase]:
     raw_text = Path(path).read_text(encoding="utf-8")
     raw_cases = json.loads(raw_text)
@@ -855,6 +892,105 @@ def format_retrieval_bad_cases(summary: RetrievalEvalSummary) -> list[str]:
                 f"  {item.rank}. {marker} score={item.score:.4f} "
                 f"source={item.source or '-'} section={item.section or '-'} "
                 f"chunk_id={item.chunk_id}"
+            )
+    return lines
+
+
+def analyze_rag_bad_case(
+    *,
+    retrieval_result: RetrievalEvalCaseResult | None = None,
+    answer_quality_result: RagAnswerQualityResult | None = None,
+) -> RagBadCaseAnalysis:
+    if retrieval_result is None and answer_quality_result is None:
+        raise ValueError("bad case analysis requires at least one evaluation result")
+
+    case_id = (
+        answer_quality_result.case_id
+        if answer_quality_result is not None
+        else retrieval_result.case_id
+    )
+    query = (
+        answer_quality_result.query
+        if answer_quality_result is not None
+        else retrieval_result.query
+    )
+    causes: list[RagBadCaseCause] = []
+    if retrieval_result is not None and (
+        not retrieval_result.passed
+        or _has_retrieval_quality_warning(retrieval_result)
+    ):
+        causes.extend(_analyze_retrieval_bad_case(retrieval_result))
+    if answer_quality_result is not None and (
+        not answer_quality_result.passed or answer_quality_result.findings
+    ):
+        causes.extend(_analyze_answer_quality_bad_case(answer_quality_result))
+
+    return RagBadCaseAnalysis(
+        case_id=case_id,
+        query=query,
+        failed=bool(causes),
+        primary_layer=_primary_bad_case_layer(causes),
+        causes=causes,
+    )
+
+
+def analyze_rag_bad_cases(
+    *,
+    retrieval_summary: RetrievalEvalSummary | None = None,
+    answer_quality_summary: RagAnswerQualitySummary | None = None,
+) -> RagBadCaseReport:
+    retrieval_results = {
+        result.case_id: result
+        for result in (retrieval_summary.results if retrieval_summary else [])
+    }
+    answer_results = {
+        result.case_id: result
+        for result in (answer_quality_summary.results if answer_quality_summary else [])
+    }
+    case_ids = sorted(set(retrieval_results) | set(answer_results))
+    analyses = [
+        analyze_rag_bad_case(
+            retrieval_result=retrieval_results.get(case_id),
+            answer_quality_result=answer_results.get(case_id),
+        )
+        for case_id in case_ids
+    ]
+    failed_analyses = [analysis for analysis in analyses if analysis.failed]
+    all_causes = [
+        cause for analysis in failed_analyses for cause in analysis.causes
+    ]
+    layer_counts = Counter(cause.layer for cause in all_causes)
+
+    return RagBadCaseReport(
+        analyzed_case_count=len(analyses),
+        failed_case_count=len(failed_analyses),
+        blocking_cause_count=sum(
+            1 for cause in all_causes if cause.severity == "blocking"
+        ),
+        layer_counts=dict(sorted(layer_counts.items())),
+        analyses=analyses,
+    )
+
+
+def format_rag_bad_case_report(report: RagBadCaseReport) -> list[str]:
+    lines = [
+        "RAG bad case analysis report",
+        f"analyzed_cases: {report.analyzed_case_count}",
+        f"failed_cases: {report.failed_case_count}",
+        f"blocking_causes: {report.blocking_cause_count}",
+        f"layers: {_format_counts(report.layer_counts)}",
+    ]
+    for analysis in report.analyses:
+        if not analysis.failed:
+            continue
+        lines.append(
+            f"- {analysis.case_id}: primary_layer={analysis.primary_layer} "
+            f"causes={len(analysis.causes)}"
+        )
+        for cause in analysis.causes:
+            lines.append(
+                f"  {cause.severity} {cause.layer} code={cause.code} "
+                f"evidence={cause.evidence or '-'} action={cause.suggested_action}"
             )
     return lines
 
@@ -1125,6 +1261,198 @@ def _build_answer_quality_findings(
         )
 
     return findings
+
+
+def _analyze_retrieval_bad_case(
+    result: RetrievalEvalCaseResult,
+) -> list[RagBadCaseCause]:
+    if not result.metric_applicable:
+        return [
+            _bad_case_cause(
+                layer="retrieval",
+                severity="blocking",
+                code="RAG_BAD_CASE_NO_CONTEXT_RETRIEVED_RESULTS",
+                reason="A no-context case still returned retrieved chunks.",
+                evidence=f"retrieved_count={result.retrieved_count}",
+                suggested_action=(
+                    "Check score_threshold, intent routing, metadata filters, and "
+                    "no-context decision rules."
+                ),
+            )
+        ]
+
+    causes: list[RagBadCaseCause] = []
+    if result.recall_at_k == 0:
+        causes.append(
+            _bad_case_cause(
+                layer="retrieval",
+                severity="blocking",
+                code="RAG_BAD_CASE_RECALL_ZERO",
+                reason="No expected retrieval target appeared in the evaluated top_k.",
+                evidence=(
+                    f"top_k={result.top_k} expected={result.expected_count} "
+                    f"matched={result.matched_expected_count}"
+                ),
+                suggested_action=(
+                    "Check source data, chunking, embeddings, query rewrite, "
+                    "multi-query expansion, and metadata filters."
+                ),
+            )
+        )
+    elif result.recall_at_k < 1:
+        causes.append(
+            _bad_case_cause(
+                layer="retrieval",
+                severity="blocking",
+                code="RAG_BAD_CASE_PARTIAL_RECALL",
+                reason="Only part of the expected retrieval targets appeared.",
+                evidence=f"recall={result.recall_at_k:.4f}",
+                suggested_action=(
+                    "Check whether top_k is too small, chunking split related facts, "
+                    "or filters removed some expected evidence."
+                ),
+            )
+        )
+
+    if result.first_relevant_rank and result.first_relevant_rank > 1:
+        causes.append(
+            _bad_case_cause(
+                layer="ranking",
+                severity="warning",
+                code="RAG_BAD_CASE_RELEVANT_RESULT_NOT_TOP1",
+                reason="The first relevant chunk appeared after rank 1.",
+                evidence=f"first_relevant_rank={result.first_relevant_rank}",
+                suggested_action=(
+                    "Check rerank, hybrid fusion weights, score normalization, "
+                    "and query rewrite quality."
+                ),
+            )
+        )
+    if result.precision_at_k < 0.5 and result.retrieved_count:
+        causes.append(
+            _bad_case_cause(
+                layer="retrieval",
+                severity="warning",
+                code="RAG_BAD_CASE_LOW_PRECISION",
+                reason="The evaluated top_k contains more noise than useful evidence.",
+                evidence=f"precision={result.precision_at_k:.4f}",
+                suggested_action=(
+                    "Check score_threshold, top_k, hybrid weights, metadata filters, "
+                    "and rerank behavior."
+                ),
+            )
+        )
+    return causes
+
+
+def _has_retrieval_quality_warning(result: RetrievalEvalCaseResult) -> bool:
+    if not result.metric_applicable:
+        return not result.passed
+    return bool(
+        (result.first_relevant_rank and result.first_relevant_rank > 1)
+        or (result.precision_at_k < 0.5 and result.retrieved_count)
+    )
+
+
+def _analyze_answer_quality_bad_case(
+    result: RagAnswerQualityResult,
+) -> list[RagBadCaseCause]:
+    causes: list[RagBadCaseCause] = []
+    for finding in result.findings:
+        layer = _layer_from_answer_quality_finding(result, finding)
+        causes.append(
+            _bad_case_cause(
+                layer=layer,
+                severity=finding.severity,
+                code=finding.code,
+                reason=finding.message,
+                evidence=finding.evidence,
+                suggested_action=_suggest_action_for_answer_quality_layer(layer),
+            )
+        )
+    return causes
+
+
+def _layer_from_answer_quality_finding(
+    result: RagAnswerQualityResult,
+    finding: RagAnswerQualityFinding,
+) -> RagBadCaseLayer:
+    if finding.code == "RAG_ANSWER_FORBIDDEN_SOURCE_USED":
+        return "access_control"
+    if finding.dimension == "behavior":
+        if result.expected_behavior == "security_block" or result.actual_behavior == "security_block":
+            return "security"
+        if result.expected_behavior == "access_denied" or result.actual_behavior == "access_denied":
+            return "access_control"
+        if result.expected_behavior in {"no_context", "clarify"}:
+            return "refusal"
+        return "generation"
+    if finding.dimension == "answer_points":
+        return "generation"
+    if finding.dimension == "citation":
+        return "citation"
+    if finding.dimension == "refusal":
+        if result.expected_behavior == "security_block":
+            return "security"
+        if result.expected_behavior == "access_denied":
+            return "access_control"
+        return "refusal"
+    return "unknown"
+
+
+def _suggest_action_for_answer_quality_layer(layer: RagBadCaseLayer) -> str:
+    suggestions: dict[str, str] = {
+        "generation": "Check prompt rules, context compression, answer format, and model output parsing.",
+        "citation": "Check citation construction, retrieved context ordering, source metadata, and citation verification.",
+        "refusal": "Check no-context, clarification, and refusal reason mapping logic.",
+        "access_control": "Check access scope, metadata filters, forbidden sources, and permission propagation.",
+        "security": "Check prompt-injection detection, risk levels, and security blocking policy.",
+    }
+    return suggestions.get(layer, "Check the upstream evaluation result and related RAG chain step.")
+
+
+def _primary_bad_case_layer(
+    causes: Sequence[RagBadCaseCause],
+) -> RagBadCaseLayer | None:
+    if not causes:
+        return None
+    blocking_causes = [cause for cause in causes if cause.severity == "blocking"]
+    selected_causes = blocking_causes or list(causes)
+    priority = [
+        "security",
+        "access_control",
+        "retrieval",
+        "ranking",
+        "generation",
+        "citation",
+        "refusal",
+        "data",
+        "evaluation",
+        "unknown",
+    ]
+    for layer in priority:
+        if any(cause.layer == layer for cause in selected_causes):
+            return layer
+    return selected_causes[0].layer
+
+
+def _bad_case_cause(
+    *,
+    layer: RagBadCaseLayer,
+    severity: RagAnswerQualitySeverity,
+    code: str,
+    reason: str,
+    evidence: str | None,
+    suggested_action: str,
+) -> RagBadCaseCause:
+    return RagBadCaseCause(
+        layer=layer,
+        severity=severity,
+        code=code,
+        reason=reason,
+        evidence=evidence,
+        suggested_action=suggested_action,
+    )
 
 
 def _unique_strings(values: Iterable[object]) -> list[str]:

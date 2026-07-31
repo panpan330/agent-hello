@@ -3,12 +3,15 @@ import pytest
 from app.rag.performance import (
     InMemoryTtlCache,
     RagDegradationMode,
+    RagCacheStats,
     RagOperationStage,
     RagOperationStatus,
     assess_operation_timing,
     build_batch_plan,
+    build_rag_performance_protection_report,
     build_retrieval_cache_key,
     choose_degradation_decision,
+    format_rag_performance_protection_report,
 )
 from tests.rag_fakes import make_retrieved_chunk
 
@@ -206,3 +209,85 @@ def test_choose_degradation_decision_returns_no_context_without_cache_or_chunks(
     assert decision.mode is RagDegradationMode.RETURN_NO_CONTEXT
     assert decision.should_use_cache is False
     assert decision.should_call_model is False
+
+
+def test_build_rag_performance_protection_report_recommends_timeout_and_degradation() -> None:
+    timing = assess_operation_timing(
+        RagOperationStage.VECTOR_STORE,
+        elapsed_ms=1200,
+        timeout_seconds=1,
+    )
+    decision = choose_degradation_decision(
+        RagOperationStage.VECTOR_STORE,
+        has_cached_retrieval=True,
+        has_safe_chunks=True,
+    )
+
+    report = build_rag_performance_protection_report(
+        timings=[timing],
+        degradation_decision=decision,
+    )
+    lines = format_rag_performance_protection_report(report)
+
+    assert report.timed_out_stages == [RagOperationStage.VECTOR_STORE]
+    assert report.degradation_mode is RagDegradationMode.USE_CACHED_RETRIEVAL
+    assert report.high_priority_count >= 2
+    assert any("timeout" in line for line in lines)
+    assert any("cache" in line for line in lines)
+
+
+def test_build_rag_performance_protection_report_recommends_cache_review_for_low_hit_rate() -> None:
+    report = build_rag_performance_protection_report(
+        cache_stats=RagCacheStats(
+            hit_count=1,
+            miss_count=9,
+            set_count=10,
+            evicted_count=0,
+            current_entries=3,
+        )
+    )
+
+    assert report.cache_hit_rate == 0.1
+    assert any(
+        recommendation.area == "cache"
+        and "hit rate is low" in recommendation.reason
+        for recommendation in report.recommendations
+    )
+
+
+def test_build_rag_performance_protection_report_recommends_stage_review_for_near_timeout() -> None:
+    report = build_rag_performance_protection_report(
+        timings=[
+            assess_operation_timing(
+                RagOperationStage.RERANK,
+                elapsed_ms=850,
+                timeout_seconds=1,
+            )
+        ]
+    )
+
+    assert report.near_timeout_stages == [RagOperationStage.RERANK]
+    assert any(
+        recommendation.area == "rerank"
+        and recommendation.priority == "medium"
+        for recommendation in report.recommendations
+    )
+
+
+def test_build_rag_performance_protection_report_recommends_safe_fallback_message() -> None:
+    decision = choose_degradation_decision(
+        RagOperationStage.GENERATION,
+        has_cached_retrieval=False,
+        has_safe_chunks=True,
+    )
+
+    report = build_rag_performance_protection_report(
+        degradation_decision=decision,
+    )
+
+    assert report.degradation_mode is RagDegradationMode.RETURN_SAFE_FALLBACK
+    assert any(
+        recommendation.area == "degradation"
+        and "safe retrieved evidence" in recommendation.reason
+        for recommendation in report.recommendations
+    )

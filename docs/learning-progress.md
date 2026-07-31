@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 9 RAG 进阶与检索质量优化第 15 节已完成；下一节学习 Bad Case 分析：怎么定位 RAG 答错的原因。
+当前阶段：阶段 9 RAG 进阶与检索质量优化已完成；下一阶段待确认，优先进入 AI 应用生产化与新技术补齐方向。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -23,7 +23,7 @@
 | M6 | 第 12 周 | 作品整理 | 已完成 | 快速版 5 节：项目定位、README、架构图/流程图、运行说明/演示脚本、简历/面试问答 |
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
-| M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 进行中 | 第 1-15 节已完成：RAG 进阶总览、基础 RAG 短板、RAG 问题分层排查、Query Rewrite、Multi Query、查询意图识别、Hybrid Search 进阶、检索分数语义、Rerank 进阶、真实 Rerank 模型 adapter、HttpReranker、RerankExecutionResult、fallback、MockTransport 测试、rerank_score 分数解释、引用来源校验、blocking/warning finding、轻量支撑度评分、Context Compression、keep/compress/drop、压缩报告、Metadata Filter、RagAccessScope、多租户/权限组/业务域过滤、payload/scalar filter、RAG Prompt Injection 防护、risk level、blocked reason codes、RAG 评测集设计、expected behavior、answer points、expected evidence、access context、refusal reason codes、dataset coverage report、检索指标、Hit@K、Hit Rate@K、Recall@K、Precision@K、MRR@K、metric breakdown、回答质量评测、answer point coverage、citation pass rate、refusal pass rate、forbidden source 检查和质量 bad case 输出；后续继续 bad case、调优、可观测性和生产化 |
+| M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
 
 ## M6 快速版学习清单
 
@@ -154,15 +154,15 @@ notes/stage9-00-rag-advanced-learning-plan.md
 | 13 | RAG 评测集设计 | 已完成 | `notes/stage9-13-rag-evaluation-dataset-design.md`、`projects/ai-service/app/rag/evaluation.py`、`projects/ai-service/data/rag_eval/rag_cases.json`、`projects/ai-service/tests/test_rag_evaluation.py`；系统学习 RAG 评测集为什么要先于指标，新增 `RagEvalCase`、`RagEvalExpectation`、`RagEvalAccessContext` 和 dataset coverage report，把问题、期望行为、答案要点、期望证据、权限上下文、拒答原因、标签、优先级结构化 |
 | 14 | 检索指标：命中率、召回率、Top-K 命中 | 已完成 | `notes/stage9-14-retrieval-metrics-hit-recall-topk.md`、`projects/ai-service/app/rag/evaluation.py`、`projects/ai-service/tests/test_rag_evaluation.py`；系统学习 Top-K、Hit@K、Hit Rate@K、Recall@K、Precision@K、MRR@K 的含义、公式、适用边界和常见误区，新增从 `RagEvalCase` 转换检索评测样本的函数，以及单条检索结果的 metric breakdown |
 | 15 | 回答质量评测：正确性、引用一致性、拒答合理性 | 已完成 | `notes/stage9-15-answer-quality-evaluation.md`、`projects/ai-service/app/rag/evaluation.py`、`projects/ai-service/tests/test_rag_evaluation.py`；系统学习最终回答质量为什么要和检索质量分开评测，新增 `RagAnswerQualityResult`、`RagAnswerQualitySummary`、`evaluate_rag_answer_quality` 和 summary/bad case 输出，覆盖正确性、引用一致性、拒答合理性、禁用来源和结构化拒答原因 |
-| 16 | Bad Case 分析：怎么定位 RAG 答错的原因 | 未开始 | 建立 RAG 问题排查路径，区分数据、检索、排序、生成和权限问题 |
-| 17 | 参数调优：chunk_size、overlap、top_k、score_threshold | 未开始 | 学会用可观察结果调整 RAG 参数，而不是凭感觉乱调 |
-| 18 | RAG 缓存、超时、降级和性能优化 | 未开始 | 学习真实服务里 RAG 的响应时间、成本和可用性保护 |
-| 19 | RAG 可观测性：记录 query、召回、rerank、引用、耗时 | 未开始 | 给 RAG 链路补齐排查所需日志和指标 |
-| 20 | RAG 数据更新：增量入库、删除、重新索引 | 未开始 | 理解知识库文档变化后，向量库和索引如何保持一致 |
-| 21 | RAG 多知识库路由 | 未开始 | 学习用户问题应该查哪个知识库，而不是所有资料混在一起检索 |
-| 22 | RAG 与 Agent 的组合边界 | 未开始 | 讲清楚 RAG 负责查资料，Agent 负责流程决策和工具编排 |
-| 23 | RAG 生产化验收清单：质量、安全、性能、成本、可观测性 | 未开始 | 整理一个真实 RAG 功能上线前应该检查什么 |
-| 24 | 阶段 9 总复盘和面试表达强化 | 未开始 | 把阶段 9 的能力整理成项目表达、面试回答和后续学习路线 |
+| 16 | Bad Case 分析：怎么定位 RAG 答错的原因 | 已完成 | `notes/stage9-16-rag-bad-case-analysis.md`、`projects/ai-service/app/rag/evaluation.py`、`projects/ai-service/tests/test_rag_evaluation.py`；系统学习 bad case 不是简单“模型不行”，而要根据检索指标和回答质量 findings 分层归因，新增 `RagBadCaseCause`、`RagBadCaseAnalysis`、`RagBadCaseReport`、`analyze_rag_bad_case` 和报告输出，区分 retrieval、ranking、generation、citation、refusal、access_control、security 等层 |
+| 17 | 参数调优：chunk_size、overlap、top_k、score_threshold | 已完成 | `notes/stage9-17-rag-parameter-tuning.md`、`projects/ai-service/app/rag/tuning.py`、`projects/ai-service/tests/test_rag_tuning.py`；系统学习参数调优必须基于指标和 bad case，而不是凭感觉乱调，新增 `RagParameterTuningRecommendation`、`RagParameterTuningReport`、`build_rag_parameter_tuning_report` 和报告输出，根据 Recall、Precision、MRR、no_context、回答质量与 bad case layer 给出 top_k、score_threshold、chunk_size、chunk_overlap、rerank、prompt、metadata_filter、no_context_gate、security_policy 的调优建议 |
+| 18 | RAG 缓存、超时、降级和性能优化 | 已完成 | `notes/stage9-18-rag-cache-timeout-degradation-performance.md`、`projects/ai-service/app/rag/performance.py`、`projects/ai-service/tests/test_rag_performance.py`；系统学习 RAG 为什么容易慢，缓存、超时、降级分别解决什么问题，新增 `RagPerformanceProtectionRecommendation`、`RagPerformanceProtectionReport`、`build_rag_performance_protection_report` 和报告输出，根据 operation timing、cache stats、degradation decision 给出 cache、timeout、degradation、retrieval、rerank、generation 等性能保护建议 |
+| 19 | RAG 可观测性：记录 query、召回、rerank、引用、耗时 | 已完成 | `notes/stage9-19-rag-observability-query-retrieval-rerank-citation-timing.md`、`projects/ai-service/app/rag/observability.py`、`projects/ai-service/tests/test_rag_observability.py`；系统学习日志、指标、trace 和 RAG 可观测事件的区别，新增 `RagObservabilityEvent`、query hash/脱敏预览、retrieval snapshot、rerank summary、citation summary、timing snapshot、warning codes 和安全日志 payload，记录足够排查的信息但不直接暴露 chunk 原文 |
+| 20 | RAG 数据更新：增量入库、删除、重新索引 | 已完成 | `notes/stage9-20-rag-data-update-incremental-delete-reindex.md`、`projects/ai-service/app/rag/data_update.py`、`projects/ai-service/tests/test_rag_data_update.py`；系统学习知识库文档变化后为什么不能只追加写入，新增 `RagDocumentManifest`、`RagDocumentChange`、`RagDataUpdatePlan`、`build_document_manifest`、`detect_document_changes` 和 `build_rag_data_update_plan`，把 new/modified/deleted/unchanged source 映射为 ingest_new、refresh_source、delete_source、skip 或 full reindex，并记录缓存失效和重新评测提示 |
+| 21 | RAG 多知识库路由 | 已完成 | `notes/stage9-21-rag-multi-knowledge-base-routing.md`、`projects/ai-service/app/rag/knowledge_routing.py`、`projects/ai-service/tests/test_rag_knowledge_routing.py`；系统学习多知识库路由为什么要放在 query intent 和 metadata filter 之间，新增 `RagKnowledgeBaseDefinition`、`RagKnowledgeRoute`、`RagKnowledgeRouteDecision`、`RuleBasedRagKnowledgeRouter` 和 `route_rag_knowledge_bases`，把 RAG 问题路由到 customer policy、logistics、account security、process SOP、internal escalation 或 fallback policy，并根据 access scope 生成检索前 payload filter |
+| 22 | RAG 与 Agent 的组合边界 | 已完成 | `notes/stage9-22-rag-agent-boundary.md`、`projects/ai-service/app/rag/agent_boundary.py`、`projects/ai-service/tests/test_rag_agent_boundary.py`；系统学习 RAG 负责查资料、Agent 负责流程决策和工具编排、Tool 负责真实业务读写的边界，新增 `RagAgentBoundaryDecision` 和 `build_rag_agent_boundary_decision`，把 policy/process 问题、订单查询、工单创建、写工具确认、安全拦截、闲聊和追问映射到 rag、tool、agent、safety、direct_answer 或 clarification |
+| 23 | RAG 生产化验收清单：质量、安全、性能、成本、可观测性 | 已完成 | `notes/stage9-23-rag-production-readiness-checklist.md`、`projects/ai-service/app/rag/production_readiness.py`、`projects/ai-service/tests/test_rag_production_readiness.py`；系统学习真实 RAG 上线前要检查质量、安全、性能、成本、可观测性、数据和 RAG/Agent 边界，新增 `RagProductionReadinessCheck`、`RagProductionReadinessAnswer`、`RagProductionReadinessReport`、`default_rag_production_readiness_checklist` 和 `build_rag_production_readiness_report`，把 passed/warning/failed/not_checked 汇总为 ready/conditional/blocked 发布判断 |
+| 24 | 阶段 9 总复盘和面试表达强化 | 已完成 | `notes/stage9-24-rag-summary-and-interview-expression.md`；把阶段 9 的 RAG 能力整理成查询理解、检索召回、排序上下文、生成校验、评测调优、生产运营六层能力地图，并补充 30 秒/1 分钟/3 分钟项目表达、常见面试题回答、简历素材、项目边界和后续学习路线 |
 
 ## 近期任务
 

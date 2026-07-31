@@ -28,13 +28,18 @@ context_compression.py Compress retrieved chunks into a smaller generation conte
 query_rewrite.py Rewrite colloquial user questions into retrieval-oriented queries for learning and testing.
 multi_query.py Generate multiple retrieval-oriented query variants from one query.
 query_intent.py Classify user questions before RAG into policy, order, ticket, process, smalltalk, unsafe, or unclear routes.
+knowledge_routing.py Route RAG queries to one or more knowledge bases, collections, business domains, doc types, and permission scopes.
+agent_boundary.py Explain and structure the responsibility boundary between RAG retrieval, Agent workflows, tool execution, safety blocking, direct answers, and clarifying questions.
 score_interpretation.py Explain retrieval score direction, threshold comparison, and cross-backend comparability.
-tuning.py     Build chunk and retrieval tuning reports for observing chunk_size, chunk_overlap, top_k, and score_threshold effects.
+tuning.py     Build chunk and retrieval tuning reports for observing chunk_size, chunk_overlap, top_k, and score_threshold effects, and convert RAG metrics/bad cases into parameter tuning recommendations.
 hybrid.py     Provide simple keyword retrieval, vector + keyword result fusion, and debug-friendly hybrid fusion reports.
 rerank.py     Rerank retrieved candidates with rule-based or HTTP model rerankers, score-direction-aware normalization, fallback, and rank-change reports.
 security.py   Inspect retrieved chunks for permission, prompt-injection, and sensitive-data risks before model context construction, with risk levels and blocking reasons.
-performance.py Build learning utilities for retrieval cache keys, TTL caching, batch planning, timing classification, and degradation decisions.
-evaluation.py Build RAG evaluation case schemas, dataset coverage reports, answer-quality evaluation, retrieval metric cases, Hit@K, Hit Rate@K, Recall@K, Precision@K, MRR@K, metric breakdowns, and bad case reports.
+performance.py Build learning utilities for retrieval cache keys, TTL caching, batch planning, timing classification, degradation decisions, and performance protection reports.
+evaluation.py Build RAG evaluation case schemas, dataset coverage reports, answer-quality evaluation, retrieval metric cases, Hit@K, Hit Rate@K, Recall@K, Precision@K, MRR@K, metric breakdowns, bad case root-cause analysis, and bad case reports.
+observability.py Build safe RAG observability events for query, retrieval, rerank, citation, timing, and warning snapshots.
+data_update.py Build document manifests, detect new/modified/deleted sources, and plan incremental update or full reindex actions.
+production_readiness.py Build RAG production readiness checklists and reports across quality, security, performance, cost, observability, data, and Agent boundaries.
 errors.py     Map embedding and vector-store failures to stable application errors.
 ```
 
@@ -166,3 +171,33 @@ metric breakdowns explain Hit@K, Recall@K, Precision@K, and MRR@K formulas.
 Stage 9 lesson 15 adds deterministic RAG answer-quality evaluation: final answers
 can be checked against expected behavior, answer points, cited sources, forbidden
 sources, and refusal reason codes without calling a real model judge.
+Stage 9 lesson 16 adds RAG bad-case root-cause analysis: retrieval and answer
+quality failures can be classified into retrieval, ranking, generation, citation,
+refusal, access-control, and security layers with evidence and suggested actions.
+Stage 9 lesson 17 adds parameter tuning recommendations: retrieval metrics,
+answer-quality summaries, and bad-case layers can produce review/increase/decrease
+advice for chunk_size, chunk_overlap, top_k, score_threshold, rerank, prompt,
+metadata filters, no-context gates, and security policy.
+Stage 9 lesson 18 adds performance protection reports: operation timings, cache
+stats, and degradation decisions can produce cache, timeout, degradation, rerank,
+retrieval, and generation recommendations with evidence and risk notes.
+Stage 9 lesson 19 adds RAG observability events: query hashes and redacted
+previews, retrieved chunk snapshots, rerank summaries, citation verification
+summaries, stage timings, and warning codes can be collected into safe log
+payloads without writing raw chunk content.
+Stage 9 lesson 20 adds RAG data update planning: previous and current document
+manifests can be compared to detect new, modified, deleted, and unchanged
+sources, then mapped to ingest_new, refresh_source, delete_source, skip, or
+full reindex actions with cache invalidation and evaluation rerun hints.
+Stage 9 lesson 21 adds multi-knowledge-base routing: RAG query intent and
+keywords can select customer policy, logistics, account security, process SOP,
+internal escalation, or fallback policy knowledge bases, while access scope
+restricts the route payload filters before retrieval.
+Stage 9 lesson 22 adds RAG and Agent boundary decisions: policy/process questions
+stay RAG-owned, live order data belongs to read tools, ticket creation belongs to
+Agent workflows with confirmation, unsafe queries are blocked before retrieval,
+and RAG can be used as Agent context without becoming the workflow owner.
+Stage 9 lesson 23 adds production readiness checklists: quality, security,
+performance, cost, observability, data, and Agent-boundary checks can be marked
+passed, warning, failed, or not_checked and summarized into ready, conditional,
+or blocked release decisions.

@@ -33,3 +33,11 @@ expected evidence designed in the broader RAG evaluation set.
 Stage 9 lesson 15 reuses the same `rag_cases.json` expectations for deterministic
 answer-quality checks: answer points, cited sources, forbidden sources, and
 refusal reason codes become separate evaluation dimensions.
+
+Stage 9 lesson 16 combines retrieval metric failures and answer-quality findings
+into bad-case root-cause layers, so a failed case can be routed to retrieval,
+ranking, generation, citation, refusal, access-control, or security follow-up.
+
+Stage 9 lesson 17 turns those metrics and bad-case layers into parameter tuning
+recommendations, making it clearer when to adjust chunk_size, chunk_overlap,
+top_k, score_threshold, rerank, prompt, filters, or safety gates.
