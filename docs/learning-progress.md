@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 9 RAG 进阶与检索质量优化已完成；下一阶段待确认，优先进入 AI 应用生产化与新技术补齐方向。
+当前阶段：阶段 10 AI 应用生产化与可运营能力第 1 节已完成；下一节学习阶段 10 第 2 节：Tracing 是什么。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -24,6 +24,7 @@
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 | M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
+| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1 节已完成：AI 应用生产化总览；阶段 10 固定为 28 节主线，后续继续学习 Tracing、日志安全、配置与密钥、token 成本、耗时拆解、多模型路由、fallback、成本控制、限流、重试、超时、SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
 
 ## M6 快速版学习清单
 
@@ -163,6 +164,53 @@ notes/stage9-00-rag-advanced-learning-plan.md
 | 22 | RAG 与 Agent 的组合边界 | 已完成 | `notes/stage9-22-rag-agent-boundary.md`、`projects/ai-service/app/rag/agent_boundary.py`、`projects/ai-service/tests/test_rag_agent_boundary.py`；系统学习 RAG 负责查资料、Agent 负责流程决策和工具编排、Tool 负责真实业务读写的边界，新增 `RagAgentBoundaryDecision` 和 `build_rag_agent_boundary_decision`，把 policy/process 问题、订单查询、工单创建、写工具确认、安全拦截、闲聊和追问映射到 rag、tool、agent、safety、direct_answer 或 clarification |
 | 23 | RAG 生产化验收清单：质量、安全、性能、成本、可观测性 | 已完成 | `notes/stage9-23-rag-production-readiness-checklist.md`、`projects/ai-service/app/rag/production_readiness.py`、`projects/ai-service/tests/test_rag_production_readiness.py`；系统学习真实 RAG 上线前要检查质量、安全、性能、成本、可观测性、数据和 RAG/Agent 边界，新增 `RagProductionReadinessCheck`、`RagProductionReadinessAnswer`、`RagProductionReadinessReport`、`default_rag_production_readiness_checklist` 和 `build_rag_production_readiness_report`，把 passed/warning/failed/not_checked 汇总为 ready/conditional/blocked 发布判断 |
 | 24 | 阶段 9 总复盘和面试表达强化 | 已完成 | `notes/stage9-24-rag-summary-and-interview-expression.md`；把阶段 9 的 RAG 能力整理成查询理解、检索召回、排序上下文、生成校验、评测调优、生产运营六层能力地图，并补充 30 秒/1 分钟/3 分钟项目表达、常见面试题回答、简历素材、项目边界和后续学习路线 |
+
+## 阶段 10 学习清单
+
+阶段 10 的定位：
+
+```text
+AI 应用生产化与可运营能力。重点把已经能运行的 AI 应用继续推进到稳定、安全、可观测、可评估、可控成本、可灰度上线和可持续运营。
+```
+
+阶段 10 计划记录：
+
+```text
+notes/stage10-00-ai-production-operability-learning-plan.md
+```
+
+固定为 28 节：
+
+| 节 | 主题 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| 1 | AI 应用生产化总览 | 已完成 | `notes/stage10-01-ai-production-overview.md`；系统学习 AI 应用生产化和可运营的含义，区分能跑通、能上线、可运营，梳理 AI 应用相对传统后端新增的不确定性、外部模型依赖、token 成本、Prompt Injection、上下文泄露、工具调用和评估困难等生产风险，并把阶段 10 的 28 节整理成可追踪、可控成本和性能、可用体验、安全边界、质量评估、线上运营六组能力 |
+| 2 | Tracing 是什么 | 未开始 | 理解为什么 AI 应用必须能追踪一次请求从入口到模型、RAG、Tool、Java 后端的完整链路 |
+| 3 | trace_id / span / event / metric 的区别 | 未开始 | 区分链路标识、阶段片段、关键事件和聚合指标 |
+| 4 | Python AI 服务 tracing | 未开始 | 在 ai-service 内部梳理请求入口、LLM 调用、RAG、rerank、Tool 调用等节点的追踪方式 |
+| 5 | Java 业务服务 tracing 对齐 | 未开始 | 理解 Python 调 Java 时如何传递 trace_id，并让 Java 日志、错误码和响应头能串联排查 |
+| 6 | LLM 调用日志安全 | 未开始 | 学习 LLM 请求、响应、错误、耗时、模型名、token 记录时如何避免泄露密钥、隐私和完整敏感上下文 |
+| 7 | 配置与密钥管理 | 未开始 | 系统学习 `.env`、`.env.example`、不同环境配置、API Key 管理、密钥不上 GitHub、配置分层和最小暴露 |
+| 8 | Token 成本统计 | 未开始 | 理解 prompt tokens、completion tokens、总 token、单次成本、累计成本和按用户/模型/接口统计成本 |
+| 9 | 请求耗时拆解 | 未开始 | 学习把一次请求拆成检索、rerank、LLM、Tool、Java 后端、序列化等耗时阶段 |
+| 10 | 多模型路由基础 | 未开始 | 理解为什么一个 AI 系统可能需要按任务类型、成本、速度、稳定性选择不同模型 |
+| 11 | 模型 fallback | 未开始 | 学习主模型失败、超时、限流或质量不稳定时如何切备用模型，以及 fallback 的边界 |
+| 12 | 成本控制 | 未开始 | 学习预算、限额、上下文裁剪、降级、缓存、低成本模型和高成本能力开关 |
+| 13 | 限流 | 未开始 | 区分用户级、接口级、模型级、工具级限流，理解限流和权限、成本、稳定性的关系 |
+| 14 | 重试 | 未开始 | 学习哪些错误可以重试、哪些不能重试，读操作和写操作重试边界，以及幂等要求 |
+| 15 | 超时治理 | 未开始 | 设计请求总超时、模型超时、检索超时、工具超时、Java 后端超时和降级策略 |
+| 16 | SSE 流式输出生产化 | 未开始 | 学习流式响应的价值、事件格式、心跳、首 token 延迟、客户端体验和服务端资源占用 |
+| 17 | 流式错误处理和中断 | 未开始 | 学习流式输出中途失败、用户取消、上游超时、部分内容已输出时如何处理 |
+| 18 | Prompt Injection 防护强化 | 未开始 | 在 RAG 防护基础上继续学习系统提示、工具调用、外部输入和多轮上下文中的注入风险 |
+| 19 | 权限控制强化 | 未开始 | 系统梳理用户、租户、角色、权限组、工具权限、读写权限和后端最终授权边界 |
+| 20 | 模型输出安全与隐私保护 | 未开始 | 学习敏感信息、个人隐私、日志脱敏、回答边界、拒答策略和安全输出过滤 |
+| 21 | 自动化评估平台基础 | 未开始 | 从脚本式 eval 走向可持续评估，理解评测任务、评测数据、评测结果和报告沉淀 |
+| 22 | 评测集版本管理 | 未开始 | 学习评测集为什么要版本化，如何区分新增 case、修改 case、废弃 case 和回归基线 |
+| 23 | Bad Case 收集和回归测试 | 未开始 | 学习线上 bad case 如何进入评测集，如何防止修好一个问题又破坏旧问题 |
+| 24 | 线上监控指标设计 | 未开始 | 设计 AI 服务需要观察的请求量、错误率、延迟、token、成本、模型失败、fallback、限流等指标 |
+| 25 | 告警 | 未开始 | 学习什么时候应该报警，如何避免告警太少漏问题或告警太多没人看 |
+| 26 | 灰度发布与回滚 | 未开始 | 学习 AI 功能、Prompt、模型、RAG 参数和路由策略如何灰度发布，失败后如何回滚 |
+| 27 | SLO / SLA / Runbook | 未开始 | 理解服务目标、对外承诺和故障处理手册，知道出问题时如何按步骤排查和恢复 |
+| 28 | 阶段 10 总复盘和面试表达强化 | 未开始 | 把阶段 10 的生产化能力整理成项目表达、面试回答、简历素材和后续路线 |
 
 ## 近期任务
 
