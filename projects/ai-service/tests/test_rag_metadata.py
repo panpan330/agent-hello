@@ -96,7 +96,14 @@ def test_validate_chunk_metadata_requires_positive_chunk_index() -> None:
 
 
 def test_build_qdrant_payload_keeps_only_public_payload_fields() -> None:
-    metadata = make_chunk_metadata(internal_note="do not store", tags=["order"])
+    metadata = make_chunk_metadata(
+        internal_note="do not store",
+        tags=["order"],
+        tenant_id="default",
+        owner_user_id="U1001",
+        visibility="tenant",
+        status="published",
+    )
 
     payload = build_qdrant_payload(
         chunk_id="order_shipping_policy_chunk_0001",
@@ -108,6 +115,10 @@ def test_build_qdrant_payload_keeps_only_public_payload_fields() -> None:
     assert payload["chunk_id"] == "order_shipping_policy_chunk_0001"
     assert payload["source"] == "order-shipping-policy.md"
     assert payload["tags"] == ["order"]
+    assert payload["tenant_id"] == "default"
+    assert payload["owner_user_id"] == "U1001"
+    assert payload["visibility"] == "tenant"
+    assert payload["status"] == "published"
     assert "internal_note" not in payload
 
 

@@ -8,7 +8,7 @@ from app.rag.errors import (
     rag_embedding_failed,
     rag_vector_store_failed,
 )
-from app.rag.filters import PayloadFilter, build_payload_filter
+from app.rag.filters import PayloadFilter, RagAccessScope, build_payload_filter
 
 
 DEFAULT_TOP_K = 5
@@ -34,6 +34,7 @@ def retrieve_top_k(
     embedding_model: EmbeddingModel,
     vector_store: VectorStoreReader,
     top_k: int = DEFAULT_TOP_K,
+    access_scope: RagAccessScope | None = None,
     permission_group: str | None = None,
     business_domain: str | None = None,
     doc_type: str | None = None,
@@ -60,6 +61,7 @@ def retrieve_top_k(
         raise rag_embedding_bad_response()
 
     payload_filter = build_payload_filter(
+        access_scope=access_scope,
         permission_group=permission_group,
         business_domain=business_domain,
         doc_type=doc_type,

@@ -4,6 +4,8 @@ from app.rag.documents import Metadata, MetadataValue
 
 
 DOCUMENT_METADATA_KEYS = (
+    "tenant_id",
+    "owner_user_id",
     "source",
     "title",
     "file_name",
@@ -11,6 +13,8 @@ DOCUMENT_METADATA_KEYS = (
     "doc_type",
     "business_domain",
     "permission_group",
+    "visibility",
+    "status",
 )
 CHUNK_METADATA_KEYS = (
     *DOCUMENT_METADATA_KEYS,
@@ -24,7 +28,15 @@ QDRANT_PAYLOAD_METADATA_KEYS = (
     *CHUNK_METADATA_KEYS,
     "tags",
 )
-REQUIRED_DOCUMENT_METADATA_KEYS = DOCUMENT_METADATA_KEYS
+REQUIRED_DOCUMENT_METADATA_KEYS = (
+    "source",
+    "title",
+    "file_name",
+    "file_extension",
+    "doc_type",
+    "business_domain",
+    "permission_group",
+)
 REQUIRED_CHUNK_METADATA_KEYS = (
     *DOCUMENT_METADATA_KEYS,
     "chunk_id",

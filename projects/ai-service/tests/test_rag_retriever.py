@@ -1,6 +1,7 @@
 import pytest
 
 from app.core.exceptions import AppException
+from app.rag.filters import RagAccessScope
 from app.rag.retriever import format_retrieved_chunks_for_debug, retrieve_top_k
 from app.rag.vector_store import QdrantVectorStoreError
 from tests.rag_fakes import (
@@ -79,6 +80,35 @@ def test_retrieve_top_k_passes_payload_filter_to_vector_store() -> None:
             {"key": "doc_type", "match": {"value": "policy"}},
             {"key": "source", "match": {"value": "order-shipping-policy.md"}},
         ]
+    }
+
+
+def test_retrieve_top_k_accepts_access_scope_filter() -> None:
+    embedding_model = FakeEmbeddingModel(dimension=4)
+    vector_store = FakeVectorStoreReader()
+
+    retrieve_top_k(
+        "閫€娆惧涔呭埌璐︼紵",
+        embedding_model=embedding_model,
+        vector_store=vector_store,
+        access_scope=RagAccessScope(
+            user_id="U1001",
+            tenant_id="default",
+            permission_groups=["customer_service"],
+            business_domains=["refund"],
+            excluded_statuses=["archived"],
+        ),
+    )
+
+    assert vector_store.last_call["payload_filter"] == {
+        "must": [
+            {"key": "tenant_id", "match": {"value": "default"}},
+            {"key": "permission_group", "match": {"any": ["customer_service"]}},
+            {"key": "business_domain", "match": {"any": ["refund"]}},
+        ],
+        "must_not": [
+            {"key": "status", "match": {"any": ["archived"]}},
+        ],
     }
 
 

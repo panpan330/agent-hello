@@ -17,7 +17,7 @@ loaders.py    Load Markdown/txt files into RagDocument objects.
 splitters.py  Split RagDocument objects into RagChunk objects.
 metadata.py   Normalize and validate RAG metadata before Qdrant payload writes.
 embeddings.py Convert texts into deterministic placeholder vectors or OpenAI-compatible real embedding vectors, with batch helpers and storage estimation.
-filters.py    Build Qdrant payload filters from supported metadata fields.
+filters.py    Build Qdrant-style payload filters and RAG access scopes from supported metadata fields.
 vector_store.py Build Qdrant points, upsert embedded chunks, delete points by filter, and query through the REST API.
 milvus_store.py Build Milvus entities, create schema/index, upsert embedded chunks, and search through PyMilvus.
 ingestion.py  Orchestrate load -> split -> embed -> upsert, document deletion, and directory refresh flows.
@@ -32,9 +32,9 @@ score_interpretation.py Explain retrieval score direction, threshold comparison,
 tuning.py     Build chunk and retrieval tuning reports for observing chunk_size, chunk_overlap, top_k, and score_threshold effects.
 hybrid.py     Provide simple keyword retrieval, vector + keyword result fusion, and debug-friendly hybrid fusion reports.
 rerank.py     Rerank retrieved candidates with rule-based or HTTP model rerankers, score-direction-aware normalization, fallback, and rank-change reports.
-security.py   Inspect retrieved chunks for permission, prompt-injection, and sensitive-data risks before model context construction.
+security.py   Inspect retrieved chunks for permission, prompt-injection, and sensitive-data risks before model context construction, with risk levels and blocking reasons.
 performance.py Build learning utilities for retrieval cache keys, TTL caching, batch planning, timing classification, and degradation decisions.
-evaluation.py Build retrieval evaluation cases, Hit Rate@K, Recall@K, Precision@K, MRR@K, and bad case reports.
+evaluation.py Build RAG evaluation case schemas, dataset coverage reports, answer-quality evaluation, retrieval metric cases, Hit@K, Hit Rate@K, Recall@K, Precision@K, MRR@K, metric breakdowns, and bad case reports.
 errors.py     Map embedding and vector-store failures to stable application errors.
 ```
 
@@ -147,3 +147,22 @@ Stage 9 lesson 10 adds context compression before answer generation: retrieved
 chunks can be kept, compressed, or dropped under a character budget, while
 preserving `RetrievedChunk` compatibility and recording compression metadata,
 per-chunk actions, saved characters, and debug lines.
+Stage 9 lesson 11 adds metadata access-scope filtering: `RagAccessScope`
+represents the current user, tenant, permission groups, business domains, document
+types, sources, visibility, and status exclusions, then converts that business
+scope into Qdrant-style payload filters that can also be translated by the Milvus
+adapter.
+Stage 9 lesson 12 strengthens RAG prompt-injection defense: prompt-injection
+rules now carry severity, retrieved metadata can be scanned as model-visible text,
+medium-risk delimiter findings can warn without blocking, and reports expose risk
+level, finding counts by category, and blocked reason codes.
+Stage 9 lesson 13 adds RAG evaluation dataset design: broader cases now describe
+expected behavior, answer points, expected evidence, access context, refusal
+reason codes, tags, priority, and coverage reports before later lessons calculate
+retrieval and answer-quality metrics.
+Stage 9 lesson 14 connects RAG evaluation cases to retrieval metrics: answer and
+no-context cases can be converted into retrieval metric cases, and per-case
+metric breakdowns explain Hit@K, Recall@K, Precision@K, and MRR@K formulas.
+Stage 9 lesson 15 adds deterministic RAG answer-quality evaluation: final answers
+can be checked against expected behavior, answer points, cited sources, forbidden
+sources, and refusal reason codes without calling a real model judge.

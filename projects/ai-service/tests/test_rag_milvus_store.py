@@ -176,7 +176,17 @@ def test_normalize_milvus_metric_maps_project_distance_names() -> None:
 
 
 def test_build_milvus_entity_keeps_vector_content_and_scalar_fields() -> None:
-    entity = build_milvus_entity(make_embedded_chunk())
+    entity = build_milvus_entity(
+        make_embedded_chunk(
+            metadata={
+                **make_embedded_chunk().metadata,
+                "tenant_id": "default",
+                "owner_user_id": "U1001",
+                "visibility": "tenant",
+                "status": "published",
+            }
+        )
+    )
 
     assert entity[MILVUS_PRIMARY_FIELD] == "refund_return_policy_chunk_0001"
     assert entity[MILVUS_VECTOR_FIELD] == [0.1, 0.2, 0.3, 0.4]
@@ -184,6 +194,10 @@ def test_build_milvus_entity_keeps_vector_content_and_scalar_fields() -> None:
     assert entity["source"] == "refund-return-policy.md"
     assert entity["business_domain"] == "refund"
     assert entity["permission_group"] == "customer_service"
+    assert entity["tenant_id"] == "default"
+    assert entity["owner_user_id"] == "U1001"
+    assert entity["visibility"] == "tenant"
+    assert entity["status"] == "published"
     assert entity["chunk_index"] == 1
 
 
@@ -192,6 +206,7 @@ def test_build_milvus_filter_expression_converts_qdrant_must_matches() -> None:
         {
             "must": [
                 {"key": "permission_group", "match": {"value": "customer_service"}},
+                {"key": "tenant_id", "match": {"value": "default"}},
                 {"key": "business_domain", "match": {"value": "refund"}},
             ]
         }
@@ -199,7 +214,7 @@ def test_build_milvus_filter_expression_converts_qdrant_must_matches() -> None:
 
     assert (
         expression
-        == 'permission_group == "customer_service" and business_domain == "refund"'
+        == 'permission_group == "customer_service" and tenant_id == "default" and business_domain == "refund"'
     )
 
 
@@ -535,7 +550,7 @@ def test_milvus_store_constructor_uses_milvus_config_values() -> None:
         milvus_uri=" http://localhost:19530/ ",
         milvus_collection_name="demo_milvus_chunks",
         milvus_timeout_seconds=2.5,
-        milvus_token="root:Milvus",
+        milvus_token="fake-milvus-token-for-test",
         _env_file=None,
     )
 
