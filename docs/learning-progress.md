@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 10 AI 应用生产化与可运营能力第 1 节已完成；下一节学习阶段 10 第 2 节：Tracing 是什么。
+当前阶段：阶段 10 AI 应用生产化与可运营能力第 5 节已完成；下一节学习阶段 10 第 6 节：LLM 调用日志安全。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -24,7 +24,7 @@
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 | M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
-| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1 节已完成：AI 应用生产化总览；阶段 10 固定为 28 节主线，后续继续学习 Tracing、日志安全、配置与密钥、token 成本、耗时拆解、多模型路由、fallback、成本控制、限流、重试、超时、SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
+| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1-5 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐；阶段 10 固定为 28 节主线，后续继续学习 LLM 调用日志安全、配置与密钥、token 成本、耗时拆解、多模型路由、fallback、成本控制、限流、重试、超时、SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
 
 ## M6 快速版学习清单
 
@@ -184,10 +184,10 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 | 节 | 主题 | 状态 | 目标 |
 | --- | --- | --- | --- |
 | 1 | AI 应用生产化总览 | 已完成 | `notes/stage10-01-ai-production-overview.md`；系统学习 AI 应用生产化和可运营的含义，区分能跑通、能上线、可运营，梳理 AI 应用相对传统后端新增的不确定性、外部模型依赖、token 成本、Prompt Injection、上下文泄露、工具调用和评估困难等生产风险，并把阶段 10 的 28 节整理成可追踪、可控成本和性能、可用体验、安全边界、质量评估、线上运营六组能力 |
-| 2 | Tracing 是什么 | 未开始 | 理解为什么 AI 应用必须能追踪一次请求从入口到模型、RAG、Tool、Java 后端的完整链路 |
-| 3 | trace_id / span / event / metric 的区别 | 未开始 | 区分链路标识、阶段片段、关键事件和聚合指标 |
-| 4 | Python AI 服务 tracing | 未开始 | 在 ai-service 内部梳理请求入口、LLM 调用、RAG、rerank、Tool 调用等节点的追踪方式 |
-| 5 | Java 业务服务 tracing 对齐 | 未开始 | 理解 Python 调 Java 时如何传递 trace_id，并让 Java 日志、错误码和响应头能串联排查 |
+| 2 | Tracing 是什么 | 已完成 | `notes/stage10-02-what-is-tracing.md`；系统学习 Tracing 的定义、价值和边界，理解 AI 应用为什么要追踪一次请求从 FastAPI 入口到 LLM、RAG、rerank、Tool、Java 业务服务、Redis/MySQL、最终回答和 SSE 输出的完整链路，并区分 Tracing 与日志、指标、评估各自解决的问题 |
+| 3 | trace_id / span / event / metric 的区别 | 已完成 | `notes/stage10-03-trace-span-event-metric.md`；系统区分 trace_id、span、event、metric 的职责边界，理解请求标识、链路片段、关键事件和聚合指标的区别，并把它们映射到 AI 服务里的 LLM、RAG、rerank、Tool、Java 调用、Redis/MySQL、SSE、fallback、重试、权限拒绝、成本和告警场景 |
+| 4 | Python AI 服务 tracing | 已完成 | `notes/stage10-04-python-ai-service-tracing.md`、`app/core/ai_service_tracing.py`、`tests/test_ai_service_tracing.py`；在 ai-service 内部建立普通聊天、流式聊天、RAG 问答和 Tool Chat 的 tracing plan，明确 `http.request`、`llm.call`、`llm.stream`、`sse.stream`、`rag.query_rewrite`、`embedding.call`、`vector.search`、`rerank.call`、`tool.validation`、`tool.execution`、`java.orders.get` 等 span 边界，并补充 event、metric、安全 attributes 和低基数 metric 标签测试 |
+| 5 | Java 业务服务 tracing 对齐 | 已完成 | `notes/stage10-05-java-business-service-tracing-alignment.md`、`TraceFilter.java`、`JavaBusinessTracingPlan.java`、`JavaBusinessTracingPlanTest.java`、`TraceFilterLoggingTest.java`；把 Python 侧 `java.orders.get` / `java.tickets.create` 与 Java 侧 `java.http.request`、内部鉴权、限流、Controller、Service、Redis、MyBatis、权限、幂等、错误响应和业务审计对齐，补充 Java 请求 started/finished 日志、同 trace_id 响应头/响应体/MDC 关联、Java span/event/metric plan、安全 attributes 和低基数 metric 标签测试 |
 | 6 | LLM 调用日志安全 | 未开始 | 学习 LLM 请求、响应、错误、耗时、模型名、token 记录时如何避免泄露密钥、隐私和完整敏感上下文 |
 | 7 | 配置与密钥管理 | 未开始 | 系统学习 `.env`、`.env.example`、不同环境配置、API Key 管理、密钥不上 GitHub、配置分层和最小暴露 |
 | 8 | Token 成本统计 | 未开始 | 理解 prompt tokens、completion tokens、总 token、单次成本、累计成本和按用户/模型/接口统计成本 |
