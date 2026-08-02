@@ -14,6 +14,16 @@ def test_settings_use_default_values() -> None:
     assert settings.model_name == "mock-chat-model"
     assert settings.llm_provider == "openai-compatible"
     assert settings.llm_model == "qwen3.7-plus"
+    assert settings.llm_fast_model is None
+    assert settings.llm_balanced_model is None
+    assert settings.llm_strong_model is None
+    assert settings.resolved_llm_fast_model == "qwen3.7-plus"
+    assert settings.resolved_llm_balanced_model == "qwen3.7-plus"
+    assert settings.resolved_llm_strong_model == "qwen3.7-plus"
+    assert settings.llm_default_route_tier == "balanced"
+    assert settings.llm_route_long_input_chars == 1200
+    assert "摘要" in settings.llm_route_fast_keywords
+    assert "架构设计" in settings.llm_route_strong_keywords
     assert settings.llm_base_url is None
     assert settings.llm_api_key is None
     assert settings.resolved_llm_api_key is None
@@ -22,6 +32,11 @@ def test_settings_use_default_values() -> None:
     assert settings.request_timeout_seconds == 30.0
     assert settings.llm_max_retries == 2
     assert settings.max_output_tokens == 1024
+    assert settings.llm_input_cost_per_million_tokens is None
+    assert settings.llm_output_cost_per_million_tokens is None
+    assert settings.llm_pricing_currency == "USD"
+    assert settings.resolved_llm_pricing_currency == "USD"
+    assert settings.has_llm_token_pricing is False
     assert settings.ticket_agent_model_mode == "rule_based"
     assert settings.java_mock_service_base_url == "http://127.0.0.1:8001"
     assert settings.resolved_java_mock_service_base_url == "http://127.0.0.1:8001"
@@ -70,6 +85,13 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("MODEL_NAME", "demo-model")
     monkeypatch.setenv("LLM_PROVIDER", "aliyun-compatible")
     monkeypatch.setenv("LLM_MODEL", "qwen3.7-plus")
+    monkeypatch.setenv("LLM_FAST_MODEL", "qwen-fast")
+    monkeypatch.setenv("LLM_BALANCED_MODEL", "qwen-balanced")
+    monkeypatch.setenv("LLM_STRONG_MODEL", "qwen-strong")
+    monkeypatch.setenv("LLM_DEFAULT_ROUTE_TIER", "fast")
+    monkeypatch.setenv("LLM_ROUTE_LONG_INPUT_CHARS", "500")
+    monkeypatch.setenv("LLM_ROUTE_FAST_KEYWORDS", "摘要,翻译")
+    monkeypatch.setenv("LLM_ROUTE_STRONG_KEYWORDS", "架构设计,生产事故")
     monkeypatch.setenv(
         "LLM_BASE_URL",
         " https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 ",
@@ -78,6 +100,9 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("LLM_MAX_RETRIES", "3")
     monkeypatch.setenv("MAX_OUTPUT_TOKENS", "256")
+    monkeypatch.setenv("LLM_INPUT_COST_PER_MILLION_TOKENS", "2.0")
+    monkeypatch.setenv("LLM_OUTPUT_COST_PER_MILLION_TOKENS", "6.0")
+    monkeypatch.setenv("LLM_PRICING_CURRENCY", "CNY")
     monkeypatch.setenv("TICKET_AGENT_MODEL_MODE", "fake_llm")
     monkeypatch.setenv("JAVA_MOCK_SERVICE_BASE_URL", " http://localhost:9001/ ")
     monkeypatch.setenv("JAVA_MOCK_SERVICE_TIMEOUT_SECONDS", "2.5")
@@ -114,6 +139,13 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.model_name == "demo-model"
     assert settings.llm_provider == "aliyun-compatible"
     assert settings.llm_model == "qwen3.7-plus"
+    assert settings.resolved_llm_fast_model == "qwen-fast"
+    assert settings.resolved_llm_balanced_model == "qwen-balanced"
+    assert settings.resolved_llm_strong_model == "qwen-strong"
+    assert settings.llm_default_route_tier == "fast"
+    assert settings.llm_route_long_input_chars == 500
+    assert settings.llm_route_fast_keywords == "摘要,翻译"
+    assert settings.llm_route_strong_keywords == "架构设计,生产事故"
     assert (
         settings.resolved_llm_base_url
         == "https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
@@ -123,6 +155,10 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.request_timeout_seconds == 12.5
     assert settings.llm_max_retries == 3
     assert settings.max_output_tokens == 256
+    assert settings.llm_input_cost_per_million_tokens == 2.0
+    assert settings.llm_output_cost_per_million_tokens == 6.0
+    assert settings.resolved_llm_pricing_currency == "CNY"
+    assert settings.has_llm_token_pricing is True
     assert settings.ticket_agent_model_mode == "fake_llm"
     assert settings.resolved_java_mock_service_base_url == "http://localhost:9001"
     assert settings.java_mock_service_timeout_seconds == 2.5
@@ -240,10 +276,20 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
                 'LOG_LEVEL="DEBUG"',
                 'LLM_PROVIDER="aliyun-compatible"',
                 'LLM_MODEL="qwen3.7-plus"',
+                'LLM_FAST_MODEL=""',
+                'LLM_BALANCED_MODEL="qwen-balanced"',
+                'LLM_STRONG_MODEL="qwen-strong"',
+                'LLM_DEFAULT_ROUTE_TIER="balanced"',
+                "LLM_ROUTE_LONG_INPUT_CHARS=800",
+                'LLM_ROUTE_FAST_KEYWORDS="摘要,翻译"',
+                'LLM_ROUTE_STRONG_KEYWORDS="架构设计,生产事故"',
                 'LLM_BASE_URL="https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"',
                 'LLM_API_KEY=""',
                 "LLM_MAX_RETRIES=4",
                 "MAX_OUTPUT_TOKENS=512",
+                "LLM_INPUT_COST_PER_MILLION_TOKENS=1.5",
+                "LLM_OUTPUT_COST_PER_MILLION_TOKENS=4.5",
+                'LLM_PRICING_CURRENCY="USD"',
                 'TICKET_AGENT_MODEL_MODE="real_llm"',
                 'JAVA_MOCK_SERVICE_BASE_URL="http://localhost:9001/"',
                 "JAVA_MOCK_SERVICE_TIMEOUT_SECONDS=3",
@@ -283,6 +329,11 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
     assert settings.log_level == "DEBUG"
     assert settings.llm_provider == "aliyun-compatible"
     assert settings.llm_model == "qwen3.7-plus"
+    assert settings.resolved_llm_fast_model == "qwen3.7-plus"
+    assert settings.resolved_llm_balanced_model == "qwen-balanced"
+    assert settings.resolved_llm_strong_model == "qwen-strong"
+    assert settings.llm_default_route_tier == "balanced"
+    assert settings.llm_route_long_input_chars == 800
     assert (
         settings.resolved_llm_base_url
         == "https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
@@ -290,6 +341,10 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
     assert settings.has_llm_api_key is False
     assert settings.llm_max_retries == 4
     assert settings.max_output_tokens == 512
+    assert settings.llm_input_cost_per_million_tokens == 1.5
+    assert settings.llm_output_cost_per_million_tokens == 4.5
+    assert settings.resolved_llm_pricing_currency == "USD"
+    assert settings.has_llm_token_pricing is True
     assert settings.ticket_agent_model_mode == "real_llm"
     assert settings.resolved_java_mock_service_base_url == "http://localhost:9001"
     assert settings.java_mock_service_timeout_seconds == 3.0
@@ -353,6 +408,22 @@ def test_settings_reject_invalid_max_output_tokens() -> None:
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("max_output_tokens",)
     assert error["type"] == "greater_than"
+
+
+def test_settings_reject_negative_llm_token_pricing() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_input_cost_per_million_tokens=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_input_cost_per_million_tokens",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_output_cost_per_million_tokens=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_output_cost_per_million_tokens",)
+    assert error["type"] == "greater_than_equal"
 
 
 def test_settings_reject_invalid_java_mock_service_timeout() -> None:
@@ -458,6 +529,31 @@ def test_settings_reject_too_many_llm_max_retries() -> None:
 
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("llm_max_retries",)
+    assert error["type"] == "less_than_equal"
+
+
+def test_settings_reject_invalid_llm_default_route_tier() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_default_route_tier="premium", _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_default_route_tier",)
+    assert error["type"] == "literal_error"
+
+
+def test_settings_reject_invalid_llm_route_long_input_chars() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_route_long_input_chars=99, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_route_long_input_chars",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_route_long_input_chars=20001, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_route_long_input_chars",)
     assert error["type"] == "less_than_equal"
 
 

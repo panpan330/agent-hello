@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
 
 TicketAgentModelMode = Literal["rule_based", "fake_llm", "real_llm"]
+LLMDefaultRouteTier = Literal["fast", "balanced", "strong"]
 
 
 class Settings(BaseSettings):
@@ -21,11 +22,23 @@ class Settings(BaseSettings):
     model_name: str = Field(default="mock-chat-model")
     llm_provider: str = Field(default="openai-compatible")
     llm_model: str = Field(default="qwen3.7-plus")
+    llm_fast_model: str | None = Field(default=None)
+    llm_balanced_model: str | None = Field(default=None)
+    llm_strong_model: str | None = Field(default=None)
+    llm_default_route_tier: LLMDefaultRouteTier = Field(default="balanced")
+    llm_route_long_input_chars: int = Field(default=1200, ge=100, le=20000)
+    llm_route_fast_keywords: str = Field(default="翻译,改写,摘要,提取,分类")
+    llm_route_strong_keywords: str = Field(
+        default="代码审查,架构设计,复杂推理,生产事故,安全分析,SQL优化"
+    )
     llm_base_url: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None, repr=False)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     max_output_tokens: int = Field(default=1024, gt=0)
+    llm_input_cost_per_million_tokens: float | None = Field(default=None, ge=0)
+    llm_output_cost_per_million_tokens: float | None = Field(default=None, ge=0)
+    llm_pricing_currency: str = Field(default="USD", min_length=1)
     ticket_agent_model_mode: TicketAgentModelMode = Field(default="rule_based")
     java_mock_service_base_url: str = Field(default="http://127.0.0.1:8001")
     java_mock_service_timeout_seconds: float = Field(default=5.0, gt=0)
@@ -101,6 +114,35 @@ class Settings(BaseSettings):
         if not self.llm_base_url or not self.llm_base_url.strip():
             return None
         return self.llm_base_url.strip()
+
+    @property
+    def resolved_llm_fast_model(self) -> str:
+        return self._resolve_llm_tier_model(self.llm_fast_model)
+
+    @property
+    def resolved_llm_balanced_model(self) -> str:
+        return self._resolve_llm_tier_model(self.llm_balanced_model)
+
+    @property
+    def resolved_llm_strong_model(self) -> str:
+        return self._resolve_llm_tier_model(self.llm_strong_model)
+
+    def _resolve_llm_tier_model(self, tier_model: str | None) -> str:
+        for model in (tier_model, self.llm_model):
+            if model and model.strip():
+                return model.strip()
+        return "qwen3.7-plus"
+
+    @property
+    def has_llm_token_pricing(self) -> bool:
+        return (
+            self.llm_input_cost_per_million_tokens is not None
+            and self.llm_output_cost_per_million_tokens is not None
+        )
+
+    @property
+    def resolved_llm_pricing_currency(self) -> str:
+        return self.llm_pricing_currency.strip() or "USD"
 
     @property
     def resolved_java_mock_service_base_url(self) -> str:

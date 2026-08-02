@@ -84,6 +84,35 @@ def test_llm_chat_service_calls_openai_compatible_client() -> None:
     assert "## 任务\n解释 FastAPI" in call["messages"][1]["content"]
 
 
+def test_llm_chat_service_uses_fast_route_model_for_simple_chat(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    completions = FakeCompletions(content="摘要结果")
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_route_fast_keywords="摘要",
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    reply = service.generate_reply("帮我摘要这段文字")
+
+    assert reply == "摘要结果"
+    assert completions.calls[0]["model"] == "qwen-fast"
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "model=qwen-fast" in message
+        and "route_tier=fast" in message
+        and "route_reason=fast_keyword" in message
+        for message in messages
+    )
+
+
 def test_llm_chat_service_sends_history_to_model() -> None:
     completions = FakeCompletions(content="  FastAPI 是 Python Web 框架。  ")
     service = LLMChatService(
@@ -215,6 +244,44 @@ def test_llm_chat_service_logs_success_metadata(caplog: pytest.LogCaptureFixture
     assert all("test-key" not in message for message in messages)
 
 
+def test_llm_chat_service_logs_estimated_cost_metadata(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    completions = FakeCompletions(
+        content="模型回复",
+        usage=SimpleNamespace(
+            prompt_tokens=1000,
+            completion_tokens=500,
+            total_tokens=1500,
+        ),
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_provider="test-provider",
+            llm_model="qwen-test",
+            llm_input_cost_per_million_tokens=2.0,
+            llm_output_cost_per_million_tokens=6.0,
+            llm_pricing_currency="USD",
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    service.generate_reply("解释 FastAPI")
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "cost_status=estimated" in message
+        and "estimated_cost=0.005" in message
+        and "currency=USD" in message
+        for message in messages
+    )
+    assert all("解释 FastAPI" not in message for message in messages)
+    assert all("test-key" not in message for message in messages)
+
+
 def test_llm_chat_service_logs_failure_metadata(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -277,6 +344,25 @@ def test_llm_chat_service_streams_delta_content_to_chunks() -> None:
     assert call["messages"][0]["role"] == "system"
     assert call["messages"][1]["role"] == "user"
     assert "## 任务\n解释 FastAPI" in call["messages"][1]["content"]
+
+
+def test_llm_chat_service_uses_strong_route_model_for_long_stream_input() -> None:
+    completions = FakeCompletions(stream_chunks=[make_stream_chunk("回答")])
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_strong_model="qwen-strong",
+            llm_route_long_input_chars=100,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    chunks = list(service.stream_reply("请分析：" + "业务流程" * 40))
+
+    assert chunks == ["回答"]
+    assert completions.calls[0]["model"] == "qwen-strong"
 
 
 def test_llm_chat_service_streams_history_to_model() -> None:

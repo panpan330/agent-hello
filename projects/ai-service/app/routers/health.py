@@ -3,6 +3,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Response, status
 
 from app.core.config import Settings, get_settings
+from app.core.config_safety import (
+    SecretConfigurationCheck,
+    build_secret_configuration_checks,
+)
 from app.schemas.health import HealthResponse, ReadinessCheck, ReadinessResponse
 
 
@@ -65,26 +69,24 @@ def build_ai_service_readiness_checks(settings: Settings) -> list[ReadinessCheck
             message="Milvus URI is configured for optional Milvus workflows.",
         ),
     ]
-    if settings.ticket_agent_model_mode == "real_llm":
-        checks.append(
-            ReadinessCheck(
-                name="llm_api_key",
-                status="configured" if settings.has_llm_api_key else "not_configured",
-                required=True,
-                message="Real LLM mode requires a configured LLM API key.",
-            )
+    llm_secret_check = _get_secret_check("llm_api_key", settings)
+    checks.append(
+        ReadinessCheck(
+            name=llm_secret_check.name,
+            status=llm_secret_check.readiness_status,
+            required=llm_secret_check.required,
+            message=llm_secret_check.message,
         )
-    else:
-        checks.append(
-            ReadinessCheck(
-                name="llm_api_key",
-                status="skipped",
-                required=False,
-                message="LLM API key is not required outside real_llm mode.",
-            )
-        )
+    )
     return checks
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _get_secret_check(name: str, settings: Settings) -> SecretConfigurationCheck:
+    for check in build_secret_configuration_checks(settings):
+        if check.name == name:
+            return check
+    raise RuntimeError(f"missing secret configuration check: {name}")

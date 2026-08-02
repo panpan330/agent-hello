@@ -19,6 +19,9 @@ from openai import (
 
 from app.core.config import Settings
 from app.core.exceptions import AppException
+from app.core.llm_logging_safety import build_safe_llm_log_payload
+from app.core.model_routing import LLMModelRouteDecision, route_llm_model
+from app.core.token_usage import TokenCostRecord, TokenPricing, build_token_cost_record
 from app.schemas.chat import ChatMessage
 from app.services.llm_client import create_openai_compatible_client
 from app.services.message_builder import (
@@ -237,18 +240,45 @@ class LLMChatService:
             ) from exc
         return self._client
 
-    def _log_success(self, elapsed_ms: float, usage: LLMTokenUsage) -> None:
+    def _log_success(
+        self,
+        elapsed_ms: float,
+        usage: LLMTokenUsage,
+        route_decision: LLMModelRouteDecision,
+    ) -> None:
+        cost_record = self._build_token_cost_record("chat", usage, route_decision)
+        payload = build_safe_llm_log_payload(
+            operation="chat",
+            outcome="success",
+            provider=route_decision.provider,
+            model=route_decision.model,
+            elapsed_ms=elapsed_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+            extra_fields={
+                **route_decision.to_log_fields(),
+                **cost_record.to_log_fields(),
+            },
+        )
         logger.info(
             (
                 "llm_chat_succeeded provider=%s model=%s elapsed_ms=%.2f "
-                "prompt_tokens=%s completion_tokens=%s total_tokens=%s"
+                "prompt_tokens=%s completion_tokens=%s total_tokens=%s "
+                "route_tier=%s route_reason=%s cost_status=%s "
+                "estimated_cost=%s currency=%s"
             ),
-            self.settings.llm_provider,
-            self.settings.llm_model,
-            elapsed_ms,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
+            payload["llm.provider"],
+            payload["llm.model"],
+            payload["llm.elapsed_ms"],
+            payload.get("llm.prompt_tokens"),
+            payload.get("llm.completion_tokens"),
+            payload.get("llm.total_tokens"),
+            payload.get("llm.route_tier"),
+            payload.get("llm.route_reason"),
+            payload.get("llm.cost_status"),
+            payload.get("llm.estimated_total_cost"),
+            payload.get("llm.cost_currency"),
         )
 
     def _log_failure(
@@ -256,15 +286,31 @@ class LLMChatService:
         app_exception: AppException,
         elapsed_ms: float,
         *,
+        route_decision: LLMModelRouteDecision,
         exc_info: bool = False,
     ) -> None:
+        payload = build_safe_llm_log_payload(
+            operation="chat",
+            outcome="failure",
+            provider=route_decision.provider,
+            model=route_decision.model,
+            elapsed_ms=elapsed_ms,
+            error_code=app_exception.code,
+            status_code=app_exception.status_code,
+            extra_fields=route_decision.to_log_fields(),
+        )
         logger.warning(
-            "llm_chat_failed code=%s provider=%s model=%s status_code=%s elapsed_ms=%.2f",
-            app_exception.code,
-            self.settings.llm_provider,
-            self.settings.llm_model,
-            app_exception.status_code,
-            elapsed_ms,
+            (
+                "llm_chat_failed code=%s provider=%s model=%s status_code=%s "
+                "elapsed_ms=%.2f route_tier=%s route_reason=%s"
+            ),
+            payload["llm.error_code"],
+            payload["llm.provider"],
+            payload["llm.model"],
+            payload["http.status_code"],
+            payload["llm.elapsed_ms"],
+            payload.get("llm.route_tier"),
+            payload.get("llm.route_reason"),
             exc_info=exc_info,
         )
 
@@ -275,21 +321,76 @@ class LLMChatService:
         *,
         chunk_count: int,
         content_chunk_count: int,
+        route_decision: LLMModelRouteDecision,
     ) -> None:
+        cost_record = self._build_token_cost_record(
+            "stream_chat",
+            usage,
+            route_decision,
+        )
+        payload = build_safe_llm_log_payload(
+            operation="stream_chat",
+            outcome="success",
+            provider=route_decision.provider,
+            model=route_decision.model,
+            elapsed_ms=elapsed_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+            extra_fields={
+                **route_decision.to_log_fields(),
+                **cost_record.to_log_fields(),
+                "llm.chunks": chunk_count,
+                "llm.content_chunks": content_chunk_count,
+            },
+        )
         logger.info(
             (
                 "llm_stream_chat_succeeded provider=%s model=%s elapsed_ms=%.2f "
                 "chunks=%s content_chunks=%s prompt_tokens=%s "
-                "completion_tokens=%s total_tokens=%s"
+                "completion_tokens=%s total_tokens=%s route_tier=%s "
+                "route_reason=%s cost_status=%s estimated_cost=%s currency=%s"
             ),
-            self.settings.llm_provider,
-            self.settings.llm_model,
-            elapsed_ms,
-            chunk_count,
-            content_chunk_count,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
+            payload["llm.provider"],
+            payload["llm.model"],
+            payload["llm.elapsed_ms"],
+            payload["llm.chunks"],
+            payload["llm.content_chunks"],
+            payload.get("llm.prompt_tokens"),
+            payload.get("llm.completion_tokens"),
+            payload.get("llm.total_tokens"),
+            payload.get("llm.route_tier"),
+            payload.get("llm.route_reason"),
+            payload.get("llm.cost_status"),
+            payload.get("llm.estimated_total_cost"),
+            payload.get("llm.cost_currency"),
+        )
+
+    def _build_token_cost_record(
+        self,
+        operation: str,
+        usage: LLMTokenUsage,
+        route_decision: LLMModelRouteDecision,
+    ) -> TokenCostRecord:
+        return build_token_cost_record(
+            usage,
+            provider=route_decision.provider,
+            model=route_decision.model,
+            operation=operation,
+            pricing=self._build_token_pricing(),
+        )
+
+    def _build_token_pricing(self) -> TokenPricing | None:
+        if not self.settings.has_llm_token_pricing:
+            return None
+        return TokenPricing(
+            input_cost_per_million_tokens=(
+                self.settings.llm_input_cost_per_million_tokens or 0.0
+            ),
+            output_cost_per_million_tokens=(
+                self.settings.llm_output_cost_per_million_tokens or 0.0
+            ),
+            currency=self.settings.resolved_llm_pricing_currency,
         )
 
     def _log_stream_failure(
@@ -299,20 +400,38 @@ class LLMChatService:
         *,
         chunk_count: int,
         content_chunk_count: int,
+        route_decision: LLMModelRouteDecision,
         exc_info: bool = False,
     ) -> None:
+        payload = build_safe_llm_log_payload(
+            operation="stream_chat",
+            outcome="failure",
+            provider=route_decision.provider,
+            model=route_decision.model,
+            elapsed_ms=elapsed_ms,
+            error_code=app_exception.code,
+            status_code=app_exception.status_code,
+            extra_fields={
+                **route_decision.to_log_fields(),
+                "llm.chunks": chunk_count,
+                "llm.content_chunks": content_chunk_count,
+            },
+        )
         logger.warning(
             (
                 "llm_stream_chat_failed code=%s provider=%s model=%s "
-                "status_code=%s elapsed_ms=%.2f chunks=%s content_chunks=%s"
+                "status_code=%s elapsed_ms=%.2f chunks=%s content_chunks=%s "
+                "route_tier=%s route_reason=%s"
             ),
-            app_exception.code,
-            self.settings.llm_provider,
-            self.settings.llm_model,
-            app_exception.status_code,
-            elapsed_ms,
-            chunk_count,
-            content_chunk_count,
+            payload["llm.error_code"],
+            payload["llm.provider"],
+            payload["llm.model"],
+            payload["http.status_code"],
+            payload["llm.elapsed_ms"],
+            payload["llm.chunks"],
+            payload["llm.content_chunks"],
+            payload.get("llm.route_tier"),
+            payload.get("llm.route_reason"),
             exc_info=exc_info,
         )
 
@@ -329,22 +448,32 @@ class LLMChatService:
                 status_code=500,
             )
 
+        route_decision = route_llm_model(
+            self.settings,
+            operation="chat",
+            input_text=user_message,
+        )
         messages = build_chat_messages(user_message, history=history)
         start_time = perf_counter()
         try:
             completion = self._get_client().chat.completions.create(
-                model=self.settings.llm_model,
+                model=route_decision.model,
                 messages=serialize_chat_messages(messages),
             )
             reply = extract_first_reply(completion)
         except AppException as exc:
-            self._log_failure(exc, (perf_counter() - start_time) * 1000)
+            self._log_failure(
+                exc,
+                (perf_counter() - start_time) * 1000,
+                route_decision=route_decision,
+            )
             raise
         except Exception as exc:
             app_exception = map_openai_error_to_app_exception(exc)
             self._log_failure(
                 app_exception,
                 (perf_counter() - start_time) * 1000,
+                route_decision=route_decision,
                 exc_info=True,
             )
             raise app_exception from exc
@@ -352,6 +481,7 @@ class LLMChatService:
         self._log_success(
             (perf_counter() - start_time) * 1000,
             extract_token_usage(completion),
+            route_decision,
         )
         return reply
 
@@ -359,6 +489,7 @@ class LLMChatService:
         self,
         stream: Iterator[Any],
         start_time: float,
+        route_decision: LLMModelRouteDecision,
     ) -> Iterator[str]:
         usage = LLMTokenUsage()
         chunk_count = 0
@@ -384,6 +515,7 @@ class LLMChatService:
                 (perf_counter() - start_time) * 1000,
                 chunk_count=chunk_count,
                 content_chunk_count=content_chunk_count,
+                route_decision=route_decision,
             )
             raise
         except Exception as exc:
@@ -393,6 +525,7 @@ class LLMChatService:
                 (perf_counter() - start_time) * 1000,
                 chunk_count=chunk_count,
                 content_chunk_count=content_chunk_count,
+                route_decision=route_decision,
                 exc_info=True,
             )
             raise app_exception from exc
@@ -402,6 +535,7 @@ class LLMChatService:
             usage,
             chunk_count=chunk_count,
             content_chunk_count=content_chunk_count,
+            route_decision=route_decision,
         )
 
     def stream_reply(
@@ -417,11 +551,16 @@ class LLMChatService:
                 status_code=500,
             )
 
+        route_decision = route_llm_model(
+            self.settings,
+            operation="stream_chat",
+            input_text=user_message,
+        )
         messages = build_chat_messages(user_message, history=history)
         start_time = perf_counter()
         try:
             stream = self._get_client().chat.completions.create(
-                model=self.settings.llm_model,
+                model=route_decision.model,
                 messages=serialize_chat_messages(messages),
                 stream=True,
                 stream_options={"include_usage": True},
@@ -432,6 +571,7 @@ class LLMChatService:
                 (perf_counter() - start_time) * 1000,
                 chunk_count=0,
                 content_chunk_count=0,
+                route_decision=route_decision,
             )
             raise
         except Exception as exc:
@@ -441,11 +581,12 @@ class LLMChatService:
                 (perf_counter() - start_time) * 1000,
                 chunk_count=0,
                 content_chunk_count=0,
+                route_decision=route_decision,
                 exc_info=True,
             )
             raise app_exception from exc
 
-        return self._iter_stream_reply_chunks(iter(stream), start_time)
+        return self._iter_stream_reply_chunks(iter(stream), start_time, route_decision)
 
 
 def create_llm_chat_service(settings: Settings) -> LLMChatService:

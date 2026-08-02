@@ -10,6 +10,7 @@ from app.core.trace import (
     reset_trace_id,
     set_trace_id,
 )
+from app.core.request_timing import build_total_http_request_timing_breakdown
 
 
 logger = logging.getLogger(__name__)
@@ -47,12 +48,26 @@ def register_trace_middleware(app: FastAPI) -> None:
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             response.headers[TRACE_ID_HEADER] = trace_id
+            timing = build_total_http_request_timing_breakdown(
+                route=request.url.path,
+                method=request.method,
+                total_elapsed_ms=elapsed_ms,
+                status_code=response.status_code,
+                trace_id=trace_id,
+            )
+            timing_fields = timing.to_log_fields()
             logger.info(
-                "request_finished method=%s path=%s status_code=%s elapsed_ms=%.2f",
+                (
+                    "request_finished method=%s path=%s status_code=%s "
+                    "elapsed_ms=%.2f bottleneck_stage=%s "
+                    "bottleneck_elapsed_ms=%s"
+                ),
                 request.method,
                 request.url.path,
                 response.status_code,
-                elapsed_ms,
+                timing.total_elapsed_ms,
+                timing_fields.get("request.bottleneck_stage"),
+                timing_fields.get("request.bottleneck_elapsed_ms"),
             )
             return response
         finally:
