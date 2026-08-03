@@ -52,11 +52,41 @@ def build_safe_settings_snapshot(settings: Settings) -> dict[str, SafeConfigValu
         "llm.route_strong_keyword_count": len(
             _split_route_keywords(settings.llm_route_strong_keywords)
         ),
+        "llm.fallback_enabled": settings.llm_enable_fallback,
+        "llm.fallback_model_configured": _has_text(settings.llm_fallback_model),
+        "llm.fallback_tier": settings.llm_fallback_tier,
+        "llm.fallback_error_code_count": len(
+            _split_fallback_error_codes(settings.llm_fallback_error_codes)
+        ),
         "llm.base_url_configured": _has_text(settings.resolved_llm_base_url),
         "llm.api_key_configured": settings.has_llm_api_key,
         "llm.request_timeout_seconds": settings.request_timeout_seconds,
+        "llm.total_timeout_seconds": settings.llm_total_timeout_seconds,
         "llm.max_retries": settings.llm_max_retries,
         "llm.max_output_tokens": settings.max_output_tokens,
+        "llm.cost_control_enabled": settings.llm_enable_cost_control,
+        "llm.max_input_tokens_per_request": settings.llm_max_input_tokens_per_request,
+        "llm.max_total_tokens_per_request": settings.llm_max_total_tokens_per_request,
+        "llm.min_output_tokens": settings.llm_min_output_tokens,
+        "llm.max_estimated_cost_configured": (
+            settings.llm_max_estimated_cost_per_request is not None
+        ),
+        "llm.disable_fallback_above_total_tokens_configured": (
+            settings.llm_disable_fallback_above_total_tokens is not None
+        ),
+        "rate_limit.enabled": settings.rate_limit_enabled,
+        "rate_limit.window_seconds": settings.rate_limit_window_seconds,
+        "rate_limit.client_requests_per_window": (
+            settings.rate_limit_client_requests_per_window
+        ),
+        "rate_limit.route_requests_per_window": (
+            settings.rate_limit_route_requests_per_window
+        ),
+        "rate_limit.ai_requests_per_window": settings.rate_limit_ai_requests_per_window,
+        "rate_limit.tool_requests_per_window": settings.rate_limit_tool_requests_per_window,
+        "rate_limit.excluded_path_count": len(
+            _split_rate_limit_paths(settings.rate_limit_excluded_paths)
+        ),
         "llm.pricing_configured": settings.has_llm_token_pricing,
         "llm.pricing_currency": settings.resolved_llm_pricing_currency,
         "ticket_agent.model_mode": settings.ticket_agent_model_mode,
@@ -158,4 +188,20 @@ def _split_route_keywords(raw_keywords: str) -> list[str]:
         keyword.strip()
         for keyword in raw_keywords.replace("，", ",").split(",")
         if keyword.strip()
+    ]
+
+
+def _split_fallback_error_codes(raw_error_codes: str) -> list[str]:
+    return [
+        code.strip()
+        for code in raw_error_codes.replace("，", ",").split(",")
+        if code.strip()
+    ]
+
+
+def _split_rate_limit_paths(raw_paths: str) -> list[str]:
+    return [
+        path.strip()
+        for path in raw_paths.replace("，", ",").split(",")
+        if path.strip()
     ]

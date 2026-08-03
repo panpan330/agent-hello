@@ -24,14 +24,33 @@ def test_settings_use_default_values() -> None:
     assert settings.llm_route_long_input_chars == 1200
     assert "摘要" in settings.llm_route_fast_keywords
     assert "架构设计" in settings.llm_route_strong_keywords
+    assert settings.llm_enable_fallback is True
+    assert settings.llm_fallback_model is None
+    assert settings.llm_fallback_tier == "balanced"
+    assert settings.resolved_llm_fallback_model == "qwen3.7-plus"
+    assert "LLM_TIMEOUT" in settings.llm_fallback_error_codes
     assert settings.llm_base_url is None
     assert settings.llm_api_key is None
     assert settings.resolved_llm_api_key is None
     assert settings.has_llm_api_key is False
     assert settings.resolved_llm_base_url is None
     assert settings.request_timeout_seconds == 30.0
+    assert settings.llm_total_timeout_seconds == 45.0
     assert settings.llm_max_retries == 2
     assert settings.max_output_tokens == 1024
+    assert settings.llm_enable_cost_control is True
+    assert settings.llm_max_input_tokens_per_request == 6000
+    assert settings.llm_max_total_tokens_per_request == 8000
+    assert settings.llm_min_output_tokens == 128
+    assert settings.llm_max_estimated_cost_per_request is None
+    assert settings.llm_disable_fallback_above_total_tokens == 6000
+    assert settings.rate_limit_enabled is True
+    assert settings.rate_limit_window_seconds == 60
+    assert settings.rate_limit_client_requests_per_window == 120
+    assert settings.rate_limit_route_requests_per_window == 120
+    assert settings.rate_limit_ai_requests_per_window == 60
+    assert settings.rate_limit_tool_requests_per_window == 30
+    assert settings.rate_limit_excluded_paths == "/health,/ready"
     assert settings.llm_input_cost_per_million_tokens is None
     assert settings.llm_output_cost_per_million_tokens is None
     assert settings.llm_pricing_currency == "USD"
@@ -92,14 +111,32 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("LLM_ROUTE_LONG_INPUT_CHARS", "500")
     monkeypatch.setenv("LLM_ROUTE_FAST_KEYWORDS", "摘要,翻译")
     monkeypatch.setenv("LLM_ROUTE_STRONG_KEYWORDS", "架构设计,生产事故")
+    monkeypatch.setenv("LLM_ENABLE_FALLBACK", "false")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwen-backup")
+    monkeypatch.setenv("LLM_FALLBACK_TIER", "strong")
+    monkeypatch.setenv("LLM_FALLBACK_ERROR_CODES", "LLM_TIMEOUT,LLM_RATE_LIMITED")
     monkeypatch.setenv(
         "LLM_BASE_URL",
         " https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 ",
     )
     monkeypatch.setenv("LLM_API_KEY", "llm-test-key")
     monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("LLM_TOTAL_TIMEOUT_SECONDS", "40.5")
     monkeypatch.setenv("LLM_MAX_RETRIES", "3")
     monkeypatch.setenv("MAX_OUTPUT_TOKENS", "256")
+    monkeypatch.setenv("LLM_ENABLE_COST_CONTROL", "false")
+    monkeypatch.setenv("LLM_MAX_INPUT_TOKENS_PER_REQUEST", "2000")
+    monkeypatch.setenv("LLM_MAX_TOTAL_TOKENS_PER_REQUEST", "3000")
+    monkeypatch.setenv("LLM_MIN_OUTPUT_TOKENS", "64")
+    monkeypatch.setenv("LLM_MAX_ESTIMATED_COST_PER_REQUEST", "0.01")
+    monkeypatch.setenv("LLM_DISABLE_FALLBACK_ABOVE_TOTAL_TOKENS", "2500")
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS", "30")
+    monkeypatch.setenv("RATE_LIMIT_CLIENT_REQUESTS_PER_WINDOW", "10")
+    monkeypatch.setenv("RATE_LIMIT_ROUTE_REQUESTS_PER_WINDOW", "20")
+    monkeypatch.setenv("RATE_LIMIT_AI_REQUESTS_PER_WINDOW", "5")
+    monkeypatch.setenv("RATE_LIMIT_TOOL_REQUESTS_PER_WINDOW", "3")
+    monkeypatch.setenv("RATE_LIMIT_EXCLUDED_PATHS", "/health,/ready,/metrics")
     monkeypatch.setenv("LLM_INPUT_COST_PER_MILLION_TOKENS", "2.0")
     monkeypatch.setenv("LLM_OUTPUT_COST_PER_MILLION_TOKENS", "6.0")
     monkeypatch.setenv("LLM_PRICING_CURRENCY", "CNY")
@@ -146,6 +183,11 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.llm_route_long_input_chars == 500
     assert settings.llm_route_fast_keywords == "摘要,翻译"
     assert settings.llm_route_strong_keywords == "架构设计,生产事故"
+    assert settings.llm_enable_fallback is False
+    assert settings.llm_fallback_model == "qwen-backup"
+    assert settings.llm_fallback_tier == "strong"
+    assert settings.resolved_llm_fallback_model == "qwen-backup"
+    assert settings.llm_fallback_error_codes == "LLM_TIMEOUT,LLM_RATE_LIMITED"
     assert (
         settings.resolved_llm_base_url
         == "https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
@@ -153,8 +195,22 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.resolved_llm_api_key == "llm-test-key"
     assert settings.has_llm_api_key is True
     assert settings.request_timeout_seconds == 12.5
+    assert settings.llm_total_timeout_seconds == 40.5
     assert settings.llm_max_retries == 3
     assert settings.max_output_tokens == 256
+    assert settings.llm_enable_cost_control is False
+    assert settings.llm_max_input_tokens_per_request == 2000
+    assert settings.llm_max_total_tokens_per_request == 3000
+    assert settings.llm_min_output_tokens == 64
+    assert settings.llm_max_estimated_cost_per_request == 0.01
+    assert settings.llm_disable_fallback_above_total_tokens == 2500
+    assert settings.rate_limit_enabled is False
+    assert settings.rate_limit_window_seconds == 30
+    assert settings.rate_limit_client_requests_per_window == 10
+    assert settings.rate_limit_route_requests_per_window == 20
+    assert settings.rate_limit_ai_requests_per_window == 5
+    assert settings.rate_limit_tool_requests_per_window == 3
+    assert settings.rate_limit_excluded_paths == "/health,/ready,/metrics"
     assert settings.llm_input_cost_per_million_tokens == 2.0
     assert settings.llm_output_cost_per_million_tokens == 6.0
     assert settings.resolved_llm_pricing_currency == "CNY"
@@ -283,10 +339,28 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
                 "LLM_ROUTE_LONG_INPUT_CHARS=800",
                 'LLM_ROUTE_FAST_KEYWORDS="摘要,翻译"',
                 'LLM_ROUTE_STRONG_KEYWORDS="架构设计,生产事故"',
+                "LLM_ENABLE_FALLBACK=true",
+                'LLM_FALLBACK_MODEL=""',
+                'LLM_FALLBACK_TIER="strong"',
+                'LLM_FALLBACK_ERROR_CODES="LLM_TIMEOUT,LLM_PROVIDER_ERROR"',
                 'LLM_BASE_URL="https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"',
                 'LLM_API_KEY=""',
+                "LLM_TOTAL_TIMEOUT_SECONDS=50",
                 "LLM_MAX_RETRIES=4",
                 "MAX_OUTPUT_TOKENS=512",
+                "LLM_ENABLE_COST_CONTROL=true",
+                "LLM_MAX_INPUT_TOKENS_PER_REQUEST=3000",
+                "LLM_MAX_TOTAL_TOKENS_PER_REQUEST=4096",
+                "LLM_MIN_OUTPUT_TOKENS=128",
+                "LLM_MAX_ESTIMATED_COST_PER_REQUEST=0.02",
+                "LLM_DISABLE_FALLBACK_ABOVE_TOTAL_TOKENS=3500",
+                "RATE_LIMIT_ENABLED=true",
+                "RATE_LIMIT_WINDOW_SECONDS=45",
+                "RATE_LIMIT_CLIENT_REQUESTS_PER_WINDOW=11",
+                "RATE_LIMIT_ROUTE_REQUESTS_PER_WINDOW=22",
+                "RATE_LIMIT_AI_REQUESTS_PER_WINDOW=6",
+                "RATE_LIMIT_TOOL_REQUESTS_PER_WINDOW=4",
+                'RATE_LIMIT_EXCLUDED_PATHS="/health,/ready,/metrics"',
                 "LLM_INPUT_COST_PER_MILLION_TOKENS=1.5",
                 "LLM_OUTPUT_COST_PER_MILLION_TOKENS=4.5",
                 'LLM_PRICING_CURRENCY="USD"',
@@ -334,13 +408,31 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
     assert settings.resolved_llm_strong_model == "qwen-strong"
     assert settings.llm_default_route_tier == "balanced"
     assert settings.llm_route_long_input_chars == 800
+    assert settings.llm_enable_fallback is True
+    assert settings.llm_fallback_tier == "strong"
+    assert settings.resolved_llm_fallback_model == "qwen-strong"
+    assert settings.llm_fallback_error_codes == "LLM_TIMEOUT,LLM_PROVIDER_ERROR"
     assert (
         settings.resolved_llm_base_url
         == "https://example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
     )
     assert settings.has_llm_api_key is False
+    assert settings.llm_total_timeout_seconds == 50
     assert settings.llm_max_retries == 4
     assert settings.max_output_tokens == 512
+    assert settings.llm_enable_cost_control is True
+    assert settings.llm_max_input_tokens_per_request == 3000
+    assert settings.llm_max_total_tokens_per_request == 4096
+    assert settings.llm_min_output_tokens == 128
+    assert settings.llm_max_estimated_cost_per_request == 0.02
+    assert settings.llm_disable_fallback_above_total_tokens == 3500
+    assert settings.rate_limit_enabled is True
+    assert settings.rate_limit_window_seconds == 45
+    assert settings.rate_limit_client_requests_per_window == 11
+    assert settings.rate_limit_route_requests_per_window == 22
+    assert settings.rate_limit_ai_requests_per_window == 6
+    assert settings.rate_limit_tool_requests_per_window == 4
+    assert settings.rate_limit_excluded_paths == "/health,/ready,/metrics"
     assert settings.llm_input_cost_per_million_tokens == 1.5
     assert settings.llm_output_cost_per_million_tokens == 4.5
     assert settings.resolved_llm_pricing_currency == "USD"
@@ -401,6 +493,15 @@ def test_settings_reject_invalid_timeout() -> None:
     assert error["type"] == "greater_than"
 
 
+def test_settings_reject_invalid_llm_total_timeout() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_total_timeout_seconds=0, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_total_timeout_seconds",)
+    assert error["type"] == "greater_than"
+
+
 def test_settings_reject_invalid_max_output_tokens() -> None:
     with pytest.raises(ValidationError) as exc_info:
         Settings(max_output_tokens=0, _env_file=None)
@@ -423,6 +524,80 @@ def test_settings_reject_negative_llm_token_pricing() -> None:
 
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("llm_output_cost_per_million_tokens",)
+    assert error["type"] == "greater_than_equal"
+
+
+def test_settings_reject_invalid_llm_cost_control_values() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_max_input_tokens_per_request=99, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_max_input_tokens_per_request",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_max_total_tokens_per_request=99, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_max_total_tokens_per_request",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_min_output_tokens=15, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_min_output_tokens",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_max_estimated_cost_per_request=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_max_estimated_cost_per_request",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_disable_fallback_above_total_tokens=99, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_disable_fallback_above_total_tokens",)
+    assert error["type"] == "greater_than_equal"
+
+
+def test_settings_reject_invalid_rate_limit_values() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(rate_limit_window_seconds=0, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("rate_limit_window_seconds",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(rate_limit_client_requests_per_window=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("rate_limit_client_requests_per_window",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(rate_limit_route_requests_per_window=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("rate_limit_route_requests_per_window",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(rate_limit_ai_requests_per_window=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("rate_limit_ai_requests_per_window",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(rate_limit_tool_requests_per_window=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("rate_limit_tool_requests_per_window",)
     assert error["type"] == "greater_than_equal"
 
 
@@ -538,6 +713,13 @@ def test_settings_reject_invalid_llm_default_route_tier() -> None:
 
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("llm_default_route_tier",)
+    assert error["type"] == "literal_error"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(llm_fallback_tier="premium", _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("llm_fallback_tier",)
     assert error["type"] == "literal_error"
 
 

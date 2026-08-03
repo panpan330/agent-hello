@@ -30,6 +30,24 @@ def test_safe_settings_snapshot_exposes_status_not_secret_values() -> None:
     assert snapshot["llm.route_long_input_chars"] == 1200
     assert snapshot["llm.route_fast_keyword_count"] >= 1
     assert snapshot["llm.route_strong_keyword_count"] >= 1
+    assert snapshot["llm.fallback_enabled"] is True
+    assert snapshot["llm.fallback_model_configured"] is False
+    assert snapshot["llm.fallback_tier"] == "balanced"
+    assert snapshot["llm.fallback_error_code_count"] >= 1
+    assert snapshot["llm.total_timeout_seconds"] == 45.0
+    assert snapshot["llm.cost_control_enabled"] is True
+    assert snapshot["llm.max_input_tokens_per_request"] == 6000
+    assert snapshot["llm.max_total_tokens_per_request"] == 8000
+    assert snapshot["llm.min_output_tokens"] == 128
+    assert snapshot["llm.max_estimated_cost_configured"] is False
+    assert snapshot["llm.disable_fallback_above_total_tokens_configured"] is True
+    assert snapshot["rate_limit.enabled"] is True
+    assert snapshot["rate_limit.window_seconds"] == 60
+    assert snapshot["rate_limit.client_requests_per_window"] == 120
+    assert snapshot["rate_limit.route_requests_per_window"] == 120
+    assert snapshot["rate_limit.ai_requests_per_window"] == 60
+    assert snapshot["rate_limit.tool_requests_per_window"] == 30
+    assert snapshot["rate_limit.excluded_path_count"] == 2
     assert snapshot["embedding.api_key_configured"] is True
     assert snapshot["rerank.api_key_configured"] is True
     assert snapshot["qdrant.api_key_configured"] is True

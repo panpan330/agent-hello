@@ -10,7 +10,7 @@ def create_openai_compatible_client(settings: Settings) -> OpenAI:
 
     client_kwargs: dict[str, object] = {
         "api_key": api_key,
-        "max_retries": settings.llm_max_retries,
+        "max_retries": 0,
         "timeout": settings.request_timeout_seconds,
     }
 

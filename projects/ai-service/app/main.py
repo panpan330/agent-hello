@@ -4,6 +4,7 @@ from app.core.config import Settings, get_settings
 from app.core.cors import register_cors_middleware
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
+from app.middleware.rate_limit import register_rate_limit_middleware
 from app.middleware.tracing import register_trace_middleware
 from app.routers import chat, health, tickets, tools
 
@@ -18,6 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     register_exception_handlers(app)
     register_trace_middleware(app)
+    register_rate_limit_middleware(app, settings)
     register_cors_middleware(app, settings.cors_allowed_origin_list)
     app.include_router(health.router)
     app.include_router(chat.router)

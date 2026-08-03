@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 10 AI 应用生产化与可运营能力第 10 节已完成；下一节学习阶段 10 第 11 节：模型 fallback。
+当前阶段：阶段 10 AI 应用生产化与可运营能力第 15 节已完成；下一节学习阶段 10 第 16 节：SSE 流式输出生产化。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -24,7 +24,7 @@
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 | M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
-| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1-10 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐、LLM 调用日志安全、配置与密钥管理、Token 成本统计、请求耗时拆解、多模型路由基础；阶段 10 固定为 28 节主线，后续继续学习模型 fallback、成本控制、限流、重试、超时、SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
+| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1-15 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐、LLM 调用日志安全、配置与密钥管理、Token 成本统计、请求耗时拆解、多模型路由基础、模型 fallback、成本控制、限流、重试、超时治理；阶段 10 固定为 28 节主线，后续继续学习 SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
 
 ## M6 快速版学习清单
 
@@ -193,10 +193,10 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 | 8 | Token 成本统计 | 已完成 | `notes/stage10-08-token-cost-tracking.md`、`app/core/token_usage.py`、`tests/test_token_usage.py`、`config.py`、`llm_service.py`；系统学习 token、prompt tokens、completion tokens、total tokens、按百万 token 单价估算、RAG/Agent/Tool Calling 成本放大原因、成本和日志/metric/trace 的关系，新增 usage 归一化、TokenPricing、TokenCostEstimate、TokenCostRecord、可选 LLM 单价配置和 LLM 成功日志安全成本元信息 |
 | 9 | 请求耗时拆解 | 已完成 | `notes/stage10-09-request-latency-breakdown.md`、`app/core/request_timing.py`、`tests/test_request_timing.py`、`tracing.py`；系统学习请求总耗时、阶段耗时、未归因耗时、瓶颈阶段、阶段占比、AI 请求慢的常见来源，以及耗时拆解和 trace/span/log/metric/token 成本/超时/fallback 的关系，新增 HTTP 总请求 timing breakdown 和 request_finished 瓶颈摘要日志 |
 | 10 | 多模型路由基础 | 已完成 | `notes/stage10-10-multi-model-routing-basics.md`、`app/core/model_routing.py`、`tests/test_model_routing.py`、`config.py`、`llm_service.py`；系统学习多模型路由、fast/balanced/strong 模型分层、任务类型/输入长度/关键词/默认档位路由、路由与成本/耗时/fallback/评测/安全的关系，并让普通聊天和流式聊天使用路由决策中的模型名 |
-| 11 | 模型 fallback | 未开始 | 学习主模型失败、超时、限流或质量不稳定时如何切备用模型，以及 fallback 的边界 |
-| 12 | 成本控制 | 未开始 | 学习预算、限额、上下文裁剪、降级、缓存、低成本模型和高成本能力开关 |
-| 13 | 限流 | 未开始 | 区分用户级、接口级、模型级、工具级限流，理解限流和权限、成本、稳定性的关系 |
-| 14 | 重试 | 未开始 | 学习哪些错误可以重试、哪些不能重试，读操作和写操作重试边界，以及幂等要求 |
+| 11 | 模型 fallback | 已完成 | `notes/stage10-11-model-fallback.md`、`app/core/model_fallback.py`、`tests/test_model_fallback.py`、`config.py`、`llm_service.py`；系统学习 fallback 与路由/重试/降级的区别、可 fallback 错误和不可 fallback 错误、fallback 对成本/耗时/日志/trace/用户体验的影响，并为普通聊天和流式创建阶段增加一次有限备用模型兜底 |
+| 12 | 成本控制 | 已完成 | `notes/stage10-12-cost-control.md`、`app/core/cost_control.py`、`tests/test_cost_control.py`、`config.py`、`llm_service.py`；系统学习成本统计与成本控制区别、token 预算/金额预算/请求预算/用户预算/租户预算/功能预算、高成本请求来源、输出上限压缩、超预算阻断、高成本请求禁用 fallback，并在模型调用前增加单次请求成本预检 |
+| 13 | 限流 | 已完成 | `notes/stage10-13-rate-limiting.md`、`app/core/rate_limit.py`、`app/middleware/rate_limit.py`、`tests/test_rate_limit.py`、`config.py`；系统学习限流和成本控制/权限/超时/重试的区别、429、Retry-After、X-RateLimit-*、固定窗口/滑动窗口/令牌桶/漏桶、client/route/ai/tool 四类限流 scope，并新增内存固定窗口限流中间件 |
+| 14 | 重试 | 已完成 | `notes/stage10-14-retry.md`、`app/core/llm_retry.py`、`app/services/llm_service.py`、`app/services/llm_client.py`、`tests/test_llm_retry.py`；系统学习临时失败/永久失败、可重试错误/不可重试错误、读写幂等、重试次数、指数退避、Retry-After、retry 和 fallback/限流/超时/成本控制的边界，并新增 LLM 应用层可解释重试 |
 | 15 | 超时治理 | 未开始 | 设计请求总超时、模型超时、检索超时、工具超时、Java 后端超时和降级策略 |
 | 16 | SSE 流式输出生产化 | 未开始 | 学习流式响应的价值、事件格式、心跳、首 token 延迟、客户端体验和服务端资源占用 |
 | 17 | 流式错误处理和中断 | 未开始 | 学习流式输出中途失败、用户取消、上游超时、部分内容已输出时如何处理 |

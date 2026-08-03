@@ -1,5 +1,6 @@
 import logging
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -30,9 +31,167 @@ from app.services.llm_service import (
 from tests.fakes import (
     FakeChatCompletions as FakeCompletions,
     FakeOpenAICompatibleClient as FakeClient,
+    make_chat_completion,
     make_status_error,
     make_stream_chunk,
 )
+
+
+class SequencedChatCompletions:
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = list(outcomes)
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> object:
+        self.calls.append(kwargs)
+        if not self._outcomes:
+            raise AssertionError("No fake completion outcome left")
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class AdvancingChatCompletions(SequencedChatCompletions):
+    def __init__(self, outcomes: list[object], clock: FakeClock) -> None:
+        super().__init__(outcomes)
+        self.clock = clock
+        self.advance_before_raise_seconds = 0.0
+
+    def create(self, **kwargs: Any) -> object:
+        self.calls.append(kwargs)
+        if not self._outcomes:
+            raise AssertionError("No fake completion outcome left")
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            self.clock.now += self.advance_before_raise_seconds
+            raise outcome
+        return outcome
+
+
+def make_timeout_error() -> APITimeoutError:
+    return APITimeoutError(
+        request=httpx.Request("POST", "https://example.com/chat/completions")
+    )
+
+
+def test_llm_chat_service_retries_same_model_before_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    sleep_delays: list[float] = []
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("retry success"),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-test",
+            llm_max_retries=2,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+        sleep_func=sleep_delays.append,
+    )
+
+    reply = service.generate_reply("Explain FastAPI")
+
+    assert reply == "retry success"
+    assert [call["model"] for call in completions.calls] == [
+        "qwen-test",
+        "qwen-test",
+    ]
+    assert sleep_delays == [0.2]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "llm_retry_decision operation=chat" in message
+        and "error_code=LLM_TIMEOUT" in message
+        and "next_attempt=2" in message
+        for message in messages
+    )
+    assert all("Explain FastAPI" not in message for message in messages)
+
+
+def test_llm_chat_service_retries_stream_create_before_streaming() -> None:
+    sleep_delays: list[float] = []
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            iter([make_stream_chunk("retry "), make_stream_chunk("stream")]),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-test",
+            llm_max_retries=1,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+        sleep_func=sleep_delays.append,
+    )
+
+    chunks = list(service.stream_reply("Explain FastAPI"))
+
+    assert chunks == ["retry ", "stream"]
+    assert [call["model"] for call in completions.calls] == [
+        "qwen-test",
+        "qwen-test",
+    ]
+    assert sleep_delays == [0.2]
+
+
+def test_llm_chat_service_does_not_retry_when_total_timeout_budget_is_not_enough(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    clock = FakeClock()
+    completions = AdvancingChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("should not call"),
+        ],
+        clock,
+    )
+    completions.advance_before_raise_seconds = 30.0
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-test",
+            request_timeout_seconds=30,
+            llm_total_timeout_seconds=30.1,
+            llm_max_retries=1,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+        sleep_func=lambda _: None,
+        time_func=clock,
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("Explain FastAPI")
+
+    assert exc_info.value.code == "LLM_TOTAL_TIMEOUT_EXCEEDED"
+    assert len(completions.calls) == 1
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "llm_timeout_budget_decision operation=chat" in message
+        and "phase=retry" in message
+        and "allowed=False" in message
+        for message in messages
+    )
+    assert all("Explain FastAPI" not in message for message in messages)
 
 
 def test_build_chat_messages_wraps_user_message_in_clear_prompt() -> None:
@@ -79,6 +238,7 @@ def test_llm_chat_service_calls_openai_compatible_client() -> None:
     assert len(completions.calls) == 1
     call = completions.calls[0]
     assert call["model"] == "qwen-test"
+    assert call["max_tokens"] == 1024
     assert call["messages"][0]["role"] == "system"
     assert call["messages"][1]["role"] == "user"
     assert "## 任务\n解释 FastAPI" in call["messages"][1]["content"]
@@ -111,6 +271,212 @@ def test_llm_chat_service_uses_fast_route_model_for_simple_chat(
         and "route_reason=fast_keyword" in message
         for message in messages
     )
+
+
+def test_llm_chat_service_falls_back_to_balanced_model_after_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("备用模型回复"),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_balanced_model="qwen-balanced",
+            llm_route_fast_keywords="摘要",
+            llm_fallback_tier="balanced",
+            llm_max_retries=0,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    reply = service.generate_reply("帮我摘要这段文字")
+
+    assert reply == "备用模型回复"
+    assert [call["model"] for call in completions.calls] == [
+        "qwen-fast",
+        "qwen-balanced",
+    ]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("llm_fallback_started operation=chat" in message for message in messages)
+    assert any(
+        "llm_fallback_succeeded operation=chat" in message
+        and "primary_model=qwen-fast" in message
+        and "fallback_model=qwen-balanced" in message
+        for message in messages
+    )
+    assert all("帮我摘要这段文字" not in message for message in messages)
+
+
+def test_llm_chat_service_does_not_fallback_when_total_timeout_budget_is_not_enough(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.services.llm_service")
+    clock = FakeClock()
+    completions = AdvancingChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("should not call"),
+        ],
+        clock,
+    )
+    completions.advance_before_raise_seconds = 44.0
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_balanced_model="qwen-balanced",
+            llm_route_fast_keywords="summary",
+            request_timeout_seconds=30,
+            llm_total_timeout_seconds=45,
+            llm_fallback_tier="balanced",
+            llm_max_retries=0,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+        time_func=clock,
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("summary this text")
+
+    assert exc_info.value.code == "LLM_TOTAL_TIMEOUT_EXCEEDED"
+    assert [call["model"] for call in completions.calls] == ["qwen-fast"]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "llm_timeout_budget_decision operation=chat" in message
+        and "phase=fallback" in message
+        and "allowed=False" in message
+        for message in messages
+    )
+    assert all("summary this text" not in message for message in messages)
+
+
+def test_llm_chat_service_does_not_fallback_for_authentication_error() -> None:
+    completions = SequencedChatCompletions(
+        [
+            make_status_error(AuthenticationError, 401),
+            make_chat_completion("不会调用备用模型"),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_balanced_model="qwen-balanced",
+            llm_route_fast_keywords="摘要",
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("帮我摘要这段文字")
+
+    assert exc_info.value.code == "LLM_AUTHENTICATION_FAILED"
+    assert len(completions.calls) == 1
+    assert completions.calls[0]["model"] == "qwen-fast"
+
+
+def test_llm_chat_service_does_not_fallback_to_same_model() -> None:
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("不会调用备用模型"),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-default",
+            llm_max_retries=0,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("解释 FastAPI")
+
+    assert exc_info.value.code == "LLM_TIMEOUT"
+    assert len(completions.calls) == 1
+    assert completions.calls[0]["model"] == "qwen-default"
+
+
+def test_llm_chat_service_blocks_request_when_cost_budget_is_exceeded() -> None:
+    completions = FakeCompletions(content="不会被调用")
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_max_input_tokens_per_request=100,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("业务流程" * 200)
+
+    assert exc_info.value.code == "LLM_COST_BUDGET_EXCEEDED"
+    assert exc_info.value.status_code == 429
+    assert completions.calls == []
+
+
+def test_llm_chat_service_caps_max_tokens_when_total_budget_is_limited() -> None:
+    completions = FakeCompletions(content="压缩回答")
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            max_output_tokens=1024,
+            llm_max_total_tokens_per_request=300,
+            llm_min_output_tokens=16,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    reply = service.generate_reply("解释 FastAPI")
+
+    assert reply == "压缩回答"
+    assert 16 <= completions.calls[0]["max_tokens"] < 1024
+
+
+def test_llm_chat_service_cost_control_can_disable_fallback() -> None:
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            make_chat_completion("不会调用备用模型"),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_balanced_model="qwen-balanced",
+            llm_route_fast_keywords="摘要",
+            llm_disable_fallback_above_total_tokens=100,
+            llm_max_retries=0,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        service.generate_reply("帮我摘要这段文字")
+
+    assert exc_info.value.code == "LLM_TIMEOUT"
+    assert len(completions.calls) == 1
+    assert completions.calls[0]["model"] == "qwen-fast"
 
 
 def test_llm_chat_service_sends_history_to_model() -> None:
@@ -291,6 +657,7 @@ def test_llm_chat_service_logs_failure_metadata(
             llm_api_key="test-key",
             llm_provider="test-provider",
             llm_model="qwen-test",
+            llm_max_retries=0,
             _env_file=None,
         ),
         client=FakeClient(FakeCompletions(error=RuntimeError("provider failed"))),
@@ -339,6 +706,7 @@ def test_llm_chat_service_streams_delta_content_to_chunks() -> None:
     assert len(completions.calls) == 1
     call = completions.calls[0]
     assert call["model"] == "qwen-test"
+    assert call["max_tokens"] == 1024
     assert call["stream"] is True
     assert call["stream_options"] == {"include_usage": True}
     assert call["messages"][0]["role"] == "system"
@@ -363,6 +731,35 @@ def test_llm_chat_service_uses_strong_route_model_for_long_stream_input() -> Non
 
     assert chunks == ["回答"]
     assert completions.calls[0]["model"] == "qwen-strong"
+
+
+def test_llm_chat_service_falls_back_when_stream_create_fails() -> None:
+    completions = SequencedChatCompletions(
+        [
+            make_timeout_error(),
+            iter([make_stream_chunk("备用"), make_stream_chunk("回答")]),
+        ]
+    )
+    service = LLMChatService(
+        Settings(
+            llm_api_key="test-key",
+            llm_model="qwen-balanced",
+            llm_fast_model="qwen-fast",
+            llm_balanced_model="qwen-balanced",
+            llm_route_fast_keywords="摘要",
+            llm_max_retries=0,
+            _env_file=None,
+        ),
+        client=FakeClient(completions),
+    )
+
+    chunks = list(service.stream_reply("帮我摘要这段文字"))
+
+    assert chunks == ["备用", "回答"]
+    assert [call["model"] for call in completions.calls] == [
+        "qwen-fast",
+        "qwen-balanced",
+    ]
 
 
 def test_llm_chat_service_streams_history_to_model() -> None:
@@ -451,7 +848,7 @@ def test_llm_chat_service_requires_api_key_before_streaming() -> None:
 
 def test_llm_chat_service_maps_stream_create_errors() -> None:
     service = LLMChatService(
-        Settings(llm_api_key="test-key", _env_file=None),
+        Settings(llm_api_key="test-key", llm_max_retries=0, _env_file=None),
         client=FakeClient(FakeCompletions(error=RuntimeError("provider failed"))),
     )
 
@@ -517,7 +914,7 @@ def test_llm_chat_service_requires_api_key() -> None:
 
 def test_llm_chat_service_rejects_empty_model_reply() -> None:
     service = LLMChatService(
-        Settings(llm_api_key="test-key", _env_file=None),
+        Settings(llm_api_key="test-key", llm_max_retries=0, _env_file=None),
         client=FakeClient(FakeCompletions(content="   ")),
     )
 
@@ -530,7 +927,7 @@ def test_llm_chat_service_rejects_empty_model_reply() -> None:
 
 def test_llm_chat_service_wraps_provider_errors() -> None:
     service = LLMChatService(
-        Settings(llm_api_key="test-key", _env_file=None),
+        Settings(llm_api_key="test-key", llm_max_retries=0, _env_file=None),
         client=FakeClient(FakeCompletions(error=RuntimeError("provider failed"))),
     )
 
@@ -615,6 +1012,7 @@ def test_llm_chat_service_maps_timeout_errors() -> None:
         Settings(
             llm_api_key="test-key",
             request_timeout_seconds=3,
+            llm_max_retries=0,
             _env_file=None,
         ),
         client=FakeClient(FakeCompletions(error=timeout_error)),
@@ -642,7 +1040,7 @@ def test_llm_chat_service_maps_rate_limit_errors() -> None:
     service = LLMChatService(
         Settings(
             llm_api_key="test-key",
-            llm_max_retries=1,
+            llm_max_retries=0,
             _env_file=None,
         ),
         client=FakeClient(FakeCompletions(error=rate_limit_error)),

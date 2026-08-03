@@ -31,11 +31,38 @@ class Settings(BaseSettings):
     llm_route_strong_keywords: str = Field(
         default="代码审查,架构设计,复杂推理,生产事故,安全分析,SQL优化"
     )
+    llm_enable_fallback: bool = Field(default=True)
+    llm_fallback_model: str | None = Field(default=None)
+    llm_fallback_tier: LLMDefaultRouteTier = Field(default="balanced")
+    llm_fallback_error_codes: str = Field(
+        default=(
+            "LLM_TIMEOUT,LLM_RATE_LIMITED,LLM_PROVIDER_ERROR,"
+            "LLM_CONNECTION_ERROR,LLM_PROVIDER_STATUS_ERROR,LLM_CALL_FAILED,"
+            "LLM_EMPTY_RESPONSE,LLM_BAD_RESPONSE"
+        )
+    )
     llm_base_url: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None, repr=False)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_total_timeout_seconds: float = Field(default=45.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     max_output_tokens: int = Field(default=1024, gt=0)
+    llm_enable_cost_control: bool = Field(default=True)
+    llm_max_input_tokens_per_request: int = Field(default=6000, ge=100)
+    llm_max_total_tokens_per_request: int = Field(default=8000, ge=100)
+    llm_min_output_tokens: int = Field(default=128, ge=16)
+    llm_max_estimated_cost_per_request: float | None = Field(default=None, ge=0)
+    llm_disable_fallback_above_total_tokens: int | None = Field(
+        default=6000,
+        ge=100,
+    )
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_window_seconds: int = Field(default=60, ge=1)
+    rate_limit_client_requests_per_window: int = Field(default=120, ge=0)
+    rate_limit_route_requests_per_window: int = Field(default=120, ge=0)
+    rate_limit_ai_requests_per_window: int = Field(default=60, ge=0)
+    rate_limit_tool_requests_per_window: int = Field(default=30, ge=0)
+    rate_limit_excluded_paths: str = Field(default="/health,/ready")
     llm_input_cost_per_million_tokens: float | None = Field(default=None, ge=0)
     llm_output_cost_per_million_tokens: float | None = Field(default=None, ge=0)
     llm_pricing_currency: str = Field(default="USD", min_length=1)
@@ -132,6 +159,18 @@ class Settings(BaseSettings):
             if model and model.strip():
                 return model.strip()
         return "qwen3.7-plus"
+
+    @property
+    def resolved_llm_fallback_model(self) -> str:
+        if self.llm_fallback_model and self.llm_fallback_model.strip():
+            return self.llm_fallback_model.strip()
+        return self._resolve_llm_tier_model(
+            {
+                "fast": self.llm_fast_model,
+                "balanced": self.llm_balanced_model,
+                "strong": self.llm_strong_model,
+            }[self.llm_fallback_tier]
+        )
 
     @property
     def has_llm_token_pricing(self) -> bool:
