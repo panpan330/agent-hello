@@ -48,6 +48,7 @@ def test_safe_settings_snapshot_exposes_status_not_secret_values() -> None:
     assert snapshot["rate_limit.ai_requests_per_window"] == 60
     assert snapshot["rate_limit.tool_requests_per_window"] == 30
     assert snapshot["rate_limit.excluded_path_count"] == 2
+    assert snapshot["sse.heartbeat_every_chunks"] == 2
     assert snapshot["embedding.api_key_configured"] is True
     assert snapshot["rerank.api_key_configured"] is True
     assert snapshot["qdrant.api_key_configured"] is True

@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     rate_limit_ai_requests_per_window: int = Field(default=60, ge=0)
     rate_limit_tool_requests_per_window: int = Field(default=30, ge=0)
     rate_limit_excluded_paths: str = Field(default="/health,/ready")
+    sse_heartbeat_every_chunks: int = Field(default=2, ge=0, le=100)
     llm_input_cost_per_million_tokens: float | None = Field(default=None, ge=0)
     llm_output_cost_per_million_tokens: float | None = Field(default=None, ge=0)
     llm_pricing_currency: str = Field(default="USD", min_length=1)

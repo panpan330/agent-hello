@@ -51,6 +51,7 @@ def test_settings_use_default_values() -> None:
     assert settings.rate_limit_ai_requests_per_window == 60
     assert settings.rate_limit_tool_requests_per_window == 30
     assert settings.rate_limit_excluded_paths == "/health,/ready"
+    assert settings.sse_heartbeat_every_chunks == 2
     assert settings.llm_input_cost_per_million_tokens is None
     assert settings.llm_output_cost_per_million_tokens is None
     assert settings.llm_pricing_currency == "USD"
@@ -137,6 +138,7 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("RATE_LIMIT_AI_REQUESTS_PER_WINDOW", "5")
     monkeypatch.setenv("RATE_LIMIT_TOOL_REQUESTS_PER_WINDOW", "3")
     monkeypatch.setenv("RATE_LIMIT_EXCLUDED_PATHS", "/health,/ready,/metrics")
+    monkeypatch.setenv("SSE_HEARTBEAT_EVERY_CHUNKS", "5")
     monkeypatch.setenv("LLM_INPUT_COST_PER_MILLION_TOKENS", "2.0")
     monkeypatch.setenv("LLM_OUTPUT_COST_PER_MILLION_TOKENS", "6.0")
     monkeypatch.setenv("LLM_PRICING_CURRENCY", "CNY")
@@ -211,6 +213,7 @@ def test_settings_read_environment_variables(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.rate_limit_ai_requests_per_window == 5
     assert settings.rate_limit_tool_requests_per_window == 3
     assert settings.rate_limit_excluded_paths == "/health,/ready,/metrics"
+    assert settings.sse_heartbeat_every_chunks == 5
     assert settings.llm_input_cost_per_million_tokens == 2.0
     assert settings.llm_output_cost_per_million_tokens == 6.0
     assert settings.resolved_llm_pricing_currency == "CNY"
@@ -361,6 +364,7 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
                 "RATE_LIMIT_AI_REQUESTS_PER_WINDOW=6",
                 "RATE_LIMIT_TOOL_REQUESTS_PER_WINDOW=4",
                 'RATE_LIMIT_EXCLUDED_PATHS="/health,/ready,/metrics"',
+                "SSE_HEARTBEAT_EVERY_CHUNKS=4",
                 "LLM_INPUT_COST_PER_MILLION_TOKENS=1.5",
                 "LLM_OUTPUT_COST_PER_MILLION_TOKENS=4.5",
                 'LLM_PRICING_CURRENCY="USD"',
@@ -433,6 +437,7 @@ def test_settings_read_env_file(tmp_path: Path) -> None:
     assert settings.rate_limit_ai_requests_per_window == 6
     assert settings.rate_limit_tool_requests_per_window == 4
     assert settings.rate_limit_excluded_paths == "/health,/ready,/metrics"
+    assert settings.sse_heartbeat_every_chunks == 4
     assert settings.llm_input_cost_per_million_tokens == 1.5
     assert settings.llm_output_cost_per_million_tokens == 4.5
     assert settings.resolved_llm_pricing_currency == "USD"
@@ -599,6 +604,20 @@ def test_settings_reject_invalid_rate_limit_values() -> None:
     error = exc_info.value.errors()[0]
     assert error["loc"] == ("rate_limit_tool_requests_per_window",)
     assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(sse_heartbeat_every_chunks=-1, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("sse_heartbeat_every_chunks",)
+    assert error["type"] == "greater_than_equal"
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(sse_heartbeat_every_chunks=101, _env_file=None)
+
+    error = exc_info.value.errors()[0]
+    assert error["loc"] == ("sse_heartbeat_every_chunks",)
+    assert error["type"] == "less_than_equal"
 
 
 def test_settings_reject_invalid_java_mock_service_timeout() -> None:

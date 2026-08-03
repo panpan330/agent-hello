@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 10 AI 应用生产化与可运营能力第 15 节已完成；下一节学习阶段 10 第 16 节：SSE 流式输出生产化。
+当前阶段：阶段 10 AI 应用生产化与可运营能力已完成；下一阶段建议进入阶段 11：完整智能工单系统项目化。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -24,7 +24,7 @@
 | M7 | 第 13 周起 | 真实 Java 后端接入 AI Agent | 已完成 | 阶段 7 共 12 节，完成真实 Spring Boot + MyBatis + MySQL/Redis 业务服务底座，并补齐 AI Agent 调用传统 Java 后端时的边界、契约、幂等、权限、错误码、trace_id 和契约测试 |
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 | M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
-| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 进行中 | 第 1-15 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐、LLM 调用日志安全、配置与密钥管理、Token 成本统计、请求耗时拆解、多模型路由基础、模型 fallback、成本控制、限流、重试、超时治理；阶段 10 固定为 28 节主线，后续继续学习 SSE 生产化、Prompt Injection 加固、权限强化、隐私保护、自动化评估、评测集版本、Bad Case 回归、监控指标、告警、灰度发布、回滚、SLO/SLA/Runbook 和面试表达 |
+| M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 已完成 | 第 1-23 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐、LLM 调用日志安全、配置与密钥管理、Token 成本统计、请求耗时拆解、多模型路由基础、模型 fallback、成本控制、限流、重试、超时治理、SSE 流式输出生产化与中断处理、Prompt Injection、权限控制与隐私保护、自动化评估平台基础与评测集版本管理、Bad Case 收集、分析与回归测试、生产监控指标与告警基础、灰度发布、回滚与配置开关、SLO / SLA / Runbook、阶段总复盘和面试表达强化；阶段 10 后半段已合并，总节数调整为 23 节 |
 
 ## M6 快速版学习清单
 
@@ -179,11 +179,13 @@ AI 应用生产化与可运营能力。重点把已经能运行的 AI 应用继�
 notes/stage10-00-ai-production-operability-learning-plan.md
 ```
 
-固定为 28 节：
+阶段 10 原计划为 28 节。
+第 1-15 节完成后，后半段合并为 8 节，总节数调整为 23 节。
+合并原则：只合并强相关主题，不删知识点，不降低笔记质量。
 
 | 节 | 主题 | 状态 | 目标 |
 | --- | --- | --- | --- |
-| 1 | AI 应用生产化总览 | 已完成 | `notes/stage10-01-ai-production-overview.md`；系统学习 AI 应用生产化和可运营的含义，区分能跑通、能上线、可运营，梳理 AI 应用相对传统后端新增的不确定性、外部模型依赖、token 成本、Prompt Injection、上下文泄露、工具调用和评估困难等生产风险，并把阶段 10 的 28 节整理成可追踪、可控成本和性能、可用体验、安全边界、质量评估、线上运营六组能力 |
+| 1 | AI 应用生产化总览 | 已完成 | `notes/stage10-01-ai-production-overview.md`；系统学习 AI 应用生产化和可运营的含义，区分能跑通、能上线、可运营，梳理 AI 应用相对传统后端新增的不确定性、外部模型依赖、token 成本、Prompt Injection、上下文泄露、工具调用和评估困难等生产风险，并把阶段 10 的生产化能力整理成可追踪、可控成本和性能、可用体验、安全边界、质量评估、线上运营六组能力 |
 | 2 | Tracing 是什么 | 已完成 | `notes/stage10-02-what-is-tracing.md`；系统学习 Tracing 的定义、价值和边界，理解 AI 应用为什么要追踪一次请求从 FastAPI 入口到 LLM、RAG、rerank、Tool、Java 业务服务、Redis/MySQL、最终回答和 SSE 输出的完整链路，并区分 Tracing 与日志、指标、评估各自解决的问题 |
 | 3 | trace_id / span / event / metric 的区别 | 已完成 | `notes/stage10-03-trace-span-event-metric.md`；系统区分 trace_id、span、event、metric 的职责边界，理解请求标识、链路片段、关键事件和聚合指标的区别，并把它们映射到 AI 服务里的 LLM、RAG、rerank、Tool、Java 调用、Redis/MySQL、SSE、fallback、重试、权限拒绝、成本和告警场景 |
 | 4 | Python AI 服务 tracing | 已完成 | `notes/stage10-04-python-ai-service-tracing.md`、`app/core/ai_service_tracing.py`、`tests/test_ai_service_tracing.py`；在 ai-service 内部建立普通聊天、流式聊天、RAG 问答和 Tool Chat 的 tracing plan，明确 `http.request`、`llm.call`、`llm.stream`、`sse.stream`、`rag.query_rewrite`、`embedding.call`、`vector.search`、`rerank.call`、`tool.validation`、`tool.execution`、`java.orders.get` 等 span 边界，并补充 event、metric、安全 attributes 和低基数 metric 标签测试 |
@@ -197,20 +199,15 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 | 12 | 成本控制 | 已完成 | `notes/stage10-12-cost-control.md`、`app/core/cost_control.py`、`tests/test_cost_control.py`、`config.py`、`llm_service.py`；系统学习成本统计与成本控制区别、token 预算/金额预算/请求预算/用户预算/租户预算/功能预算、高成本请求来源、输出上限压缩、超预算阻断、高成本请求禁用 fallback，并在模型调用前增加单次请求成本预检 |
 | 13 | 限流 | 已完成 | `notes/stage10-13-rate-limiting.md`、`app/core/rate_limit.py`、`app/middleware/rate_limit.py`、`tests/test_rate_limit.py`、`config.py`；系统学习限流和成本控制/权限/超时/重试的区别、429、Retry-After、X-RateLimit-*、固定窗口/滑动窗口/令牌桶/漏桶、client/route/ai/tool 四类限流 scope，并新增内存固定窗口限流中间件 |
 | 14 | 重试 | 已完成 | `notes/stage10-14-retry.md`、`app/core/llm_retry.py`、`app/services/llm_service.py`、`app/services/llm_client.py`、`tests/test_llm_retry.py`；系统学习临时失败/永久失败、可重试错误/不可重试错误、读写幂等、重试次数、指数退避、Retry-After、retry 和 fallback/限流/超时/成本控制的边界，并新增 LLM 应用层可解释重试 |
-| 15 | 超时治理 | 未开始 | 设计请求总超时、模型超时、检索超时、工具超时、Java 后端超时和降级策略 |
-| 16 | SSE 流式输出生产化 | 未开始 | 学习流式响应的价值、事件格式、心跳、首 token 延迟、客户端体验和服务端资源占用 |
-| 17 | 流式错误处理和中断 | 未开始 | 学习流式输出中途失败、用户取消、上游超时、部分内容已输出时如何处理 |
-| 18 | Prompt Injection 防护强化 | 未开始 | 在 RAG 防护基础上继续学习系统提示、工具调用、外部输入和多轮上下文中的注入风险 |
-| 19 | 权限控制强化 | 未开始 | 系统梳理用户、租户、角色、权限组、工具权限、读写权限和后端最终授权边界 |
-| 20 | 模型输出安全与隐私保护 | 未开始 | 学习敏感信息、个人隐私、日志脱敏、回答边界、拒答策略和安全输出过滤 |
-| 21 | 自动化评估平台基础 | 未开始 | 从脚本式 eval 走向可持续评估，理解评测任务、评测数据、评测结果和报告沉淀 |
-| 22 | 评测集版本管理 | 未开始 | 学习评测集为什么要版本化，如何区分新增 case、修改 case、废弃 case 和回归基线 |
-| 23 | Bad Case 收集和回归测试 | 未开始 | 学习线上 bad case 如何进入评测集，如何防止修好一个问题又破坏旧问题 |
-| 24 | 线上监控指标设计 | 未开始 | 设计 AI 服务需要观察的请求量、错误率、延迟、token、成本、模型失败、fallback、限流等指标 |
-| 25 | 告警 | 未开始 | 学习什么时候应该报警，如何避免告警太少漏问题或告警太多没人看 |
-| 26 | 灰度发布与回滚 | 未开始 | 学习 AI 功能、Prompt、模型、RAG 参数和路由策略如何灰度发布，失败后如何回滚 |
-| 27 | SLO / SLA / Runbook | 未开始 | 理解服务目标、对外承诺和故障处理手册，知道出问题时如何按步骤排查和恢复 |
-| 28 | 阶段 10 总复盘和面试表达强化 | 未开始 | 把阶段 10 的生产化能力整理成项目表达、面试回答、简历素材和后续路线 |
+| 15 | 超时治理 | 已完成 | `notes/stage10-15-timeout-governance.md`、`app/core/llm_timeout.py`、`tests/test_llm_timeout.py`；系统学习单次请求超时、总超时预算、retry 预算、fallback 预算、可注入时间源和 `LLM_TOTAL_TIMEOUT_EXCEEDED`，并在 LLM service 的 retry 前和 fallback 前增加总超时预算判断 |
+| 16 | SSE 流式输出生产化与中断处理 | 已完成 | `notes/stage10-16-sse-stream-production-interruption.md`、`app/routers/chat.py`、`tests/test_chat_api.py`；系统学习 SSE 事件格式、`text/event-stream`、`event/data/id/retry`、heartbeat、首 token 延迟、响应头防缓冲、流开始前/开始后错误边界、用户断连检查，并把 `/stream-chat` 升级为 start/message/heartbeat/error/done 事件流 |
+| 17 | Prompt Injection、权限控制与隐私保护 | 已完成 | `notes/stage10-17-prompt-injection-permission-privacy.md`、`app/core/ai_security_boundary.py`、`tests/test_ai_security_boundary.py`、`app/routers/chat.py`、`tests/test_chat_api.py`；覆盖原 18、19、20，系统学习 Prompt Injection、外部输入隔离、多轮上下文风险、工具权限、业务权限、字段权限、隐私保护、日志安全和安全回答边界，并为聊天入口增加高置信 Prompt Injection 阻断和模型输出脱敏 |
+| 18 | 自动化评估平台基础与评测集版本管理 | 已完成 | `notes/stage10-18-automated-evaluation-platform-dataset-versioning.md`、`app/evaluation/eval_platform.py`、`data/evaluation/datasets.json`、`scripts/eval_platform_preview.py`、`tests/test_eval_platform.py`；覆盖原 21、22，系统学习测试和评测区别、评测集、样本、期望结果、指标、报告、评测集版本、baseline、candidate、regression、run context 和评测器版本，并把已有 Agent eval 报告接入统一 run snapshot 与 baseline 对比 |
+| 19 | Bad Case 收集、分析与回归测试 | 已完成 | `notes/stage10-19-bad-case-collection-analysis-regression.md`、`app/evaluation/bad_case_registry.py`、`data/evaluation/bad_cases.json`、`tests/test_bad_case_registry.py`；覆盖原 23，系统学习 Bad Case 与普通 bug 的区别、AI 应用坏例来源、坏例字段、状态流转、严重级别、失败层、隐私脱敏、从 eval 分析项生成坏例记录、从坏例生成 regression case 草稿，以及修复后标记 regression_added 的闭环 |
+| 20 | 生产监控指标与告警基础 | 已完成 | `notes/stage10-20-production-monitoring-metrics-alerting.md`、`app/core/production_monitoring.py`、`tests/test_production_monitoring.py`；覆盖原 24、25，系统学习监控和日志、Tracing、Eval 的区别，Counter/Gauge/Histogram、P95/P99、低基数标签、HTTP/LLM/RAG/Tool/Java/成本/安全/限流指标，以及有效告警、告警窗口、持续时间、严重级别和 runbook_hint |
+| 21 | 灰度发布、回滚与配置开关 | 已完成 | `notes/stage10-21-canary-rollback-feature-flags.md`、`app/core/release_control.py`、`tests/test_release_control.py`；覆盖原 26，系统学习灰度发布、stable/candidate、feature flag、kill switch、guardrail metric、模型/Prompt/RAG 参数/路由策略/安全策略灰度、按租户层级和稳定百分比分桶放量，以及 continue/hold/rollback 回滚决策 |
+| 22 | SLO / SLA / Runbook | 已完成 | `notes/stage10-22-slo-sla-runbook.md`、`projects/ai-service/app/core/slo_runbook.py`、`projects/ai-service/tests/test_slo_runbook.py`；系统学习 SLI、SLO、SLA、错误预算、故障分级、Runbook 和 AI 应用生产运营闭环，并把服务目标、比例型错误预算、故障信号分级、Runbook 步骤约束和默认事故响应计划结构化落地 |
+| 23 | 阶段 10 总复盘和面试表达强化 | 已完成 | `notes/stage10-23-ai-production-summary-interview-expression.md`；把阶段 10 的生产化能力整理成可观测性、日志与安全、成本与性能治理、稳定性保护、安全边界与质量评估、发布运营与故障响应六层能力地图，并补充 30 秒/1 分钟/3 分钟项目表达、简历 bullet、常见面试追问、当前项目边界和后续完整项目真实化路线 |
 
 ## 近期任务
 

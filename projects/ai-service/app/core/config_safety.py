@@ -87,6 +87,7 @@ def build_safe_settings_snapshot(settings: Settings) -> dict[str, SafeConfigValu
         "rate_limit.excluded_path_count": len(
             _split_rate_limit_paths(settings.rate_limit_excluded_paths)
         ),
+        "sse.heartbeat_every_chunks": settings.sse_heartbeat_every_chunks,
         "llm.pricing_configured": settings.has_llm_token_pricing,
         "llm.pricing_currency": settings.resolved_llm_pricing_currency,
         "ticket_agent.model_mode": settings.ticket_agent_model_mode,
