@@ -1,131 +1,218 @@
-# 本地运行说明和演示脚本
+# 本地运行与演示说明
 
-本文档用于说明当前 AI 客服工单系统学习项目如何在本地运行，以及如何按固定顺序演示。
+本文档面向阶段 11 的完整项目化版本，目标是把前端、Java business service、Python AI service、MySQL、Redis、Qdrant 和真实模型配置按稳定顺序跑起来。
 
-当前项目定位：
-
-```text
-Java + Python 的 AI 客服工单系统学习项目
-核心是企业知识库 RAG + LangGraph 智能工单 Agent
-当前是 AI 应用工程学习项目和作品原型，不是完整生产上线系统
-```
-
-## 1. 演示路线选择
-
-推荐按依赖程度分成三种演示。
-
-| 演示路线 | 是否需要模型 API Key | 是否需要 VMware Ubuntu Docker | 适合场景 |
-| --- | --- | --- | --- |
-| 最小演示 | 不需要 | 不需要 | 快速证明两个服务能跑、Python 能调用 Java、回归能跑 |
-| 真实 Java business 演示 | 不需要 | Redis 可选 | 演示阶段 7 的 Spring Boot + MyBatis + MySQL/Redis internal API |
-| 真实模型演示 | 需要 | 不需要 | 演示 `/chat`、结构化输出、真实 LLM 相关能力 |
-| 向量库演示 | 视脚本而定 | 需要 | 演示 Qdrant/Milvus 实机检索或入库 |
-
-本阶段优先推荐：
+当前核心服务：
 
 ```text
-Windows 本地最小演示
+projects/customer-service-console   Vue3 + Element Plus 前端
+projects/java-business-service      Spring Boot + MyBatis + MySQL/Redis 业务服务
+projects/ai-service                 FastAPI + RAG/Agent/LLM AI 服务
+Windows MySQL                       业务数据
+VMware Ubuntu Redis                 登录、限流、缓存、幂等
+VMware Ubuntu Qdrant                RAG 向量检索
 ```
 
-它不需要打开虚拟机，也不需要真实模型 API Key。
+## 1. 本地端口
 
-阶段 7 完成后，项目多了一个真实 Java business 服务：
+| 服务 | 地址 |
+| --- | --- |
+| 前端控制台 | `http://127.0.0.1:5173` |
+| Java business service | `http://127.0.0.1:18004` |
+| Python AI service | `http://127.0.0.1:8000` |
+| MySQL | `127.0.0.1:3306` |
+| Redis | `192.168.88.10:6379` |
+| Qdrant | `http://192.168.88.10:6333` |
+
+如果 VMware 虚拟机 IP 变化，先在 Ubuntu 中执行：
+
+```bash
+hostname -I
+```
+
+然后同步修改：
 
 ```text
-projects/java-business-service
+projects/ai-service/.env
+projects/java-business-service 的运行环境变量
 ```
 
-它和早期 `java-mock-service` 的关系是：
+## 2. 启动前准备
+
+### 2.1 Windows MySQL
+
+需要有数据库：
 
 ```text
-java-mock-service：保留历史 Tool Calling / Agent 学习链路，启动轻、依赖少。
-java-business-service：阶段 7 新增真实 Spring Boot + MyBatis + MySQL/Redis 业务服务，适合演示真实后端底座。
+ai_business
 ```
 
-如果只是快速演示 Agent 主线，继续用 `java-mock-service` 即可。
-
-如果要演示阶段 7 的真实 Java 后端能力，启动 `java-business-service`。
-
-## 2. 前置条件
-
-Windows 本地需要：
+本地默认配置：
 
 ```text
-Python 3.12
-uv
-PowerShell
+username=root
+password=root
 ```
 
-已验证项目主目录：
+如果数据库不存在，先在 MySQL 中执行：
 
-```text
-D:\wendang\java+python+ai
+```sql
+CREATE DATABASE IF NOT EXISTS ai_business
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
 ```
 
-如果你只做最小演示，不需要：
+Java 服务启动时会根据 `schema.sql` 和 `data.sql` 初始化表结构和演示数据。
 
-```text
-VMware Ubuntu
-Docker
-Qdrant
-Milvus
-真实模型 API Key
+### 2.2 VMware Redis
+
+在 Ubuntu 中启动 Redis 容器：
+
+```bash
+docker start redis-server
+docker ps --filter name=redis
 ```
 
-## 3. 配置 ai-service `.env`
+Windows 验证端口：
 
-进入 ai-service：
+```powershell
+Test-NetConnection 192.168.88.10 -Port 6379
+```
+
+如果暂时不想用 Redis，可以启动 Java 服务时设置：
+
+```powershell
+$env:JAVA_BUSINESS_REDIS_ENABLED = "false"
+```
+
+### 2.3 VMware Qdrant
+
+RAG 真实链路需要 Qdrant。启动命令：
+
+```bash
+docker start qdrant
+docker ps --filter name=qdrant
+curl http://localhost:6333
+```
+
+Windows 验证：
+
+```powershell
+curl.exe http://192.168.88.10:6333
+curl.exe http://192.168.88.10:6333/collections
+```
+
+## 3. 配置文件
+
+### 3.1 Python AI service
+
+进入目录：
 
 ```powershell
 cd D:\wendang\java+python+ai\projects\ai-service
 ```
 
-如果还没有 `.env`，从示例复制：
+如果没有 `.env`，复制示例：
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-注意：
+阶段 11 推荐关键配置：
 
 ```text
-.env.example 可以提交 GitHub。
-.env 是本机真实配置，不能提交 GitHub。
+TICKET_AGENT_MODEL_MODE=real_llm
+JAVA_BUSINESS_SERVICE_BASE_URL=http://127.0.0.1:18004
+JAVA_BUSINESS_INTERNAL_TOKEN=local-dev-internal-token
+JAVA_BUSINESS_INTERNAL_CALLER=ai-service
+JAVA_BUSINESS_DEFAULT_USER_ID=U1001
+JAVA_BUSINESS_DEFAULT_TENANT_ID=default
+
+QDRANT_BASE_URL=http://192.168.88.10:6333
+QDRANT_COLLECTION_NAME=learning_rag_chunks_v4_1024
+QDRANT_VECTOR_SIZE=1024
+
+LLM_MODEL=qwen3.7-plus
+LLM_BASE_URL=https://你的-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+LLM_API_KEY=你的真实Key
+
+EMBEDDING_MODEL=text-embedding-v4
+EMBEDDING_BASE_URL=https://你的-workspace-id.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+EMBEDDING_API_KEY=你的真实Key
+EMBEDDING_DIMENSION=1024
+
+RERANK_MODEL=qwen3-rerank
+RERANK_BASE_URL=https://你的-workspace-id.cn-beijing.maas.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+RERANK_API_KEY=你的真实Key
 ```
 
-如果只是最小演示，可以不填模型 API Key。
+`.env` 不提交 GitHub。`.env.example` 只放占位符。
 
-如果要演示真实模型，再在 `.env` 中配置：
+### 3.2 Java business service
+
+参考文件：
 
 ```text
-LLM_BASE_URL
-LLM_MODEL
-LLM_API_KEY
+projects/java-business-service/.env.example
 ```
 
-## 4. Windows 本地启动两个服务
+注意：Spring Boot 不会自动读取 `.env.example` 或 `.env`。你需要在 IDEA Run Configuration 里配置环境变量，或者用 PowerShell `$env:` 设置。
 
-### 4.1 终端 1：启动 Java mock service
-
-打开一个 PowerShell：
+本地 PowerShell 示例：
 
 ```powershell
-cd D:\wendang\java+python+ai\projects\java-mock-service
-uv sync
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8001
+cd D:\wendang\java+python+ai\projects\java-business-service
+$env:JAVA_BUSINESS_DB_PASSWORD = "root"
+$env:JAVA_BUSINESS_REDIS_ENABLED = "true"
+$env:JAVA_BUSINESS_REDIS_HOST = "192.168.88.10"
+$env:JAVA_BUSINESS_REDIS_PORT = "6379"
+$env:JAVA_BUSINESS_INTERNAL_TOKEN = "local-dev-internal-token"
+$env:JAVA_BUSINESS_INTERNAL_ALLOWED_CALLER = "ai-service"
 ```
 
-启动成功后不要关闭这个终端。
+### 3.3 前端控制台
 
-Java mock service 地址：
+进入目录：
+
+```powershell
+cd D:\wendang\java+python+ai\projects\customer-service-console
+```
+
+如果没有 `.env`，复制示例：
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+默认配置：
 
 ```text
-http://127.0.0.1:8001
+VITE_JAVA_API_BASE_URL=http://127.0.0.1:18004
+VITE_AI_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-### 4.2 终端 2：启动 ai-service
+## 4. 启动顺序
 
-再打开一个 PowerShell：
+### 4.1 启动 Java business service
+
+```powershell
+cd D:\wendang\java+python+ai\projects\java-business-service
+mvn spring-boot:run
+```
+
+健康检查：
+
+```powershell
+curl.exe http://127.0.0.1:18004/health
+```
+
+预期：
+
+```json
+{"service":"java-business-service","status":"ok"}
+```
+
+### 4.2 启动 Python AI service
 
 ```powershell
 cd D:\wendang\java+python+ai\projects\ai-service
@@ -133,313 +220,195 @@ uv sync
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-启动成功后不要关闭这个终端。
-
-ai-service 地址：
-
-```text
-http://127.0.0.1:8000
-```
-
-## 5. 健康检查和就绪检查
-
-再打开第三个 PowerShell，用来发请求。
-
-### 5.1 检查 Java mock service
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8001/health
-Invoke-RestMethod http://127.0.0.1:8001/ready
-```
-
-预期：
-
-```text
-service = java-mock-service
-status = ok 或 ready
-```
-
-### 5.2 检查 ai-service
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-Invoke-RestMethod http://127.0.0.1:8000/ready
-```
-
-预期：
-
-```text
-service = ai-service
-status = ok 或 ready
-```
-
-如果当前是 `rule_based` 模式，`/ready` 不要求 LLM API Key。
-
-如果设置了：
-
-```text
-TICKET_AGENT_MODEL_MODE=real_llm
-```
-
-但没有配置 API Key，`/ready` 返回 503 是预期行为。
-
-## 6. 最小演示：不需要模型 API Key
-
-### 6.1 直接查询 Java mock 订单
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8001/orders/A1001
-```
-
-`A1001` 是可用演示订单。
-
-预期能看到：
-
-```text
-order_id = A1001
-order_status = waiting_shipment
-payment_status = paid
-can_create_ticket = true
-```
-
-### 6.2 通过 ai-service 调用受控工具查询订单
-
-```powershell
-$body = @{
-    order_id = "A1001"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri http://127.0.0.1:8000/tools/query-order `
-    -ContentType "application/json" `
-    -Body $body
-```
-
-这一步证明：
-
-```text
-Python ai-service 没有直接编造订单信息。
-它通过 query_order 工具调用 Java mock service。
-工具参数和结果会经过后端校验。
-```
-
-### 6.3 查询不存在订单
-
-```powershell
-$body = @{
-    order_id = "A9999"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri http://127.0.0.1:8000/tools/query-order `
-    -ContentType "application/json" `
-    -Body $body
-```
-
-预期：
-
-```text
-返回订单不存在相关错误。
-```
-
-这一步证明：
-
-```text
-工具调用有错误处理，不是只处理成功路径。
-```
-
-## 7. 可选演示：真实 Java business service
-
-这一节用于演示阶段 7 新增的真实 Java Spring Boot 业务服务。
-
-默认不需要真实模型 API Key。
-
-需要：
-
-```text
-JDK 17
-Maven
-Windows MySQL
-```
-
-Redis 是可选的：
-
-```text
-如果 VMware Ubuntu 里的 Redis 开着，可以演示 Redis 缓存、幂等和限流。
-如果 Redis 没开，可以临时设置 JAVA_BUSINESS_REDIS_ENABLED=false，先演示 MySQL + internal API 主线。
-```
-
-启动服务：
-
-```powershell
-cd D:\wendang\java+python+ai\projects\java-business-service
-$env:JAVA_BUSINESS_DB_PASSWORD = "root"
-$env:JAVA_BUSINESS_REDIS_ENABLED = "false"
-$env:JAVA_BUSINESS_INTERNAL_TOKEN = "local-dev-internal-token"
-$env:JAVA_BUSINESS_INTERNAL_ALLOWED_CALLER = "ai-service"
-mvn spring-boot:run
-```
-
-默认端口来自 `application.yml`：
-
-```text
-http://127.0.0.1:8002
-```
-
-如果你在 IDEA 或环境变量里改过端口，以实际启动日志为准。
-
 健康检查：
 
 ```powershell
-curl.exe http://127.0.0.1:8002/health
+curl.exe http://127.0.0.1:8000/health
+curl.exe http://127.0.0.1:8000/ready
 ```
 
-查询订单：
+如果 `TICKET_AGENT_MODEL_MODE=real_llm` 且没有配置模型 Key，`/ready` 返回 503 是正常的，表示真实模型配置不完整。
+
+### 4.3 启动前端控制台
 
 ```powershell
-curl.exe -i -X GET "http://127.0.0.1:8002/internal/orders/A1001" `
-  -H "X-Trace-Id: demo-stage7-order" `
-  -H "X-Caller: ai-service" `
-  -H "X-User-Id: U1001" `
-  -H "X-Tenant-Id: default" `
-  -H "X-Internal-Token: local-dev-internal-token"
+cd D:\wendang\java+python+ai\projects\customer-service-console
+npm install
+npm run dev
 ```
 
-创建工单时，PowerShell 推荐先写临时 JSON 文件，避免 `curl.exe` 引号解析问题：
+访问：
+
+```text
+http://127.0.0.1:5173
+```
+
+## 5. 演示账号
+
+| 用户名 | 密码 | 角色 |
+| --- | --- | --- |
+| `customer` | `123456` | 普通用户 |
+| `customer2` | `123456` | 普通用户 |
+| `agent` | `123456` | 客服 |
+| `supervisor` | `123456` | 主管 |
+| `admin` | `123456` | 管理员 |
+
+推荐演示顺序：
+
+```text
+agent 登录
+-> 查看运营概览
+-> 查看订单列表
+-> 查看工单工作台
+-> 查看知识库管理
+-> 查看 AI 评估页面
+-> 打开 AI 客服页演示 RAG / Agent 能力
+```
+
+## 6. 关键接口验证
+
+### 6.1 Java public API
+
+登录：
 
 ```powershell
-$ticketBodyPath = Join-Path $env:TEMP "stage7-demo-create-ticket.json"
-$ticketBody = '{"title":"物流太慢","description":"用户反馈 A1001 订单物流长时间未更新，希望客服跟进。","category":"logistics","priority":"normal","related_order_id":"A1001","source":"ai_agent","confirmation_id":"9f4d0b2f5b0c4f2a9d6c8b1e0a3f7c11"}'
-[System.IO.File]::WriteAllText($ticketBodyPath, $ticketBody, [System.Text.UTF8Encoding]::new($false))
-
-curl.exe -i -X POST "http://127.0.0.1:8002/internal/tickets" `
+$loginBody = @{ username="agent"; password="123456" } | ConvertTo-Json -Compress
+$login = curl.exe -s -X POST "http://127.0.0.1:18004/api/auth/login" `
   -H "Content-Type: application/json" `
-  -H "X-Trace-Id: demo-stage7-ticket" `
-  -H "X-Caller: ai-service" `
-  -H "X-User-Id: U1001" `
-  -H "X-Tenant-Id: default" `
-  -H "X-Internal-Token: local-dev-internal-token" `
-  -H "Idempotency-Key: demo-stage7-ticket-001" `
-  --data-binary "@$ticketBodyPath"
+  --data-raw $loginBody | ConvertFrom-Json
+$token = $login.data.token
 ```
 
-这条真实 Java 演示证明：
+查工单列表：
+
+```powershell
+curl.exe -s "http://127.0.0.1:18004/api/tickets" `
+  -H "Authorization: Bearer $token" | ConvertFrom-Json
+```
+
+查工单详情：
+
+```powershell
+curl.exe -s "http://127.0.0.1:18004/api/tickets/T-DEMO-1001" `
+  -H "Authorization: Bearer $token" | ConvertFrom-Json
+```
+
+更新工单状态：
+
+```powershell
+$body = @{ target_status="in_progress"; note="开始跟进物流问题" } | ConvertTo-Json -Compress
+curl.exe -s -X PATCH "http://127.0.0.1:18004/api/tickets/T-DEMO-1001/status" `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  --data-raw $body | ConvertFrom-Json
+```
+
+### 6.2 Python AI API
+
+AI 评估看板：
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/api/ai/evaluation/overview" | ConvertFrom-Json
+```
+
+RAG 问答：
+
+```powershell
+$body = @{ query="退款多久到账"; candidate_count=20; top_n=5 } | ConvertTo-Json -Compress
+curl.exe -s -X POST "http://127.0.0.1:8000/api/ai/rag/ask" `
+  -H "Content-Type: application/json" `
+  --data-raw $body | ConvertFrom-Json
+```
+
+AI 对话：
+
+```powershell
+$body = @{ message="帮我查一下订单 A1001"; history=@() } | ConvertTo-Json -Depth 5 -Compress
+curl.exe -s -X POST "http://127.0.0.1:8000/api/ai/chat" `
+  -H "Content-Type: application/json" `
+  --data-raw $body | ConvertFrom-Json
+```
+
+## 7. 测试命令
+
+Java：
+
+```powershell
+cd D:\wendang\java+python+ai\projects\java-business-service
+mvn test
+```
+
+Python：
+
+```powershell
+cd D:\wendang\java+python+ai\projects\ai-service
+uv run pytest -q
+```
+
+前端：
+
+```powershell
+cd D:\wendang\java+python+ai\projects\customer-service-console
+npm run build
+```
+
+## 8. 常见问题
+
+### 8.1 PowerShell 里中文像乱码
+
+先怀疑 PowerShell 输出编码或字体显示问题。不要直接大范围修改项目文件。
+
+优先用这些方式确认：
 
 ```text
-AI 工具接口不是直接查数据库。
-Python 调 Java 时必须带 internal token、caller、真实 user_id、tenant_id、trace_id。
-写接口必须带 Idempotency-Key。
-Java 侧负责权限、事务、MySQL、Redis 相关边界和机器错误码。
+浏览器页面
+VS Code UTF-8 打开文件
+接口 JSON 原始响应
 ```
 
-## 8. 可选演示：真实模型接口
+### 8.2 `curl` 弹出安全提示
 
-这些接口需要配置真实模型 API Key。
-
-如果没有配置，跳过本节。
-
-### 7.1 普通聊天
+PowerShell 里的 `curl` 可能是 `Invoke-WebRequest` 的别名。需要真实 curl 时写：
 
 ```powershell
-$body = @{
-    message = "用一句话介绍这个项目"
-    history = @()
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri http://127.0.0.1:8000/chat `
-    -ContentType "application/json" `
-    -Body $body
+curl.exe
 ```
 
-如果没有配置 API Key，返回 `LLM_API_KEY_MISSING` 是预期行为。
+### 8.3 `curl.exe` JSON 被拆开
 
-### 7.2 结构化工单提取
+PowerShell 对引号比较敏感。推荐先构造 `$body`：
 
 ```powershell
-$body = @{
-    message = "订单 A1001 已付款一周还没发货，我要投诉。"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri http://127.0.0.1:8000/extract-ticket `
-    -ContentType "application/json" `
-    -Body $body
+$body = @{ key="value" } | ConvertTo-Json -Compress
+curl.exe -X POST "http://127.0.0.1:8000/example" `
+  -H "Content-Type: application/json" `
+  --data-raw $body
 ```
 
-这一步证明：
+### 8.4 Redis 连接失败
 
-```text
-模型输出会被抽取成结构化字段，并经过 Pydantic 校验。
+先检查虚拟机：
+
+```bash
+docker ps --filter name=redis
+hostname -I
 ```
 
-### 7.3 创建工单确认链路
-
-先生成工单计划：
+再检查 Windows：
 
 ```powershell
-$planBody = @{
-    actor_id = "demo_user_001"
-    message = "订单 A1001 已付款一周仍未发货，请帮我处理。"
-} | ConvertTo-Json
-
-$plan = Invoke-RestMethod `
-    -Method Post `
-    -Uri http://127.0.0.1:8000/tickets/plans `
-    -ContentType "application/json" `
-    -Body $planBody
-
-$confirmationId = $plan.confirmation.confirmation_id
-$confirmationId
+Test-NetConnection 192.168.88.10 -Port 6379
 ```
 
-确认工具调用：
+如果只是临时演示 Java + MySQL 主线，可设置：
 
 ```powershell
-$confirmBody = @{
-    actor_id = "demo_user_001"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri "http://127.0.0.1:8000/tools/confirmations/$confirmationId/confirm" `
-    -ContentType "application/json" `
-    -Body $confirmBody
+$env:JAVA_BUSINESS_REDIS_ENABLED = "false"
 ```
 
-执行已确认工单：
+### 8.5 Qdrant 连接失败
 
-```powershell
-$executeBody = @{
-    actor_id = "demo_user_001"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri "http://127.0.0.1:8000/tickets/confirmations/$confirmationId/execute" `
-    -ContentType "application/json" `
-    -Body $executeBody
-```
-
-这一步证明：
-
-```text
-创建工单是写操作。
-写操作不是模型直接执行。
-它必须先生成确认单，再由用户确认，最后后端才调用 Java mock service。
-```
-
-## 9. 可选演示：Qdrant / Milvus
-
-只有演示向量库实机能力时才需要打开 VMware Ubuntu。
-
-### 8.1 Qdrant
-
-在 VMware Ubuntu 中：
+先检查虚拟机：
 
 ```bash
 docker ps --filter name=qdrant
@@ -447,256 +416,40 @@ curl http://localhost:6333
 hostname -I
 ```
 
-在 Windows PowerShell 中，把 IP 换成你的虚拟机 IP，例如：
+再检查 Windows：
 
 ```powershell
-Invoke-RestMethod http://192.168.88.10:6333/collections
+curl.exe http://192.168.88.10:6333
 ```
 
-### 8.2 Milvus
+确认 `projects/ai-service/.env` 中的 `QDRANT_BASE_URL` 和虚拟机 IP 一致。
 
-在 VMware Ubuntu 中：
+### 8.6 Python 报 `ModuleNotFoundError: No module named 'app'`
 
-```bash
-cd ~/milvus-standalone
-docker compose up -d
-docker compose ps
-hostname -I
-```
-
-在 Windows PowerShell 中验证端口：
-
-```powershell
-Test-NetConnection 192.168.88.10 -Port 19530
-```
-
-Milvus Web UI：
-
-```text
-http://192.168.88.10:9091
-```
-
-注意：
-
-```text
-如果只做 Windows 本地最小演示，不需要打开 VMware Ubuntu。
-```
-
-## 10. 统一回归
-
-在仓库根目录运行：
-
-```powershell
-cd D:\wendang\java+python+ai
-python scripts\run_regression.py
-```
-
-它会分别验证：
-
-```text
-projects/java-mock-service
-projects/ai-service
-```
-
-验证内容包括：
-
-```text
-uv sync --frozen
-compileall
-pytest
-```
-
-这一步证明：
-
-```text
-项目不是只能手工演示，还有自动化回归入口。
-```
-
-## 11. Agent eval 演示
-
-进入 ai-service：
+通常是运行目录不对。先进入 `ai-service` 项目根目录：
 
 ```powershell
 cd D:\wendang\java+python+ai\projects\ai-service
+uv run python scripts\xxx.py
 ```
 
-查看可用评测套件：
-
-```powershell
-uv run python scripts\agent_eval.py --list-suites
-```
-
-运行回归评测：
-
-```powershell
-uv run python scripts\agent_eval.py --regression
-```
-
-生成报告：
-
-```powershell
-uv run python scripts\agent_eval.py `
-    --regression `
-    --report-path data\agent_eval\reports\agent_regression_report.md `
-    --bad-case-analysis-path data\agent_eval\reports\agent_regression_bad_case_analysis.md
-```
-
-这一步证明：
-
-```text
-AI Agent 能力不是只靠感觉判断，而是有固定评测集和回归评测。
-```
-
-## 12. PowerShell 调接口建议
-
-在 PowerShell 中优先使用：
-
-```powershell
-Invoke-RestMethod
-```
-
-不要直接依赖：
-
-```powershell
-curl
-```
-
-原因：
-
-```text
-PowerShell 里的 curl 可能是 Invoke-WebRequest 的别名。
-JSON 引号和中文输出容易出问题。
-```
-
-如果确实要用真正的 curl，写：
-
-```powershell
-curl.exe
-```
-
-## 13. 常见问题
-
-### 12.1 端口被占用
-
-查看端口：
-
-```powershell
-netstat -ano | findstr :8000
-netstat -ano | findstr :8001
-```
-
-处理方式：
-
-```text
-关闭占用端口的旧服务，或换端口启动。
-```
-
-### 12.2 `LLM_API_KEY_MISSING`
-
-说明：
-
-```text
-当前接口需要真实模型 API Key，但 .env 没配置。
-```
-
-处理方式：
-
-```text
-最小演示可以跳过真实模型接口。
-如果要演示真实模型，在 projects/ai-service/.env 中配置 LLM_API_KEY。
-```
-
-### 12.3 ai-service 工具查询失败
-
-先确认 Java mock service 是否启动：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8001/ready
-```
-
-再确认 ai-service `.env` 中：
-
-```text
-JAVA_MOCK_SERVICE_BASE_URL="http://127.0.0.1:8001"
-```
-
-### 12.4 Qdrant / Milvus 连接失败
-
-先确认是否需要演示向量库。
-
-如果需要，打开 VMware Ubuntu，然后检查：
-
-```bash
-docker ps
-hostname -I
-```
-
-Windows 访问时要使用虚拟机 IP，例如：
-
-```text
-192.168.88.10
-```
-
-### 12.5 PowerShell 中文看起来像乱码
-
-如果只是 PowerShell 输出中文异常，先怀疑：
-
-```text
-PowerShell 输出编码或字体显示问题。
-```
-
-不要立刻大范围修改项目文件。
-
-可以优先用浏览器、日志文件或 UTF-8 编辑器查看。
-
-### 12.6 `ModuleNotFoundError: No module named 'app'`
-
-通常是运行目录不对，或直接执行脚本时没有把项目根目录加入 Python import path。
-
-推荐：
-
-```powershell
-cd D:\wendang\java+python+ai\projects\ai-service
-uv run python scripts\agent_eval.py --list-suites
-```
-
-如果某个旧脚本仍然报这个错，可以临时设置：
+如果某个脚本仍然报错，再临时设置：
 
 ```powershell
 $env:PYTHONPATH = (Get-Location).Path
-uv run python scripts\脚本名.py
 ```
 
-## 14. 推荐演示话术
+## 9. 关闭服务
 
-可以按这个顺序讲：
-
-```text
-第一步，我先介绍项目定位：这是一个 Java + Python 的 AI 客服工单系统学习项目，核心是 RAG + LangGraph Agent。
-
-第二步，我打开 README 和 project-diagrams，说明整体架构：Python ai-service 负责 AI 能力，Java mock service 保留历史学习链路，Java business service 是阶段 7 新增的真实 Spring Boot + MySQL/Redis 业务服务底座，RAG 连接向量库，Agent 编排工具调用和工单流程。
-
-第三步，我启动两个本地服务，先验证 /health 和 /ready，说明服务进程和就绪状态。
-
-第四步，最小演示时我直接调用 Java mock service 查询订单，证明受控工具链路可用。
-
-第五步，我通过 ai-service 的 /tools/query-order 查询同一订单，证明 Python AI 服务通过受控工具调用 Java 服务，而不是自己编造业务数据。
-
-第六步，我运行统一回归脚本，说明项目有自动化验证。
-
-如果配置了模型 API Key，再演示 /chat、结构化工单提取和用户确认后的创建工单。
-
-如果要演示阶段 7，再启动 java-business-service，演示 /internal/orders 和 /internal/tickets，说明 internal token、user_id、tenant_id、trace_id、幂等键和契约测试。
-
-如果打开了虚拟机，再演示 Qdrant 或 Milvus。
-```
-
-## 15. 关闭服务
-
-在启动服务的两个 PowerShell 终端中按：
+在启动服务的终端中按：
 
 ```text
 Ctrl + C
 ```
 
-即可停止服务。
+Docker 容器可按需停止：
+
+```bash
+docker stop qdrant
+docker stop redis-server
+```

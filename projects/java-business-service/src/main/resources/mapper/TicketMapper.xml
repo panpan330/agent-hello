@@ -22,6 +22,18 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
+    <resultMap id="TicketEventResultMap" type="com.panpan.aibusinessservice.entity.TicketEvent">
+        <id column="event_id" property="eventId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="ticket_id" property="ticketId"/>
+        <result column="event_type" property="eventType"/>
+        <result column="event_payload" property="eventPayload"/>
+        <result column="operator_type" property="operatorType"/>
+        <result column="operator_id" property="operatorId"/>
+        <result column="trace_id" property="traceId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
     <sql id="TicketColumns">
         ticket_id,
         requester_user_id,
@@ -111,6 +123,31 @@
           #{createdAt}
         )
     </insert>
+
+    <select id="selectEventsByTenantIdAndTicketId" resultMap="TicketEventResultMap">
+        SELECT
+          event_id,
+          tenant_id,
+          ticket_id,
+          event_type,
+          event_payload,
+          operator_type,
+          operator_id,
+          trace_id,
+          created_at
+        FROM ticket_events
+        WHERE tenant_id = #{tenantId}
+          AND ticket_id = #{ticketId}
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+    <update id="updateTicketStatus">
+        UPDATE tickets
+        SET ticket_status = #{ticketStatus},
+            updated_at = #{updatedAt}
+        WHERE tenant_id = #{tenantId}
+          AND ticket_id = #{ticketId}
+    </update>
 
     <insert id="insertTicketEvent">
         INSERT INTO ticket_events (

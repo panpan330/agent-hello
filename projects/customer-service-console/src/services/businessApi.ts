@@ -25,6 +25,27 @@ export interface TicketListItem {
   updated_at: string
 }
 
+export interface TicketEventItem {
+  event_id: string
+  event_type: string
+  event_payload: string
+  operator_type: string
+  operator_id: string
+  trace_id: string
+  created_at: string
+}
+
+export interface TicketDetail extends TicketListItem {
+  description: string
+  created_trace_id: string
+  events: TicketEventItem[]
+}
+
+export interface UpdateTicketStatusPayload {
+  target_status: 'in_progress' | 'waiting_user' | 'resolved' | 'closed'
+  note?: string
+}
+
 export interface KnowledgeDocumentItem {
   document_id: string
   title: string
@@ -52,6 +73,16 @@ export async function listOrders() {
 
 export async function listTickets() {
   const response = await javaApi.get<ApiResponse<TicketListItem[]>>('/api/tickets')
+  return unwrapResponse(response.data)
+}
+
+export async function getTicketDetail(ticketId: string) {
+  const response = await javaApi.get<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}`)
+  return unwrapResponse(response.data)
+}
+
+export async function updateTicketStatus(ticketId: string, payload: UpdateTicketStatusPayload) {
+  const response = await javaApi.patch<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/status`, payload)
   return unwrapResponse(response.data)
 }
 

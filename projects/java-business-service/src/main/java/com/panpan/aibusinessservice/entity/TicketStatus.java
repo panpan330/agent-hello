@@ -2,7 +2,9 @@ package com.panpan.aibusinessservice.entity;
 
 public enum TicketStatus {
     CREATED("created"),
-    PROCESSING("processing"),
+    IN_PROGRESS("in_progress"),
+    WAITING_USER("waiting_user"),
+    RESOLVED("resolved"),
     CLOSED("closed");
 
     private final String code;

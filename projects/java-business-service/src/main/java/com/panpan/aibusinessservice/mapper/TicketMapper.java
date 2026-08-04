@@ -1,6 +1,8 @@
 package com.panpan.aibusinessservice.mapper;
 
 import com.panpan.aibusinessservice.entity.Ticket;
+import com.panpan.aibusinessservice.entity.TicketEvent;
+import java.time.Instant;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 
@@ -23,6 +25,18 @@ public interface TicketMapper {
     List<Ticket> selectAllByTenantId(@Param("tenantId") String tenantId);
 
     int insertTicket(Ticket ticket);
+
+    List<TicketEvent> selectEventsByTenantIdAndTicketId(
+            @Param("tenantId") String tenantId,
+            @Param("ticketId") String ticketId
+    );
+
+    int updateTicketStatus(
+            @Param("tenantId") String tenantId,
+            @Param("ticketId") String ticketId,
+            @Param("ticketStatus") String ticketStatus,
+            @Param("updatedAt") Instant updatedAt
+    );
 
     int insertTicketEvent(
             @Param("tenantId") String tenantId,
