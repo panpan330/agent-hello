@@ -81,7 +81,7 @@ def test_settings_use_default_values() -> None:
     assert settings.has_embedding_api_key is False
     assert settings.resolved_embedding_base_url is None
     assert settings.embedding_dimension == 1536
-    assert settings.embedding_batch_size == 64
+    assert settings.embedding_batch_size == 10
     assert settings.embedding_request_dimensions is False
     assert settings.tool_confirmation_ttl_seconds == 300
     assert settings.mcp_server_name == "ai-service-learning-mcp"

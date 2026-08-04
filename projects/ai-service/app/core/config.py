@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     ticket_agent_model_mode: TicketAgentModelMode = Field(default="rule_based")
     java_mock_service_base_url: str = Field(default="http://127.0.0.1:8001")
     java_mock_service_timeout_seconds: float = Field(default=5.0, gt=0)
+    java_business_service_base_url: str | None = Field(default=None)
+    java_business_service_timeout_seconds: float | None = Field(default=None, gt=0)
+    java_business_internal_token: str = Field(default="local-dev-internal-token", repr=False)
+    java_business_internal_caller: str = Field(default="ai-service")
+    java_business_default_user_id: str = Field(default="U1001")
+    java_business_default_tenant_id: str = Field(default="default")
     qdrant_base_url: str = Field(default="http://127.0.0.1:6333")
     qdrant_collection_name: str = Field(default="learning_rag_chunks")
     qdrant_timeout_seconds: float = Field(default=5.0, gt=0)
@@ -85,7 +91,7 @@ class Settings(BaseSettings):
     embedding_base_url: str | None = Field(default=None)
     embedding_api_key: str | None = Field(default=None, repr=False)
     embedding_dimension: int = Field(default=1536, gt=0)
-    embedding_batch_size: int = Field(default=64, ge=1, le=256)
+    embedding_batch_size: int = Field(default=10, ge=1, le=256)
     embedding_request_dimensions: bool = Field(default=False)
     rerank_provider: str = Field(default="http-compatible")
     rerank_model: str = Field(default="mock-rerank-model")
@@ -93,6 +99,8 @@ class Settings(BaseSettings):
     rerank_api_key: str | None = Field(default=None, repr=False)
     rerank_timeout_seconds: float = Field(default=10.0, gt=0)
     rerank_max_retries: int = Field(default=1, ge=0, le=3)
+    rerank_top_n: int = Field(default=5, ge=1, le=20)
+    rerank_candidate_count: int = Field(default=20, ge=1, le=100)
     tool_confirmation_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     mcp_server_name: str = Field(
         default="ai-service-learning-mcp",
@@ -187,6 +195,20 @@ class Settings(BaseSettings):
     @property
     def resolved_java_mock_service_base_url(self) -> str:
         return self.java_mock_service_base_url.strip().rstrip("/")
+
+    @property
+    def resolved_java_business_service_base_url(self) -> str:
+        if self.java_business_service_base_url and self.java_business_service_base_url.strip():
+            return self.java_business_service_base_url.strip().rstrip("/")
+        return self.resolved_java_mock_service_base_url
+
+    @property
+    def resolved_java_business_service_timeout_seconds(self) -> float:
+        return (
+            self.java_business_service_timeout_seconds
+            if self.java_business_service_timeout_seconds is not None
+            else self.java_mock_service_timeout_seconds
+        )
 
     @property
     def resolved_qdrant_base_url(self) -> str:

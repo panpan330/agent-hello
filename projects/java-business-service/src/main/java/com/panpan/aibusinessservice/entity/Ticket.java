@@ -18,6 +18,7 @@ public class Ticket {
     private String requestFingerprint;
     private String createdTraceId;
     private Instant createdAt;
+    private Instant updatedAt;
 
     public Ticket() {
     }
@@ -174,5 +175,13 @@ public class Ticket {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

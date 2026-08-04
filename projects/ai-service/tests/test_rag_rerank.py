@@ -293,6 +293,52 @@ def test_http_reranker_posts_candidates_and_builds_ranked_chunks() -> None:
     assert '"top_n":2' in captured_request["json"]
 
 
+def test_http_reranker_supports_dashscope_nested_endpoint_shape() -> None:
+    captured_request: dict | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = {
+            "path": request.url.path,
+            "json": request.read().decode("utf-8"),
+        }
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "results": [
+                        {"index": 0, "relevance_score": 0.88},
+                    ]
+                }
+            },
+            request=request,
+        )
+
+    reranker = HttpReranker(
+        base_url=(
+            "https://workspace.cn-beijing.maas.aliyuncs.com/"
+            "api/v1/services/rerank/text-rerank/text-rerank"
+        ),
+        model="qwen3-rerank",
+        timeout_seconds=3,
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    results = reranker.rerank(
+        "refund arrival",
+        [make_candidate(chunk_id="first", content="refund policy")],
+        top_k=1,
+    )
+
+    assert results[0].chunk_id == "first"
+    assert results[0].rerank_score == 0.88
+    assert captured_request is not None
+    assert captured_request["path"].endswith("/text-rerank/text-rerank")
+    assert '"input":{"query":"refund arrival","documents":["refund policy"]}' in captured_request["json"]
+    assert '"parameters":{"return_documents":false,"top_n":1}' in captured_request["json"]
+
+
 def test_http_reranker_from_settings_uses_rerank_config() -> None:
     reranker = HttpReranker.from_settings(
         Settings(
@@ -313,6 +359,7 @@ def test_http_reranker_from_settings_uses_rerank_config() -> None:
     )
 
     assert reranker.base_url == "https://rerank.example.com/api"
+    assert reranker.endpoint_url == "https://rerank.example.com/api/rerank"
     assert reranker.model == "real-rerank"
     assert reranker.api_key == "rerank-key"
     assert reranker.timeout_seconds == 4.5

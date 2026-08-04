@@ -57,7 +57,7 @@ class CreatedTicket(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ticket_id: str = Field(pattern=r"^T\d{4}$")
+    ticket_id: str = Field(pattern=r"^T[-A-Za-z0-9]{4,80}$")
     requester_id: str
     title: str
     description: str

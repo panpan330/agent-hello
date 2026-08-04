@@ -1,5 +1,6 @@
 import json
 import logging
+from uuid import uuid4
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 from fastapi import APIRouter, Depends, Request
@@ -10,10 +11,11 @@ from app.core.ai_security_boundary import (
     redact_sensitive_text,
     require_prompt_injection_safe,
 )
+from app.core.business_context import reset_business_context, set_business_context
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.core.trace import get_trace_id
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatRequest, ChatResponse, ConsoleChatRequest, ConsoleChatResponse
 from app.schemas.structured import StructuredOutputRequest, StructuredOutputResponse
 from app.schemas.tool_decision import ToolDecisionResponse
 from app.services.llm_service import LLMChatService, create_llm_chat_service
@@ -304,6 +306,7 @@ def tool_decision(
 
 @router.post("/tool-chat", response_model=ChatResponse)
 def tool_chat(
+    http_request: Request,
     request: ChatRequest,
     tool_calling_chat_service: ToolCallingChatService = Depends(
         get_tool_calling_chat_service
@@ -315,8 +318,51 @@ def tool_chat(
         len(request.message),
         len(request.history),
     )
-    reply = tool_calling_chat_service.generate_reply(
-        request.message,
-        history=request.history,
+    context_tokens = set_business_context(
+        user_id=http_request.headers.get("X-User-Id"),
+        tenant_id=http_request.headers.get("X-Tenant-Id"),
     )
+    try:
+        reply = tool_calling_chat_service.generate_reply(
+            request.message,
+            history=request.history,
+        )
+    finally:
+        reset_business_context(context_tokens)
     return ChatResponse(reply=redact_sensitive_text(reply))
+
+
+@router.post("/api/ai/chat", response_model=ConsoleChatResponse)
+def console_ai_chat(
+    http_request: Request,
+    request: ConsoleChatRequest,
+    tool_calling_chat_service: ToolCallingChatService = Depends(
+        get_tool_calling_chat_service
+    ),
+) -> ConsoleChatResponse:
+    validate_chat_request_security(request)
+    conversation_id = request.conversation_id or f"local-{uuid4().hex}"
+    trace_id = get_trace_id()
+    logger.info(
+        "console_ai_chat_requested conversation_id=%s message_length=%s history_size=%s",
+        conversation_id,
+        len(request.message),
+        len(request.history),
+    )
+    context_tokens = set_business_context(
+        user_id=http_request.headers.get("X-User-Id"),
+        tenant_id=http_request.headers.get("X-Tenant-Id"),
+    )
+    try:
+        reply = tool_calling_chat_service.generate_reply(
+            request.message,
+            history=request.history,
+        )
+    finally:
+        reset_business_context(context_tokens)
+    return ConsoleChatResponse(
+        reply=redact_sensitive_text(reply),
+        conversation_id=conversation_id,
+        trace_id=trace_id,
+        mode="tool_chat",
+    )

@@ -24,7 +24,7 @@ def test_readiness_check_returns_ready_for_rule_based_mode(
     assert data["status"] == "ready"
     assert data["service"] == "ai-service"
     assert data["ready"] is True
-    assert _check_status(data, "java_mock_service_base_url") == "configured"
+    assert _check_status(data, "java_business_service_base_url") == "configured"
     assert _check_status(data, "llm_api_key") == "skipped"
 
 

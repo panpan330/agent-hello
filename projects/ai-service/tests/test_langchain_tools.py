@@ -41,7 +41,7 @@ def test_query_order_langchain_tool_invokes_existing_query_order_logic() -> None
         "logistics_message": "商家已接单，等待仓库发货。",
         "latest_event": "仓库正在准备出库。",
         "can_create_ticket": True,
-        "source": "java_mock_service",
+        "source": "java_business_service",
     }
     assert fake_client.calls == ["A1002"]
 

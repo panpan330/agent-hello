@@ -6,8 +6,9 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
+from app.core.business_context import build_java_internal_headers
 from app.core.exceptions import AppException
-from app.core.trace import TRACE_ID_HEADER, build_trace_headers
+from app.core.trace import TRACE_ID_HEADER, build_trace_headers, generate_trace_id
 from app.services.java_error_mapping import build_java_error_app_exception
 
 
@@ -20,21 +21,24 @@ class JavaOrderClient:
         *,
         base_url: str,
         timeout_seconds: float,
+        settings: Settings | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.strip().rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.settings = settings
         self.transport = transport
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "JavaOrderClient":
         return cls(
-            base_url=settings.resolved_java_mock_service_base_url,
-            timeout_seconds=settings.java_mock_service_timeout_seconds,
+            base_url=settings.resolved_java_business_service_base_url,
+            timeout_seconds=settings.resolved_java_business_service_timeout_seconds,
+            settings=settings,
         )
 
     def get_order(self, order_id: str) -> Mapping[str, Any]:
-        path = f"/orders/{order_id}"
+        path = f"/internal/orders/{order_id}"
         start_time = perf_counter()
         logger.info(
             "java_order_request_started method=GET path=%s order_id=%s",
@@ -47,7 +51,7 @@ class JavaOrderClient:
                 timeout=self.timeout_seconds,
                 transport=self.transport,
             ) as client:
-                response = client.get(path, headers=build_trace_headers())
+                response = client.get(path, headers=self._build_headers())
         except httpx.TimeoutException as exc:
             elapsed_ms = (perf_counter() - start_time) * 1000
             logger.warning(
@@ -115,4 +119,25 @@ class JavaOrderClient:
                 status_code=502,
             )
 
-        return data
+        return _unwrap_java_api_response_data(data)
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = build_trace_headers()
+        headers.setdefault(TRACE_ID_HEADER, generate_trace_id())
+        if self.settings is not None:
+            headers.update(build_java_internal_headers(self.settings))
+        return headers
+
+
+def _unwrap_java_api_response_data(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    if "success" not in payload and "data" not in payload:
+        return payload
+
+    if payload.get("success") is True and isinstance(payload.get("data"), Mapping):
+        return payload["data"]
+
+    raise AppException(
+        code="TOOL_RESULT_VALIDATION_FAILED",
+        message="订单查询服务返回的数据结构不正确。",
+        status_code=502,
+    )

@@ -12,20 +12,45 @@
         <result column="logistics_message" property="logisticsMessage"/>
         <result column="latest_event" property="latestEvent"/>
         <result column="can_create_ticket" property="canCreateTicket"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
     </resultMap>
+
+    <sql id="OrderColumns">
+        order_id,
+        user_id,
+        tenant_id,
+        order_status,
+        payment_status,
+        logistics_message,
+        latest_event,
+        can_create_ticket,
+        created_at,
+        updated_at
+    </sql>
 
     <select id="selectByTenantIdAndOrderId" resultMap="OrderResultMap">
         SELECT
-          order_id,
-          user_id,
-          tenant_id,
-          order_status,
-          payment_status,
-          logistics_message,
-          latest_event,
-          can_create_ticket
+          <include refid="OrderColumns"/>
         FROM orders
         WHERE tenant_id = #{tenantId}
           AND order_id = #{orderId}
+    </select>
+
+    <select id="selectByTenantIdAndUserId" resultMap="OrderResultMap">
+        SELECT
+          <include refid="OrderColumns"/>
+        FROM orders
+        WHERE tenant_id = #{tenantId}
+          AND user_id = #{userId}
+        ORDER BY updated_at DESC, order_id ASC
+    </select>
+
+    <select id="selectAllByTenantId" resultMap="OrderResultMap">
+        SELECT
+          <include refid="OrderColumns"/>
+        FROM orders
+        WHERE tenant_id = #{tenantId}
+        ORDER BY updated_at DESC, order_id ASC
     </select>
 </mapper>

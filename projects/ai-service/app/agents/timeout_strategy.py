@@ -215,7 +215,9 @@ def build_ticket_agent_timeout_policies(
         "java.query_order": TicketAgentTimeoutPolicy(
             dependency_kind="java_read_tool",
             operation="query_order",
-            budget=build_timeout_budget(settings.java_mock_service_timeout_seconds),
+            budget=build_timeout_budget(
+                settings.resolved_java_business_service_timeout_seconds
+            ),
             error_code="TOOL_TIMEOUT",
             status_code=504,
             retryable=True,
@@ -227,7 +229,9 @@ def build_ticket_agent_timeout_policies(
         "java.create_ticket": TicketAgentTimeoutPolicy(
             dependency_kind="java_write_tool",
             operation="create_ticket",
-            budget=build_timeout_budget(settings.java_mock_service_timeout_seconds),
+            budget=build_timeout_budget(
+                settings.resolved_java_business_service_timeout_seconds
+            ),
             error_code="TOOL_TIMEOUT",
             status_code=504,
             retryable=True,

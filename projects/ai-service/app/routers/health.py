@@ -43,12 +43,12 @@ def readiness_check(
 def build_ai_service_readiness_checks(settings: Settings) -> list[ReadinessCheck]:
     checks = [
         ReadinessCheck(
-            name="java_mock_service_base_url",
+            name="java_business_service_base_url",
             status="configured"
-            if settings.resolved_java_mock_service_base_url
+            if settings.resolved_java_business_service_base_url
             else "not_configured",
             required=True,
-            message="Java mock service base URL is configured.",
+            message="Java business service base URL is configured.",
         ),
         ReadinessCheck(
             name="ticket_agent_model_mode",

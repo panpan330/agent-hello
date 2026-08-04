@@ -56,7 +56,7 @@ def test_query_order_for_mcp_returns_safe_order_result() -> None:
         "logistics_message": "商家已接单，等待仓库发货。",
         "latest_event": "仓库正在准备出库。",
         "can_create_ticket": True,
-        "source": "java_mock_service",
+        "source": "java_business_service",
     }
     raw_response = json.dumps(response, ensure_ascii=False)
     for sensitive_value in SENSITIVE_ORDER_VALUES:

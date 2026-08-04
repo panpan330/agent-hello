@@ -1,5 +1,5 @@
 server:
-  port: 8002
+  port: 18004
 
 logging:
   pattern:
@@ -14,7 +14,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${JAVA_BUSINESS_DB_URL:jdbc:mysql://127.0.0.1:3306/ai_business?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${JAVA_BUSINESS_DB_USERNAME:root}
-    password: ${JAVA_BUSINESS_DB_PASSWORD:}
+    password: ${JAVA_BUSINESS_DB_PASSWORD:root}
   data:
     redis:
       host: ${JAVA_BUSINESS_REDIS_HOST:192.168.88.10}

@@ -11,7 +11,7 @@ from app.tools.fake_order_tool import (
 from tests.tool_fakes import FakeOrderLookupClient, make_java_order_payload
 
 
-def test_query_order_returns_java_mock_order_result() -> None:
+def test_query_order_returns_java_business_order_result() -> None:
     client = FakeOrderLookupClient(make_java_order_payload())
 
     result = query_order(QueryOrderArgs(order_id="A1001"), client=client)
@@ -20,7 +20,7 @@ def test_query_order_returns_java_mock_order_result() -> None:
     assert result.order_status == OrderStatus.WAITING_SHIPMENT
     assert result.logistics_message == "商家已接单，等待仓库发货。"
     assert result.can_create_ticket is True
-    assert result.source == "java_mock_service"
+    assert result.source == "java_business_service"
     assert client.calls == ["A1001"]
 
 
@@ -75,7 +75,7 @@ def test_map_java_order_to_query_order_payload_drops_unknown_fields() -> None:
         "logistics_message": "商家已接单，等待仓库发货。",
         "latest_event": "仓库正在准备出库。",
         "can_create_ticket": True,
-        "source": "java_mock_service",
+        "source": "java_business_service",
     }
 
 

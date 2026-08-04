@@ -24,7 +24,7 @@ def map_java_order_to_query_order_payload(
         "logistics_message": raw_order.get("logistics_message"),
         "latest_event": raw_order.get("latest_event"),
         "can_create_ticket": raw_order.get("can_create_ticket"),
-        "source": "java_mock_service",
+        "source": "java_business_service",
     }
 
 

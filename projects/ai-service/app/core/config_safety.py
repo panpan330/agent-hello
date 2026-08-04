@@ -92,10 +92,12 @@ def build_safe_settings_snapshot(settings: Settings) -> dict[str, SafeConfigValu
         "llm.pricing_currency": settings.resolved_llm_pricing_currency,
         "ticket_agent.model_mode": settings.ticket_agent_model_mode,
         "ticket_agent.confirmation_ttl_seconds": settings.tool_confirmation_ttl_seconds,
-        "java_mock_service.base_url_configured": _has_text(
-            settings.resolved_java_mock_service_base_url
+        "java_business_service.base_url_configured": _has_text(
+            settings.resolved_java_business_service_base_url
         ),
-        "java_mock_service.timeout_seconds": settings.java_mock_service_timeout_seconds,
+        "java_business_service.timeout_seconds": (
+            settings.resolved_java_business_service_timeout_seconds
+        ),
         "qdrant.base_url_configured": _has_text(settings.resolved_qdrant_base_url),
         "qdrant.collection_name": settings.qdrant_collection_name,
         "qdrant.vector_size": settings.qdrant_vector_size,

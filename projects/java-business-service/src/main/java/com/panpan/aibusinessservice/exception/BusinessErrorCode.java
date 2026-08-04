@@ -13,7 +13,11 @@ public enum BusinessErrorCode {
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "同一个幂等键不能用于不同的请求参数。"),
     TICKET_REQUEST_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "工单请求参数不合法。"),
     TICKET_ALREADY_EXISTS(HttpStatus.CONFLICT, "已存在类似工单。"),
-    ORDER_NOT_SUPPORT_TICKET(HttpStatus.CONFLICT, "当前订单不支持创建该类工单。");
+    ORDER_NOT_SUPPORT_TICKET(HttpStatus.CONFLICT, "当前订单不支持创建该类工单。"),
+    LOGIN_REQUEST_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "登录请求参数不合法。"),
+    LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "用户名或密码不正确。"),
+    AUTH_REQUIRED(HttpStatus.UNAUTHORIZED, "请先登录。"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "用户不存在。");
 
     private final HttpStatus status;
     private final String defaultMessage;

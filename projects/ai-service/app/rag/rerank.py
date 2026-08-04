@@ -2,6 +2,7 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from time import perf_counter
 from typing import Any
+from urllib.parse import urlparse
 from typing import Protocol
 
 import httpx
@@ -135,6 +136,7 @@ class HttpReranker:
             raise ValueError("rerank max_retries must be greater than or equal to 0")
 
         self.base_url = base_url.strip().rstrip("/")
+        self.endpoint_url = _resolve_rerank_endpoint_url(self.base_url)
         self.model = model.strip()
         self.timeout_seconds = timeout_seconds
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
@@ -194,23 +196,16 @@ class HttpReranker:
         *,
         top_k: int,
     ) -> list[dict[str, float | int]]:
-        request_body = {
-            "model": self.model,
-            "query": query,
-            "documents": [candidate.content for candidate in candidates],
-            "top_n": top_k,
-            "return_documents": False,
-        }
+        request_body = self._build_request_body(query, candidates, top_k=top_k)
 
         for attempt in range(self.max_retries + 1):
             try:
                 with httpx.Client(
-                    base_url=self.base_url,
                     timeout=self.timeout_seconds,
                     headers=self._headers(),
                     transport=self.transport,
                 ) as client:
-                    response = client.post(RERANK_ENDPOINT_PATH, json=request_body)
+                    response = client.post(self.endpoint_url, json=request_body)
                 if response.status_code in {408, 429} or response.status_code >= 500:
                     if attempt < self.max_retries:
                         continue
@@ -226,8 +221,40 @@ class HttpReranker:
 
     def _headers(self) -> dict[str, str]:
         if self.api_key is None:
-            return {}
-        return {"Authorization": f"Bearer {self.api_key}"}
+            return {"Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _build_request_body(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+        *,
+        top_k: int,
+    ) -> dict[str, object]:
+        documents = [candidate.content for candidate in candidates]
+        if _uses_nested_dashscope_rerank_body(self.endpoint_url, self.model):
+            return {
+                "model": self.model,
+                "input": {
+                    "query": query,
+                    "documents": documents,
+                },
+                "parameters": {
+                    "return_documents": False,
+                    "top_n": top_k,
+                },
+            }
+
+        return {
+            "model": self.model,
+            "query": query,
+            "documents": documents,
+            "top_n": top_k,
+            "return_documents": False,
+        }
 
 
 def make_rerank_candidates_from_retrieved_chunks(
@@ -689,6 +716,8 @@ def _extract_model_rerank_results(
     if not isinstance(data, dict):
         raise RerankModelError("rerank response must be an object")
     results = data.get("results")
+    if results is None and isinstance(data.get("output"), dict):
+        results = data["output"].get("results")
     if not isinstance(results, list):
         raise RerankModelError("rerank response results must be a list")
 
@@ -723,3 +752,20 @@ def _extract_model_rerank_results(
 
 def _elapsed_ms_since(start_time: float) -> float:
     return round((perf_counter() - start_time) * 1000, 3)
+
+
+def _resolve_rerank_endpoint_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/rerank") or path.endswith("/reranks"):
+        return base_url
+    if "/api/v1/services/rerank/" in path:
+        return base_url
+    return f"{base_url}{RERANK_ENDPOINT_PATH}"
+
+
+def _uses_nested_dashscope_rerank_body(endpoint_url: str, model: str) -> bool:
+    parsed = urlparse(endpoint_url)
+    if "/api/v1/services/rerank/" in parsed.path:
+        return True
+    return model.strip() in {"gte-rerank-v2", "qwen3-vl-rerank"}

@@ -19,6 +19,7 @@
         <result column="request_fingerprint" property="requestFingerprint"/>
         <result column="created_trace_id" property="createdTraceId"/>
         <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <sql id="TicketColumns">
@@ -36,7 +37,8 @@
         idempotency_key,
         request_fingerprint,
         created_trace_id,
-        created_at
+        created_at,
+        updated_at
     </sql>
 
     <select id="selectByTenantIdAndIdempotencyKey" resultMap="TicketResultMap">
@@ -53,6 +55,23 @@
         FROM tickets
         WHERE tenant_id = #{tenantId}
           AND ticket_id = #{ticketId}
+    </select>
+
+    <select id="selectByTenantIdAndRequesterUserId" resultMap="TicketResultMap">
+        SELECT
+          <include refid="TicketColumns"/>
+        FROM tickets
+        WHERE tenant_id = #{tenantId}
+          AND requester_user_id = #{requesterUserId}
+        ORDER BY updated_at DESC, ticket_id ASC
+    </select>
+
+    <select id="selectAllByTenantId" resultMap="TicketResultMap">
+        SELECT
+          <include refid="TicketColumns"/>
+        FROM tickets
+        WHERE tenant_id = #{tenantId}
+        ORDER BY updated_at DESC, ticket_id ASC
     </select>
 
     <insert id="insertTicket" parameterType="com.panpan.aibusinessservice.entity.Ticket">

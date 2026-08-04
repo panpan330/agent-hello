@@ -1,6 +1,7 @@
 package com.panpan.aibusinessservice.mapper;
 
 import com.panpan.aibusinessservice.entity.Ticket;
+import java.util.List;
 import org.apache.ibatis.annotations.Param;
 
 public interface TicketMapper {
@@ -13,6 +14,13 @@ public interface TicketMapper {
             @Param("tenantId") String tenantId,
             @Param("ticketId") String ticketId
     );
+
+    List<Ticket> selectByTenantIdAndRequesterUserId(
+            @Param("tenantId") String tenantId,
+            @Param("requesterUserId") String requesterUserId
+    );
+
+    List<Ticket> selectAllByTenantId(@Param("tenantId") String tenantId);
 
     int insertTicket(Ticket ticket);
 

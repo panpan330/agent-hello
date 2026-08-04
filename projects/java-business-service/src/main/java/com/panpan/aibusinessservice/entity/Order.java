@@ -1,5 +1,7 @@
 package com.panpan.aibusinessservice.entity;
 
+import java.time.Instant;
+
 public class Order {
     private String orderId;
     private String ownerUserId;
@@ -9,6 +11,8 @@ public class Order {
     private String logisticsMessage;
     private String latestEvent;
     private boolean canCreateTicket;
+    private Instant createdAt;
+    private Instant updatedAt;
 
     public Order() {
     }
@@ -99,5 +103,21 @@ public class Order {
 
     public void setCanCreateTicket(boolean canCreateTicket) {
         this.canCreateTicket = canCreateTicket;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

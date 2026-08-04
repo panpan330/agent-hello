@@ -1,13 +1,15 @@
 import logging
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
 import httpx
 from pydantic import ValidationError
 
+from app.core.business_context import build_java_internal_headers
 from app.core.config import Settings
 from app.core.exceptions import AppException
-from app.core.trace import TRACE_ID_HEADER, build_trace_headers
+from app.core.trace import TRACE_ID_HEADER, build_trace_headers, generate_trace_id
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
 from app.services.java_error_mapping import build_java_error_app_exception
 
@@ -23,17 +25,20 @@ class JavaTicketClient:
         *,
         base_url: str,
         timeout_seconds: float,
+        settings: Settings | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.strip().rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.settings = settings
         self.transport = transport
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "JavaTicketClient":
         return cls(
-            base_url=settings.resolved_java_mock_service_base_url,
-            timeout_seconds=settings.java_mock_service_timeout_seconds,
+            base_url=settings.resolved_java_business_service_base_url,
+            timeout_seconds=settings.resolved_java_business_service_timeout_seconds,
+            settings=settings,
         )
 
     def create_ticket(
@@ -42,7 +47,7 @@ class JavaTicketClient:
         *,
         idempotency_key: str,
     ) -> CreatedTicket:
-        path = "/tickets"
+        path = "/internal/tickets"
         start_time = perf_counter()
         logger.info(
             (
@@ -62,11 +67,11 @@ class JavaTicketClient:
             ) as client:
                 response = client.post(
                     path,
-                    json=arguments.model_dump(mode="json"),
-                    headers={
-                        **build_trace_headers(),
-                        "Idempotency-Key": idempotency_key,
-                    },
+                    json=_build_java_ticket_payload(
+                        arguments,
+                        confirmation_id=idempotency_key,
+                    ),
+                    headers=self._build_headers(idempotency_key=idempotency_key),
                 )
         except httpx.TimeoutException as exc:
             elapsed_ms = (perf_counter() - start_time) * 1000
@@ -126,7 +131,9 @@ class JavaTicketClient:
             ) from exc
 
         try:
-            ticket = CreatedTicket.model_validate(payload)
+            ticket = CreatedTicket.model_validate(
+                _map_java_ticket_response_to_created_ticket(payload, arguments)
+            )
         except ValidationError as exc:
             raise AppException(
                 code="TOOL_RESULT_VALIDATION_FAILED",
@@ -141,3 +148,67 @@ class JavaTicketClient:
             ticket.priority,
         )
         return ticket
+
+    def _build_headers(self, *, idempotency_key: str) -> dict[str, str]:
+        headers = {
+            **build_trace_headers(),
+            "Idempotency-Key": idempotency_key,
+        }
+        headers.setdefault(TRACE_ID_HEADER, generate_trace_id())
+        if self.settings is not None:
+            headers.update(build_java_internal_headers(self.settings))
+        return headers
+
+
+def _build_java_ticket_payload(
+    arguments: CreateTicketArgs,
+    *,
+    confirmation_id: str,
+) -> dict[str, Any]:
+    return {
+        "title": arguments.title,
+        "description": arguments.description,
+        "category": arguments.category.value,
+        "priority": arguments.priority.value,
+        "related_order_id": arguments.related_order_id,
+        "source": "ai_agent",
+        "confirmation_id": confirmation_id,
+    }
+
+
+def _map_java_ticket_response_to_created_ticket(
+    payload: Any,
+    arguments: CreateTicketArgs,
+) -> dict[str, Any]:
+    data = _unwrap_java_api_response_data(payload)
+    return {
+        "ticket_id": data.get("ticket_id"),
+        "requester_id": data.get("requester_id") or arguments.requester_id,
+        "title": data.get("title"),
+        "description": data.get("description") or arguments.description,
+        "category": data.get("category"),
+        "priority": data.get("priority"),
+        "related_order_id": data.get("related_order_id"),
+        "created_at": data.get("created_at"),
+    }
+
+
+def _unwrap_java_api_response_data(payload: Any) -> Mapping[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise AppException(
+            code="TOOL_RESULT_VALIDATION_FAILED",
+            message="工单业务服务返回的数据结构不正确。",
+            status_code=502,
+        )
+
+    if "success" not in payload and "data" not in payload:
+        return payload
+
+    if payload.get("success") is True and isinstance(payload.get("data"), Mapping):
+        return payload["data"]
+
+    raise AppException(
+        code="TOOL_RESULT_VALIDATION_FAILED",
+        message="工单业务服务返回的数据结构不正确。",
+        status_code=502,
+    )

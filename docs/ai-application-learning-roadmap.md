@@ -769,7 +769,68 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 开始每节前，如果需要 VMware Ubuntu、Docker、Redis、MySQL、Java 服务或真实模型 API，必须先明确提醒。
 ```
 
-## 16. 每周执行节奏
+## 16. M11：完整智能工单系统项目化
+
+阶段定位：
+
+```text
+完整智能工单系统项目化。把已经学过的前端、Java Spring Boot、Python FastAPI、MySQL、Redis、Qdrant、真实 LLM/embedding/rerank、RAG、Tool Calling、Agent 和生产化能力整合成完整、真实、可运行、可演示、可写简历的 AI 应用项目。
+```
+
+阶段 11 的核心变化：
+
+```text
+前面阶段以学习技术点为主。
+阶段 11 以完整项目交付为主。
+```
+
+阶段 11 的主文档：
+
+```text
+docs/stage11-product-scope-and-realization-standards.md
+docs/stage11-technical-plan-and-task-breakdown.md
+```
+
+阶段 11 的默认标准：
+
+- 核心链路尽量使用真实组件，不继续停留在 mock 演示。
+- 需要真实外部资源时，开始对应小节前先明确告诉用户准备什么。
+- 阶段文档以产品文档、接口文档、数据库文档、运行文档、演示脚本为主。
+- 遇到新知识仍然从基础讲清楚，但不再每节都写成大篇课程笔记。
+
+阶段 11 初步拆分为 16 节：
+
+| 节 | 主题 | 目标 |
+| --- | --- | --- |
+| 1 | 项目产品范围与真实化标准 | 固定项目边界、真实化标准和验收标准 |
+| 2 | 阶段 11 技术方案与任务拆分 | 明确前端、Java、Python、数据库、向量库和部署实施顺序 |
+| 3 | 前端技术选型与项目骨架 | 使用 Vue3 + TypeScript + Vite + Element Plus 创建真实前端项目 |
+| 4 | 登录与用户角色最小闭环 | 打通用户身份、角色和基础权限 |
+| 5 | Java 业务数据模型补全 | 完善用户、订单、工单、知识库等核心业务表 |
+| 6 | 前端订单与工单基础页面 | 做出订单和工单可操作页面 |
+| 7 | Python AI 对话接口真实化整理 | 对齐前端调用的 AI API |
+| 8 | 知识库管理与真实入库 | 支持真实 embedding 和 Qdrant 入库 |
+| 9 | 真实 LLM + embedding + rerank 链路验收 | 验证真实模型链路可用 |
+| 10 | AI 查询订单和创建工单端到端联调 | 前端到 AI 到 Java 到数据库完整跑通 |
+| 11 | 客服工单工作台 | 支持客服处理、状态流转和事件记录 |
+| 12 | AI 评估与 bad case 页面 | 把评估和坏例能力产品化展示 |
+| 13 | 生产化配置和运行说明 | 整理完整本地启动和环境变量 |
+| 14 | Docker Compose 本地部署 | 尽量一键启动核心服务 |
+| 15 | 演示脚本和简历材料 | 完成作品化表达 |
+| 16 | 阶段 11 总验收和补洞 | 检查完整项目达标情况 |
+
+默认环境：
+
+```text
+第 1 节不需要外部服务。
+涉及前端时需要 Node.js。
+涉及 Java 业务联调时需要 MySQL/Redis。
+涉及 RAG 时需要 Qdrant。
+涉及真实 AI 能力时需要 LLM、embedding、rerank API Key。
+如果某节需要 VMware Ubuntu、Docker、数据库或真实模型 API，开始前必须明确提醒。
+```
+
+## 17. 每周执行节奏
 
 建议每周固定节奏：
 
@@ -790,7 +851,7 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 10 分钟：更新笔记
 ```
 
-## 17. 不要提前分散精力
+## 18. 不要提前分散精力
 
 前 8 周不要重点投入：
 
@@ -804,7 +865,7 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 
 这些东西不是没用，而是当前阶段投入产出比不高。先把 RAG 和工单 Agent 做成可运行项目。
 
-## 18. 通关标准
+## 19. 通关标准
 
 达到下面 6 条，才算具备 AI 应用工程实战基础：
 
@@ -817,7 +878,7 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 6. 能把项目 Docker 化并写清楚部署文档。
 ```
 
-## 19. 下一步
+## 20. 下一步
 
 立即开始 M0/M1：
 

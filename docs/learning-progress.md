@@ -4,7 +4,7 @@
 
 ```text
 路线已确定：Java 后端 + Python AI 服务 + LangChain/LangGraph + RAG/Agent 工程化
-当前阶段：阶段 10 AI 应用生产化与可运营能力已完成；下一阶段建议进入阶段 11：完整智能工单系统项目化。
+当前阶段：阶段 11 完整智能工单系统项目化第 10 节已完成；下一节学习阶段 11 第 11 节：客服工单工作台。
 主要仓库：D:\wendang\java+python+ai
 执行路线：docs/ai-application-learning-roadmap.md
 当前工作约定：docs/current-stage-working-agreement.md
@@ -25,6 +25,7 @@
 | M8 | 第 14 周 | MCP 与 AI 工具生态基础 | 已完成 | 阶段 8 共 24 节已完成：MCP 概念、架构、通信、生命周期、transport、tools、resources、prompts、Python MCP Server、Client 调试、参数校验、错误处理、安全、接入 Java business service、测试、工程结构、配置、可观测性和面试表达 |
 | M9 | 第 15 周起 | RAG 进阶与检索质量优化 | 已完成 | 阶段 9 共 24 节已完成：覆盖 Query Rewrite、Multi Query、查询意图识别、Hybrid Search、检索分数理解、Rerank、真实 Rerank 模型 adapter、引用来源校验、Context Compression、Metadata Filter、RAG Prompt Injection 防护、RAG 评测集、检索指标、回答质量评测、Bad Case 分析、参数调优、缓存/超时/降级、可观测性、数据更新、多知识库路由、RAG 与 Agent 边界、生产化验收清单，以及阶段总复盘和面试表达强化 |
 | M10 | 第 16 周起 | AI 应用生产化与可运营能力 | 已完成 | 第 1-23 节已完成：AI 应用生产化总览、Tracing 是什么、trace_id / span / event / metric 的区别、Python AI 服务 tracing、Java 业务服务 tracing 对齐、LLM 调用日志安全、配置与密钥管理、Token 成本统计、请求耗时拆解、多模型路由基础、模型 fallback、成本控制、限流、重试、超时治理、SSE 流式输出生产化与中断处理、Prompt Injection、权限控制与隐私保护、自动化评估平台基础与评测集版本管理、Bad Case 收集、分析与回归测试、生产监控指标与告警基础、灰度发布、回滚与配置开关、SLO / SLA / Runbook、阶段总复盘和面试表达强化；阶段 10 后半段已合并，总节数调整为 23 节 |
+| M11 | 第 17 周起 | 完整智能工单系统项目化 | 进行中 | 第 1-9 节已完成：项目产品范围与真实化标准、技术方案与任务拆分、前端技术选型与项目骨架、登录与用户角色最小闭环、Java 业务数据模型补全、前端订单与工单基础页面、Python AI 对话接口真实化整理、知识库管理与真实入库、真实 LLM + embedding + rerank 链路验收；阶段目标是把前端、Java Spring Boot、Python FastAPI、MySQL、Redis、Qdrant、真实 LLM/embedding/rerank、RAG、Tool Calling、Agent 和生产化能力整合成完整、真实、可运行、可演示、可写简历的 AI 应用项目 |
 
 ## M6 快速版学习清单
 
@@ -208,6 +209,41 @@ notes/stage10-00-ai-production-operability-learning-plan.md
 | 21 | 灰度发布、回滚与配置开关 | 已完成 | `notes/stage10-21-canary-rollback-feature-flags.md`、`app/core/release_control.py`、`tests/test_release_control.py`；覆盖原 26，系统学习灰度发布、stable/candidate、feature flag、kill switch、guardrail metric、模型/Prompt/RAG 参数/路由策略/安全策略灰度、按租户层级和稳定百分比分桶放量，以及 continue/hold/rollback 回滚决策 |
 | 22 | SLO / SLA / Runbook | 已完成 | `notes/stage10-22-slo-sla-runbook.md`、`projects/ai-service/app/core/slo_runbook.py`、`projects/ai-service/tests/test_slo_runbook.py`；系统学习 SLI、SLO、SLA、错误预算、故障分级、Runbook 和 AI 应用生产运营闭环，并把服务目标、比例型错误预算、故障信号分级、Runbook 步骤约束和默认事故响应计划结构化落地 |
 | 23 | 阶段 10 总复盘和面试表达强化 | 已完成 | `notes/stage10-23-ai-production-summary-interview-expression.md`；把阶段 10 的生产化能力整理成可观测性、日志与安全、成本与性能治理、稳定性保护、安全边界与质量评估、发布运营与故障响应六层能力地图，并补充 30 秒/1 分钟/3 分钟项目表达、简历 bullet、常见面试追问、当前项目边界和后续完整项目真实化路线 |
+
+## 阶段 11 学习清单
+
+阶段 11 的定位：
+
+```text
+完整智能工单系统项目化。把已经学过的前端、Java Spring Boot、Python FastAPI、MySQL、Redis、Qdrant、真实 LLM/embedding/rerank、RAG、Tool Calling、Agent 和生产化能力整合成完整、真实、可运行、可演示、可写简历的 AI 应用项目。
+```
+
+阶段 11 的主文档：
+
+```text
+docs/stage11-product-scope-and-realization-standards.md
+```
+
+阶段 11 不再以大篇学习笔记为主，而是以项目文档、实现代码、接口契约、运行说明、演示材料和必要阶段记录为主。遇到新知识时仍然从基础讲清楚。
+
+| 节 | 主题 | 状态 | 目标 |
+| --- | --- | --- | --- |
+| 1 | 项目产品范围与真实化标准 | 已完成 | `docs/stage11-product-scope-and-realization-standards.md`、`notes/stage11-01-project-product-scope-realization-standards.md`；明确项目定位、角色、页面、业务模块、真实化标准、系统边界、核心流程、验收标准和阶段 11 拆分 |
+| 2 | 阶段 11 技术方案与任务拆分 | 已完成 | `docs/stage11-technical-plan-and-task-breakdown.md`、`notes/stage11-02-technical-plan-and-task-breakdown.md`；明确阶段 11 总体架构、服务职责、API 边界、数据流、实施顺序、真实资源接入时间表、代码目录、接口/数据库/运行文档计划、测试策略、风险控制和最小完整闭环 |
+| 3 | 前端技术选型与项目骨架 | 已完成 | `projects/customer-service-console`、`notes/stage11-03-frontend-vue3-project-skeleton.md`；使用 Vue3 + TypeScript + Vite + Element Plus 创建真实前端项目，接入 Vue Router、Pinia、Axios、Element Plus 和 `.env.example`，完成工作台布局、侧边导航、顶部用户栏、运营概览、AI 客服、订单、工单、工单工作台、知识库、AI 评估和系统配置页面骨架 |
+| 4 | 登录与用户角色最小闭环 | 已完成 | `notes/stage11-04-login-user-role-minimal-loop.md`、`LoginView.vue`、`ForbiddenView.vue`、`session.ts`、`router/index.ts`、`ConsoleLayout.vue`；完成前端本地演示登录、Pinia 会话、localStorage 恢复、路由守卫、角色菜单过滤、退出登录和无权限页面，为后续 Java 真实登录接口预留替换边界 |
+| 5 | Java 业务数据模型补全 | 已完成 | 完善用户、订单、工单、工单事件、知识库文档等核心表和接口 |
+| 6 | 前端订单与工单基础页面 | 已完成 | 做出订单列表/详情、工单列表/详情等可操作页面 |
+| 7 | Python AI 对话接口真实化整理 | 已完成 | 对齐前端调用的 AI chat/RAG/tool/agent API 形态 |
+| 8 | 知识库管理与真实入库 | 已完成 | `docs/stage11-knowledge-base-ingestion-contract.md`；新增 Python `/api/knowledge-base/status` 与 `/api/knowledge-base/ingest`，前端知识库页面接入 Java 可见文档列表和 Python 入库状态，已用 Fake embedding 真实写入 Qdrant |
+| 9 | 真实 LLM + embedding + rerank 链路验收 | 已完成 | `docs/stage11-real-rag-chain-contract.md`；新增 `/api/ai/rag/ask`，完成 text-embedding-v4 入库、Qdrant 检索、qwen3-rerank 重排、qwen3.7-plus 回答和前端 RAG 模式引用展示 |
+| 10 | AI 查询订单和创建工单端到端联调 | 已完成 | `docs/stage11-ai-order-ticket-end-to-end-contract.md`；Python `JavaOrderClient` / `JavaTicketClient` 已切到真实 Java business-service `/internal/orders/{order_id}` 与 `/internal/tickets`，支持内部调用头、trace_id 兜底、Java `ApiResponse` 解包、真实 `T-uuid` 工单号校验，并完成真实 MySQL 订单查询和工单创建 smoke |
+| 11 | 客服工单工作台 | 未开始 | 支持客服处理工单、状态流转、事件记录和用户可见进度 |
+| 12 | AI 评估与 bad case 页面 | 未开始 | 把评估集、评估结果、bad case 和 regression case 做成可展示页面 |
+| 13 | 生产化配置和运行说明 | 未开始 | 整理本地完整启动、环境变量、服务依赖和常见问题 |
+| 14 | Docker Compose 本地部署 | 未开始 | 尽量用 Docker Compose 串起 MySQL、Redis、Qdrant、Java、Python 和前端 |
+| 15 | 演示脚本和简历材料 | 未开始 | 整理 5-10 分钟演示路径、截图、简历 bullet 和面试表达 |
+| 16 | 阶段 11 总验收和补洞 | 未开始 | 按完整项目标准检查功能、技术、工程、展示和简历表达是否达标 |
 
 ## 近期任务
 

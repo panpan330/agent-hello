@@ -1,3 +1,36 @@
+CREATE TABLE IF NOT EXISTS app_users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  username VARCHAR(64) NOT NULL,
+  display_name VARCHAR(100) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_app_users_tenant_user (tenant_id, user_id),
+  UNIQUE KEY uk_app_users_tenant_username (tenant_id, username),
+  KEY idx_app_users_tenant_status (tenant_id, status)
+);
+
+CREATE TABLE IF NOT EXISTS app_roles (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  role_code VARCHAR(64) NOT NULL,
+  role_name VARCHAR(100) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_app_roles_code (role_code)
+);
+
+CREATE TABLE IF NOT EXISTS app_user_roles (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  role_code VARCHAR(64) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_app_user_roles_tenant_user_role (tenant_id, user_id, role_code),
+  KEY idx_app_user_roles_tenant_role (tenant_id, role_code)
+);
+
 CREATE TABLE IF NOT EXISTS orders (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   tenant_id VARCHAR(64) NOT NULL,
@@ -51,4 +84,49 @@ CREATE TABLE IF NOT EXISTS ticket_events (
   created_at DATETIME(6) NOT NULL,
   UNIQUE KEY uk_ticket_events_tenant_event (tenant_id, event_id),
   KEY idx_ticket_events_tenant_ticket_created (tenant_id, ticket_id, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  document_id VARCHAR(64) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  doc_type VARCHAR(32) NOT NULL,
+  business_domain VARCHAR(64) NOT NULL,
+  permission_group VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  source_file_name VARCHAR(255) NOT NULL,
+  chunk_count INT NOT NULL DEFAULT 0,
+  updated_by VARCHAR(64) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_knowledge_documents_tenant_doc (tenant_id, document_id),
+  KEY idx_knowledge_documents_tenant_status (tenant_id, status),
+  KEY idx_knowledge_documents_tenant_permission (tenant_id, permission_group)
+);
+
+CREATE TABLE IF NOT EXISTS ai_conversations (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  conversation_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  conversation_status VARCHAR(32) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_ai_conversations_tenant_conversation (tenant_id, conversation_id),
+  KEY idx_ai_conversations_tenant_user_updated (tenant_id, user_id, updated_at)
+);
+
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  message_id VARCHAR(64) NOT NULL,
+  conversation_id VARCHAR(64) NOT NULL,
+  sender_type VARCHAR(32) NOT NULL,
+  content TEXT NOT NULL,
+  trace_id VARCHAR(128) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_ai_messages_tenant_message (tenant_id, message_id),
+  KEY idx_ai_messages_tenant_conversation_created (tenant_id, conversation_id, created_at)
 );

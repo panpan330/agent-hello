@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.core.config import Settings
+from app.core.business_context import reset_business_context, set_business_context
 from app.core.exceptions import AppException
 from app.core.trace import TRACE_ID_HEADER, reset_trace_id, set_trace_id
 from app.services.java_order_client import JavaOrderClient
@@ -36,7 +37,7 @@ def make_client(handler: Callable[[httpx.Request], httpx.Response]) -> JavaOrder
 def test_java_order_client_get_order_returns_json_payload() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/orders/A1001"
+        assert request.url.path == "/internal/orders/A1001"
         return httpx.Response(200, json=make_order_payload(), request=request)
 
     client = make_client(handler)
@@ -45,6 +46,28 @@ def test_java_order_client_get_order_returns_json_payload() -> None:
 
     assert result["order_id"] == "A1001"
     assert result["customer_id"] == "C9001"
+
+
+def test_java_order_client_unwraps_java_api_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "code": "OK",
+                "message": "ok",
+                "data": make_order_payload(),
+                "trace_id": "trace-java-wrapper",
+            },
+            request=request,
+        )
+
+    client = make_client(handler)
+
+    result = client.get_order("A1001")
+
+    assert result["order_id"] == "A1001"
+    assert "success" not in result
 
 
 def test_java_order_client_forwards_current_trace_id_and_logs_upstream_trace(
@@ -225,14 +248,55 @@ def test_java_order_client_rejects_non_object_json_response() -> None:
     assert exc.status_code == 502
 
 
-def test_java_order_client_from_settings_uses_java_mock_config() -> None:
+def test_java_order_client_from_settings_uses_java_business_config() -> None:
     settings = Settings(
         java_mock_service_base_url=" http://localhost:9001/ ",
         java_mock_service_timeout_seconds=2.5,
+        java_business_service_base_url=" http://localhost:18004/ ",
+        java_business_service_timeout_seconds=4.5,
         _env_file=None,
     )
 
     client = JavaOrderClient.from_settings(settings)
 
-    assert client.base_url == "http://localhost:9001"
-    assert client.timeout_seconds == 2.5
+    assert client.base_url == "http://localhost:18004"
+    assert client.timeout_seconds == 4.5
+
+
+def test_java_order_client_from_settings_sends_internal_headers() -> None:
+    received_headers: dict[str, str] = {}
+    settings = Settings(
+        java_business_service_base_url="http://localhost:18004",
+        java_business_internal_token="token-001",
+        java_business_internal_caller="ai-service",
+        java_business_default_user_id="U_DEFAULT",
+        java_business_default_tenant_id="tenant-default",
+        _env_file=None,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received_headers["caller"] = request.headers["X-Caller"]
+        received_headers["user_id"] = request.headers["X-User-Id"]
+        received_headers["tenant_id"] = request.headers["X-Tenant-Id"]
+        received_headers["internal_token"] = request.headers["X-Internal-Token"]
+        return httpx.Response(200, json=make_order_payload(), request=request)
+
+    client = JavaOrderClient(
+        base_url="http://java-business.test",
+        timeout_seconds=1.0,
+        settings=settings,
+        transport=httpx.MockTransport(handler),
+    )
+    tokens = set_business_context(user_id="U1001", tenant_id="default")
+
+    try:
+        client.get_order("A1001")
+    finally:
+        reset_business_context(tokens)
+
+    assert received_headers == {
+        "caller": "ai-service",
+        "user_id": "U1001",
+        "tenant_id": "default",
+        "internal_token": "token-001",
+    }
