@@ -64,7 +64,11 @@ TicketIntent = Literal[
 TicketAgentRoute = TicketIntent
 TicketNeedRoute = Literal["create_ticket", "finish"]
 TicketFieldCompletionRoute = Literal["ask_missing_fields", "request_confirmation"]
-TicketConfirmationRoute = Literal["execute_create_ticket", "finish"]
+TicketConfirmationRoute = Literal[
+    "execute_create_ticket",
+    "request_confirmation",
+    "finish",
+]
 TicketNeedSource = Literal[
     "explicit_user_request",
     "rag_no_context",
@@ -230,6 +234,7 @@ TICKET_AGENT_FIELD_COMPLETION_ROUTES: dict[TicketFieldCompletionRoute, str] = {
 
 TICKET_AGENT_CONFIRMATION_ROUTES: dict[TicketConfirmationRoute, str] = {
     "execute_create_ticket": "create_ticket",
+    "request_confirmation": "request_ticket_confirmation",
     "finish": END,
 }
 
@@ -400,6 +405,7 @@ class TicketAgentState(TypedDict, total=False):
     missing_ticket_field_question_fields: list[str]
     ticket_confirmation_required: bool
     ticket_confirmation_approved: bool
+    ticket_confirmation_correction_requested: bool
     ticket_confirmation_message: str
     pending_ticket_confirmation: PendingTicketConfirmation
     ticket_actor_id: str
@@ -1401,6 +1407,13 @@ def classify_intent_node(
     classifier: TicketIntentClassifier | None = None,
 ) -> TicketAgentState:
     normalized_message = state.get("normalized_message", "")
+    if has_active_ticket_field_collection(state):
+        return {
+            "intent": "ticket_request",
+            "intent_reason": "用户正在补充上一轮工单流程缺少的信息。",
+            "node_history": ["classify_intent"],
+        }
+
     classification = (
         classifier.classify_intent(normalized_message)
         if classifier is not None
@@ -1502,6 +1515,42 @@ def extract_ticket_fields(state: TicketAgentState) -> TicketFields:
     }
 
 
+def has_active_ticket_field_collection(state: TicketAgentState) -> bool:
+    return (
+        state.get("needs_ticket") is True
+        and isinstance(state.get("ticket_fields"), dict)
+        and bool(state.get("missing_ticket_fields"))
+    )
+
+
+def merge_ticket_fields(
+    previous_fields: TicketFields | None,
+    latest_fields: TicketFields,
+) -> TicketFields:
+    if previous_fields is None:
+        return latest_fields
+
+    return {
+        "issue_type": (
+            latest_fields["issue_type"]
+            if latest_fields["issue_type"] != "unknown"
+            else previous_fields["issue_type"]
+        ),
+        "order_id": latest_fields["order_id"] or previous_fields["order_id"],
+        "description": previous_fields["description"] or latest_fields["description"],
+        "user_request": previous_fields["user_request"] or latest_fields["user_request"],
+        "urgency": (
+            "high"
+            if latest_fields["urgency"] == "high"
+            else previous_fields["urgency"]
+        ),
+        "need_human_review": (
+            previous_fields["need_human_review"]
+            or latest_fields["need_human_review"]
+        ),
+    }
+
+
 def find_missing_ticket_fields(fields: TicketFields) -> list[str]:
     missing_fields: list[str] = []
 
@@ -1527,6 +1576,8 @@ def route_by_ticket_fields_complete(state: TicketAgentState) -> TicketFieldCompl
 
 
 def route_by_ticket_confirmation(state: TicketAgentState) -> TicketConfirmationRoute:
+    if state.get("ticket_confirmation_correction_requested") is True:
+        return "request_confirmation"
     if state.get("ticket_confirmation_approved") is True:
         return "execute_create_ticket"
     return "finish"
@@ -1614,6 +1665,19 @@ def get_ticket_confirmation_resume_actor_id(resume_value: Any) -> str | None:
 
     normalized_actor_id = actor_id.strip()
     return normalized_actor_id or None
+
+
+def get_ticket_confirmation_resume_corrected_fields(
+    resume_value: Any,
+) -> TicketFields | None:
+    if not isinstance(resume_value, dict):
+        return None
+
+    fields = resume_value.get("corrected_ticket_fields")
+    if not isinstance(fields, dict):
+        return None
+
+    return fields
 
 
 def build_create_ticket_args_from_fields(
@@ -2069,12 +2133,16 @@ def extract_ticket_fields_node(
     *,
     extractor: TicketFieldExtractor | None = None,
 ) -> TicketAgentState:
+    previous_fields = (
+        state.get("ticket_fields") if has_active_ticket_field_collection(state) else None
+    )
     if extractor is None:
-        fields = extract_ticket_fields(state)
+        latest_fields = extract_ticket_fields(state)
         extraction_source: TicketFieldExtractionSource = "rule_based"
     else:
-        fields = extractor.extract_fields(state)
+        latest_fields = extractor.extract_fields(state)
         extraction_source = get_ticket_field_extraction_source(extractor)
+    fields = merge_ticket_fields(previous_fields, latest_fields)
 
     missing_fields = find_missing_ticket_fields(fields)
 
@@ -2115,6 +2183,7 @@ def request_ticket_confirmation_node(state: TicketAgentState) -> TicketAgentStat
 
     return {
         "ticket_confirmation_required": True,
+        "ticket_confirmation_correction_requested": False,
         "ticket_confirmation_message": pending_confirmation["message"],
         "pending_ticket_confirmation": pending_confirmation,
         "final_answer": pending_confirmation["message"],
@@ -2139,11 +2208,38 @@ def request_ticket_confirmation_interrupt_node(
     resume_value = interrupt(
         build_ticket_confirmation_interrupt_payload(pending_confirmation)
     )
+    corrected_fields = get_ticket_confirmation_resume_corrected_fields(resume_value)
+    if corrected_fields is not None:
+        missing_fields = find_missing_ticket_fields(corrected_fields)
+        if missing_fields:
+            message = build_missing_ticket_fields_question(missing_fields)
+            return {
+                "ticket_fields": corrected_fields,
+                "missing_ticket_fields": missing_fields,
+                "ticket_fields_complete": False,
+                "ticket_confirmation_required": False,
+                "ticket_confirmation_correction_requested": False,
+                "pending_ticket_confirmation": None,
+                "final_answer": message,
+                "node_history": ["request_ticket_confirmation"],
+            }
+        return {
+            "ticket_fields": corrected_fields,
+            "missing_ticket_fields": [],
+            "ticket_fields_complete": True,
+            "ticket_confirmation_required": True,
+            "ticket_confirmation_approved": False,
+            "ticket_confirmation_correction_requested": True,
+            "pending_ticket_confirmation": None,
+            "final_answer": "工单草稿已更新，请再次确认后再创建。",
+            "node_history": ["request_ticket_confirmation"],
+        }
     approved = is_ticket_confirmation_resume_approved(resume_value)
 
     update: TicketAgentState = {
         "ticket_confirmation_required": True,
         "ticket_confirmation_approved": approved,
+        "ticket_confirmation_correction_requested": False,
         "ticket_confirmation_message": pending_confirmation["message"],
         "pending_ticket_confirmation": pending_confirmation,
         "final_answer": (
@@ -2695,10 +2791,13 @@ def resume_ticket_confirmation_interrupt(
     thread_id: str,
     approved: bool,
     actor_id: str | None = None,
+    corrected_fields: TicketFields | None = None,
 ) -> TicketAgentState:
     resume_payload: dict[str, Any] = {"approved": approved}
     if actor_id is not None:
         resume_payload["actor_id"] = actor_id
+    if corrected_fields is not None:
+        resume_payload["corrected_ticket_fields"] = corrected_fields
 
     start_time = perf_counter()
     log_ticket_agent_run_started(

@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Size;
 public record UpdateTicketStatusRequest(
         @JsonProperty("target_status")
         @NotBlank
-        @Pattern(regexp = "^(in_progress|waiting_user|resolved|closed)$")
+        @Pattern(regexp = "^(in_progress|waiting_user|closed)$")
         String targetStatus,
 
         @Size(max = 500)

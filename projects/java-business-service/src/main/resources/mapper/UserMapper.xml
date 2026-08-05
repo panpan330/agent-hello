@@ -56,4 +56,25 @@
           AND user_id = #{userId}
         ORDER BY role_code
     </select>
+
+    <select id="selectActiveStaffByTenantId" resultMap="UserResultMap">
+        SELECT DISTINCT
+          u.id,
+          u.tenant_id,
+          u.user_id,
+          u.username,
+          u.display_name,
+          u.password_hash,
+          u.status,
+          u.created_at,
+          u.updated_at
+        FROM app_users u
+        INNER JOIN app_user_roles ur
+          ON ur.tenant_id = u.tenant_id
+         AND ur.user_id = u.user_id
+        WHERE u.tenant_id = #{tenantId}
+          AND u.status = 'active'
+          AND ur.role_code IN ('agent', 'supervisor', 'admin')
+        ORDER BY u.user_id ASC
+    </select>
 </mapper>

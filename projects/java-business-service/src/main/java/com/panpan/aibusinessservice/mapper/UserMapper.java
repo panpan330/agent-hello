@@ -19,4 +19,6 @@ public interface UserMapper {
             @Param("tenantId") String tenantId,
             @Param("userId") String userId
     );
+
+    List<User> selectActiveStaffByTenantId(@Param("tenantId") String tenantId);
 }

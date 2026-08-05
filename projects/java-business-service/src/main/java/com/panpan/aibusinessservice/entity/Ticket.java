@@ -12,6 +12,8 @@ public class Ticket {
     private String category;
     private String priority;
     private String relatedOrderId;
+    private String assigneeUserId;
+    private String assigneeDisplayName;
     private String source;
     private String confirmationId;
     private String idempotencyKey;
@@ -127,6 +129,22 @@ public class Ticket {
 
     public void setRelatedOrderId(String relatedOrderId) {
         this.relatedOrderId = relatedOrderId;
+    }
+
+    public String getAssigneeUserId() {
+        return assigneeUserId;
+    }
+
+    public void setAssigneeUserId(String assigneeUserId) {
+        this.assigneeUserId = assigneeUserId;
+    }
+
+    public String getAssigneeDisplayName() {
+        return assigneeDisplayName;
+    }
+
+    public void setAssigneeDisplayName(String assigneeDisplayName) {
+        this.assigneeDisplayName = assigneeDisplayName;
     }
 
     public String getSource() {

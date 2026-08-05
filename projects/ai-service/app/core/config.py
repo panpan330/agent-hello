@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     rerank_top_n: int = Field(default=5, ge=1, le=20)
     rerank_candidate_count: int = Field(default=20, ge=1, le=100)
     tool_confirmation_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    agent_redis_url: str = Field(default="redis://127.0.0.1:6379/0")
+    agent_checkpoint_ttl_minutes: int = Field(default=120, ge=1, le=1440)
+    agent_checkpoint_key_prefix: str = Field(default="ai-service:agent")
     mcp_server_name: str = Field(
         default="ai-service-learning-mcp",
         min_length=1,
@@ -113,6 +116,9 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     cors_allowed_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173"
+    )
+    cors_allowed_origin_regex: str | None = Field(
+        default=r"^http://(localhost|127\.0\.0\.1):[0-9]+$"
     )
     openai_api_key: str | None = Field(default=None, repr=False)
 
@@ -129,6 +135,13 @@ class Settings(BaseSettings):
             for origin in self.cors_allowed_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def normalized_cors_allowed_origin_regex(self) -> str | None:
+        if self.cors_allowed_origin_regex is None:
+            return None
+        value = self.cors_allowed_origin_regex.strip()
+        return value or None
 
     @property
     def has_openai_api_key(self) -> bool:
@@ -245,6 +258,20 @@ class Settings(BaseSettings):
         if not self.rerank_base_url or not self.rerank_base_url.strip():
             return None
         return self.rerank_base_url.strip().rstrip("/")
+
+    @property
+    def resolved_agent_redis_url(self) -> str:
+        value = self.agent_redis_url.strip()
+        if not value:
+            raise ValueError("AGENT_REDIS_URL cannot be empty")
+        return value
+
+    @property
+    def resolved_agent_checkpoint_key_prefix(self) -> str:
+        value = self.agent_checkpoint_key_prefix.strip().strip(":")
+        if not value:
+            raise ValueError("AGENT_CHECKPOINT_KEY_PREFIX cannot be empty")
+        return value
 
     @property
     def resolved_embedding_base_url(self) -> str | None:

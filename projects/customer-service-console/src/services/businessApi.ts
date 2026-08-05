@@ -20,6 +20,8 @@ export interface TicketListItem {
   category: string
   priority: string
   related_order_id: string | null
+  assignee_user_id: string | null
+  assignee_display_name: string | null
   source: string
   created_at: string
   updated_at: string
@@ -35,15 +37,51 @@ export interface TicketEventItem {
   created_at: string
 }
 
+export interface TicketMessageItem {
+  message_id: string
+  visibility: 'public' | 'internal'
+  content: string
+  author_type: string
+  author_user_id: string
+  author_display_name: string
+  created_at: string
+}
+
 export interface TicketDetail extends TicketListItem {
   description: string
   created_trace_id: string
   events: TicketEventItem[]
+  messages: TicketMessageItem[]
 }
 
 export interface UpdateTicketStatusPayload {
-  target_status: 'in_progress' | 'waiting_user' | 'resolved' | 'closed'
+  target_status: 'in_progress' | 'waiting_user' | 'closed'
   note?: string
+}
+
+export interface AssignTicketPayload {
+  assignee_user_id: string
+  note?: string
+}
+
+export interface AddTicketMessagePayload {
+  visibility: 'public' | 'internal'
+  content: string
+}
+
+export interface TicketResolutionPayload {
+  content: string
+}
+
+export interface ReopenTicketPayload {
+  content: string
+}
+
+export interface StaffUserItem {
+  user_id: string
+  username: string
+  display_name: string
+  roles: string[]
 }
 
 export interface KnowledgeDocumentItem {
@@ -83,6 +121,36 @@ export async function getTicketDetail(ticketId: string) {
 
 export async function updateTicketStatus(ticketId: string, payload: UpdateTicketStatusPayload) {
   const response = await javaApi.patch<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/status`, payload)
+  return unwrapResponse(response.data)
+}
+
+export async function claimTicket(ticketId: string) {
+  const response = await javaApi.patch<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/assignment/claim`)
+  return unwrapResponse(response.data)
+}
+
+export async function assignTicket(ticketId: string, payload: AssignTicketPayload) {
+  const response = await javaApi.patch<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/assignment`, payload)
+  return unwrapResponse(response.data)
+}
+
+export async function addTicketMessage(ticketId: string, payload: AddTicketMessagePayload) {
+  const response = await javaApi.post<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/messages`, payload)
+  return unwrapResponse(response.data)
+}
+
+export async function resolveTicket(ticketId: string, payload: TicketResolutionPayload) {
+  const response = await javaApi.post<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/resolution`, payload)
+  return unwrapResponse(response.data)
+}
+
+export async function reopenTicket(ticketId: string, payload: ReopenTicketPayload) {
+  const response = await javaApi.post<ApiResponse<TicketDetail>>(`/api/tickets/${ticketId}/reopen`, payload)
+  return unwrapResponse(response.data)
+}
+
+export async function listStaffUsers() {
+  const response = await javaApi.get<ApiResponse<StaffUserItem[]>>('/api/users/staff')
   return unwrapResponse(response.data)
 }
 

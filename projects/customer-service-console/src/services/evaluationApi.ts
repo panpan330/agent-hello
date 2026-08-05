@@ -40,6 +40,29 @@ export interface EvaluationRunOverview {
   suites: EvaluationSuite[]
 }
 
+export interface ProductionRegressionCaseResult {
+  bad_case_id: string
+  title: string
+  outcome: 'passed' | 'failed' | 'not_ready' | 'error'
+  assertion: string | null
+  expected: string | null
+  actual: string | null
+  detail: string
+}
+
+export interface ProductionRegressionRun {
+  run_id: string
+  started_at: string
+  completed_at: string
+  total_case_count: number
+  passed_case_count: number
+  failed_case_count: number
+  not_ready_case_count: number
+  error_case_count: number
+  passed: boolean
+  results: ProductionRegressionCaseResult[]
+}
+
 export interface BadCaseSummary {
   record_count: number
   open_count: number
@@ -74,6 +97,7 @@ export interface EvaluationOverview {
   bad_case_summary: BadCaseSummary
   bad_cases: BadCaseItem[]
   generated_from_latest_run: boolean
+  latest_production_regression_run: ProductionRegressionRun | null
   trace_id: string
 }
 
@@ -90,5 +114,15 @@ export async function getEvaluationOverview() {
   } catch (error: any) {
     const data = error?.response?.data as AiServiceErrorBody | undefined
     throw new Error(data?.message || 'AI 评估看板加载失败')
+  }
+}
+
+export async function runProductionRegression() {
+  try {
+    const response = await aiApi.post<ProductionRegressionRun>('/api/ai/evaluation/runs/production-regression')
+    return response.data
+  } catch (error: any) {
+    const data = error?.response?.data as AiServiceErrorBody | undefined
+    throw new Error(data?.message || 'Production regression run failed')
   }
 }

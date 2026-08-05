@@ -96,6 +96,7 @@ def test_settings_use_default_values() -> None:
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
+    assert settings.normalized_cors_allowed_origin_regex == r"^http://(localhost|127\.0\.0\.1):[0-9]+$"
     assert settings.openai_api_key is None
     assert settings.has_openai_api_key is False
 

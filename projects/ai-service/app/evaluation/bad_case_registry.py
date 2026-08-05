@@ -34,6 +34,39 @@ BadCaseFailureLayer = Literal[
     "data",
     "unknown",
 ]
+ProductionRegressionAssertion = Literal[
+    "intent",
+    "citation_present",
+    "ticket_confirmation_required",
+]
+
+
+class ProductionRegressionSpec(BaseModel):
+    """A supervisor-approved, deterministic check for one production bad case."""
+
+    message: str = Field(min_length=1, max_length=4000)
+    assertion: ProductionRegressionAssertion
+    expected_intent: Literal[
+        "policy_question",
+        "order_query",
+        "ticket_request",
+        "smalltalk",
+        "unsupported",
+        "unclear",
+    ] | None = None
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def normalize_message(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_expected_intent(self) -> "ProductionRegressionSpec":
+        if self.assertion == "intent" and self.expected_intent is None:
+            raise ValueError("expected_intent is required for an intent regression assertion")
+        if self.assertion != "intent" and self.expected_intent is not None:
+            raise ValueError("expected_intent is only supported by an intent regression assertion")
+        return self
 
 
 class BadCaseRecord(BaseModel):
@@ -56,6 +89,7 @@ class BadCaseRecord(BaseModel):
     regression_action: str = Field(min_length=1)
     regression_dataset_name: str | None = None
     regression_case_id: str | None = None
+    production_regression: ProductionRegressionSpec | None = None
     evidence_summary: str = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
 

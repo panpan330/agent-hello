@@ -86,7 +86,36 @@ CREATE TABLE IF NOT EXISTS ticket_events (
   KEY idx_ticket_events_tenant_ticket_created (tenant_id, ticket_id, created_at)
 );
 
-CREATE TABLE IF NOT EXISTS knowledge_documents (
+CREATE TABLE IF NOT EXISTS ticket_assignments (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  ticket_id VARCHAR(64) NOT NULL,
+  assignee_user_id VARCHAR(64) NOT NULL,
+  assignee_display_name VARCHAR(100) NOT NULL,
+  assigned_by_user_id VARCHAR(64) NOT NULL,
+  assigned_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_ticket_assignments_tenant_ticket (tenant_id, ticket_id),
+  KEY idx_ticket_assignments_tenant_assignee (tenant_id, assignee_user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS ticket_messages (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    tenant_id VARCHAR(64) NOT NULL,
+    message_id VARCHAR(64) NOT NULL,
+    ticket_id VARCHAR(64) NOT NULL,
+    visibility VARCHAR(16) NOT NULL,
+    content VARCHAR(2000) NOT NULL,
+    author_type VARCHAR(32) NOT NULL,
+    author_user_id VARCHAR(64) NOT NULL,
+    author_display_name VARCHAR(100) NOT NULL,
+    trace_id VARCHAR(128) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_ticket_messages_tenant_message (tenant_id, message_id),
+    KEY idx_ticket_messages_tenant_ticket_created (tenant_id, ticket_id, created_at)
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge_documents (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   tenant_id VARCHAR(64) NOT NULL,
   document_id VARCHAR(64) NOT NULL,
@@ -129,4 +158,30 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   created_at DATETIME(6) NOT NULL,
   UNIQUE KEY uk_ai_messages_tenant_message (tenant_id, message_id),
   KEY idx_ai_messages_tenant_conversation_created (tenant_id, conversation_id, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS ai_response_feedback (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  conversation_id VARCHAR(128) NOT NULL,
+  trace_id VARCHAR(128) NOT NULL,
+  rating VARCHAR(16) NOT NULL,
+  reason VARCHAR(64) NULL,
+  agent_route VARCHAR(64) NOT NULL,
+  citation_count INT NOT NULL DEFAULT 0,
+  human_handoff_suggested TINYINT(1) NOT NULL DEFAULT 0,
+  user_message_excerpt VARCHAR(1000) NULL,
+  assistant_answer_excerpt VARCHAR(2000) NULL,
+  citation_summary_json TEXT NULL,
+  review_status VARCHAR(32) NOT NULL DEFAULT 'candidate',
+  bad_case_id VARCHAR(160) NULL,
+  reviewed_by_user_id VARCHAR(64) NULL,
+  reviewed_at DATETIME(6) NULL,
+  review_note VARCHAR(1000) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_ai_response_feedback_identity (tenant_id, user_id, conversation_id, trace_id),
+  KEY idx_ai_response_feedback_tenant_created (tenant_id, created_at),
+  KEY idx_ai_response_feedback_tenant_rating (tenant_id, rating, created_at)
 );

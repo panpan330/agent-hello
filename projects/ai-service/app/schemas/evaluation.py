@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class EvaluationDatasetView(BaseModel):
@@ -43,6 +43,29 @@ class EvaluationRunOverview(BaseModel):
     suites: list[EvaluationSuiteView] = Field(default_factory=list)
 
 
+class ProductionRegressionCaseResultView(BaseModel):
+    bad_case_id: str
+    title: str
+    outcome: Literal["passed", "failed", "not_ready", "error"]
+    assertion: str | None = None
+    expected: str | None = None
+    actual: str | None = None
+    detail: str
+
+
+class ProductionRegressionRunView(BaseModel):
+    run_id: str
+    started_at: str
+    completed_at: str
+    total_case_count: int
+    passed_case_count: int
+    failed_case_count: int
+    not_ready_case_count: int
+    error_case_count: int
+    passed: bool
+    results: list[ProductionRegressionCaseResultView] = Field(default_factory=list)
+
+
 class BadCaseSummaryView(BaseModel):
     record_count: int
     open_count: int
@@ -77,4 +100,59 @@ class EvaluationOverviewResponse(BaseModel):
     bad_case_summary: BadCaseSummaryView
     bad_cases: list[BadCaseItemView] = Field(default_factory=list)
     generated_from_latest_run: bool
+    latest_production_regression_run: ProductionRegressionRunView | None = None
     trace_id: str
+
+
+class ProductionFeedbackContextView(BaseModel):
+    feedback_id: int
+    conversation_id: str
+    trace_id: str
+    reason: str | None = None
+    agent_route: str
+    citation_count: int
+    human_handoff_suggested: bool
+    user_message_excerpt: str | None = None
+    assistant_answer_excerpt: str | None = None
+    citation_summary: list[dict[str, str | None]] = Field(default_factory=list)
+    review_status: str
+    bad_case_id: str | None = None
+    review_note: str | None = None
+
+
+class PromoteProductionFeedbackRequest(BaseModel):
+    failure_layer: Literal[
+        "intent", "field_extraction", "routing", "rag_retrieval", "rag_citation",
+        "agent_decision", "tool_calling", "permission", "security", "model_output", "data", "unknown",
+    ]
+    severity: Literal["critical", "high", "medium", "low"]
+    failure_category: str = Field(min_length=1, max_length=120)
+    expected_behavior: str = Field(min_length=1, max_length=1000)
+    recommended_action: str = Field(min_length=1, max_length=1000)
+    regression_action: str = Field(min_length=1, max_length=1000)
+    review_note: str = Field(default="", max_length=1000)
+    regression_message: str = Field(min_length=1, max_length=4000)
+    regression_assertion: Literal[
+        "intent", "citation_present", "ticket_confirmation_required",
+    ]
+    regression_expected_intent: Literal[
+        "policy_question", "order_query", "ticket_request", "smalltalk", "unsupported", "unclear",
+    ] | None = None
+
+    @model_validator(mode="after")
+    def validate_regression_assertion(self) -> "PromoteProductionFeedbackRequest":
+        if self.regression_assertion == "intent" and self.regression_expected_intent is None:
+            raise ValueError("regression_expected_intent is required for an intent assertion")
+        if self.regression_assertion != "intent" and self.regression_expected_intent is not None:
+            raise ValueError("regression_expected_intent is only supported by an intent assertion")
+        return self
+
+
+class PromoteProductionFeedbackResponse(BaseModel):
+    bad_case: BadCaseItemView
+    regression_draft: dict[str, object]
+
+
+class ReviewProductionFeedbackRequest(BaseModel):
+    review_status: Literal["triaged", "closed"]
+    review_note: str = Field(default="", max_length=1000)

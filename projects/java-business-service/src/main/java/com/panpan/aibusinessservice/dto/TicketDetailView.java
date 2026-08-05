@@ -13,13 +13,20 @@ public record TicketDetailView(
         String category,
         String priority,
         String relatedOrderId,
+        String assigneeUserId,
+        String assigneeDisplayName,
         String source,
         String createdTraceId,
         Instant createdAt,
         Instant updatedAt,
-        List<TicketEventView> events
+        List<TicketEventView> events,
+        List<TicketMessageView> messages
 ) {
-    public static TicketDetailView from(Ticket ticket, List<TicketEventView> events) {
+    public static TicketDetailView from(
+            Ticket ticket,
+            List<TicketEventView> events,
+            List<TicketMessageView> messages
+    ) {
         return new TicketDetailView(
                 ticket.getTicketId(),
                 ticket.getRequesterUserId(),
@@ -29,11 +36,14 @@ public record TicketDetailView(
                 ticket.getCategory(),
                 ticket.getPriority(),
                 ticket.getRelatedOrderId(),
+                ticket.getAssigneeUserId(),
+                ticket.getAssigneeDisplayName(),
                 ticket.getSource(),
                 ticket.getCreatedTraceId(),
                 ticket.getCreatedAt(),
                 ticket.getUpdatedAt(),
-                events
+                events,
+                messages
         );
     }
 }

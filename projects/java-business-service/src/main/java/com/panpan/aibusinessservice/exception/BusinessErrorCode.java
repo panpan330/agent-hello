@@ -17,10 +17,17 @@ public enum BusinessErrorCode {
     TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "工单不存在。"),
     TICKET_ACCESS_DENIED(HttpStatus.FORBIDDEN, "当前用户无权查看或处理该工单。"),
     TICKET_STATUS_TRANSITION_INVALID(HttpStatus.CONFLICT, "工单状态流转不合法。"),
+    TICKET_ALREADY_ASSIGNED(HttpStatus.CONFLICT, "工单已有处理人。"),
+    TICKET_ASSIGNEE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "工单处理人不存在或不是可分配的客服人员。"),
+    TICKET_MESSAGE_VISIBILITY_INVALID(HttpStatus.FORBIDDEN, "当前用户不能提交该可见范围的工单留言。"),
+    TICKET_CUSTOMER_REPLY_NOT_ALLOWED(HttpStatus.CONFLICT, "当前工单状态不允许用户继续补充信息。"),
+    TICKET_REOPEN_NOT_ALLOWED(HttpStatus.CONFLICT, "只有已解决的工单可以由用户申请重开。"),
     LOGIN_REQUEST_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "登录请求参数不合法。"),
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "用户名或密码不正确。"),
     AUTH_REQUIRED(HttpStatus.UNAUTHORIZED, "请先登录。"),
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "用户不存在。");
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "用户不存在。"),
+    AI_FEEDBACK_ACCESS_DENIED(HttpStatus.FORBIDDEN, "当前账号无权查看 AI 反馈数据。"),
+    AI_FEEDBACK_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 反馈记录不存在。");
 
     private final HttpStatus status;
     private final String defaultMessage;

@@ -11,6 +11,8 @@ public record TicketListItemView(
         String category,
         String priority,
         String relatedOrderId,
+        String assigneeUserId,
+        String assigneeDisplayName,
         String source,
         Instant createdAt,
         Instant updatedAt
@@ -24,6 +26,8 @@ public record TicketListItemView(
                 ticket.getCategory(),
                 ticket.getPriority(),
                 ticket.getRelatedOrderId(),
+                ticket.getAssigneeUserId(),
+                ticket.getAssigneeDisplayName(),
                 ticket.getSource(),
                 ticket.getCreatedAt(),
                 ticket.getUpdatedAt()

@@ -194,6 +194,7 @@ def test_ticket_agent_field_completion_routes_map_decision_to_next_node() -> Non
 def test_ticket_agent_confirmation_routes_map_decision_to_next_node() -> None:
     assert TICKET_AGENT_CONFIRMATION_ROUTES == {
         "execute_create_ticket": "create_ticket",
+        "request_confirmation": "request_ticket_confirmation",
         "finish": END,
     }
 
@@ -1196,6 +1197,64 @@ def test_interrupting_graph_resumes_rejected_confirmation_without_creation() -> 
         "extract_ticket_fields",
         "request_ticket_confirmation",
     ]
+
+
+def test_interrupting_graph_reissues_confirmation_after_ticket_correction() -> None:
+    creator = FakeTicketCreator()
+    graph = build_interrupting_ticket_agent_graph(ticket_creator=creator)
+    thread_id = "ticket-correction-001"
+    result = run_ticket_agent_in_thread(
+        graph,
+        "我要投诉订单 A1001，物流一直没有更新。",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    old_confirmation_id = get_ticket_confirmation_interrupt_payload(result)["confirmation_id"]
+    corrected_fields = make_complete_ticket_fields() | {
+        "order_id": "A1002",
+        "description": "订单 A1002 的物流已经三天没有更新。",
+        "urgency": "high",
+    }
+
+    corrected = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=False,
+        actor_id="demo_user_001",
+        corrected_fields=corrected_fields,
+    )
+    payload = get_ticket_confirmation_interrupt_payload(corrected)
+
+    assert payload["confirmation_id"] != old_confirmation_id
+    assert payload["pending_ticket_confirmation"]["ticket_fields"] == corrected_fields
+    assert creator.calls == []
+
+
+def test_interrupting_graph_merges_follow_up_order_id_into_pending_ticket() -> None:
+    graph = build_interrupting_ticket_agent_graph(ticket_creator=FakeTicketCreator())
+    thread_id = "ticket-follow-up-001"
+    initial_message = "我要投诉物流问题，需要人工处理。"
+
+    first_result = run_ticket_agent_in_thread(
+        graph,
+        initial_message,
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    assert first_result["missing_ticket_fields"] == ["order_id"]
+
+    follow_up_result = run_ticket_agent_in_thread(
+        graph,
+        "A1001",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    payload = get_ticket_confirmation_interrupt_payload(follow_up_result)
+    fields = payload["pending_ticket_confirmation"]["ticket_fields"]
+
+    assert fields["order_id"] == "A1001"
+    assert fields["issue_type"] == "complaint"
+    assert fields["description"] == initial_message
 
 
 def test_get_ticket_confirmation_interrupt_payload_requires_interrupt_result() -> None:

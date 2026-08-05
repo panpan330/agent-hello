@@ -28,6 +28,7 @@ out/
 # Node / frontend experiments
 node_modules/
 .next/
+.playwright-cli/
 
 # IDE
 .idea/

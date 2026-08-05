@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+import json
+
+from fastapi import APIRouter, Depends, Header
 
 from app.agents.bad_case_analysis import analyze_agent_eval_bad_cases
 from app.agents.eval_suite import AgentEvalRunReport, run_agent_eval_suites
@@ -10,8 +12,20 @@ from app.core.trace import get_trace_id
 from app.evaluation.bad_case_registry import (
     BadCaseRecord,
     BadCaseRegistry,
+    ProductionRegressionSpec,
     build_bad_case_record_from_analysis_item,
+    build_bad_case_id,
+    build_regression_case_draft,
     build_bad_case_registry_summary,
+)
+from app.evaluation.production_bad_case_registry import append_production_bad_case
+from app.evaluation.production_regression import (
+    ProductionRegressionRun,
+    run_production_bad_case_regression,
+)
+from app.evaluation.production_regression_history import (
+    append_production_regression_run,
+    load_latest_production_regression_run,
 )
 from app.evaluation.eval_platform import (
     EvalDatasetManifest,
@@ -29,12 +43,25 @@ from app.schemas.evaluation import (
     EvaluationOverviewResponse,
     EvaluationRunOverview,
     EvaluationSuiteView,
+    ProductionRegressionCaseResultView,
+    ProductionRegressionRunView,
+    ProductionFeedbackContextView,
+    PromoteProductionFeedbackRequest,
+    PromoteProductionFeedbackResponse,
+    ReviewProductionFeedbackRequest,
 )
+from app.services.console_agent_service import ConsoleAgentActor, JavaConsoleAgentActorResolver
+from app.services.java_feedback_client import JavaFeedbackClient, JavaFeedbackContext
+from app.core.business_context import reset_business_context, set_business_context
+from app.core.config import Settings, get_settings
 
 
 router = APIRouter(prefix="/api/ai/evaluation", tags=["evaluation"])
 EVALUATION_REGISTRY_PATH = PROJECT_ROOT / "data" / "evaluation" / "datasets.json"
 BAD_CASE_REGISTRY_PATH = PROJECT_ROOT / "data" / "evaluation" / "bad_cases.json"
+PRODUCTION_REGRESSION_HISTORY_PATH = (
+    PROJECT_ROOT / "data" / "evaluation" / "production_regression_runs.json"
+)
 
 
 def get_evaluation_registry_path() -> Path:
@@ -45,10 +72,129 @@ def get_bad_case_registry_path() -> Path:
     return BAD_CASE_REGISTRY_PATH
 
 
+def get_production_regression_history_path() -> Path:
+    return PRODUCTION_REGRESSION_HISTORY_PATH
+
+
+def get_evaluation_actor(
+    authorization: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+) -> ConsoleAgentActor:
+    return JavaConsoleAgentActorResolver(settings).resolve(authorization)
+
+
+def require_evaluation_supervisor(actor: ConsoleAgentActor) -> None:
+    if not set(actor.roles).intersection({"supervisor", "admin"}):
+        raise AppException(
+            code="EVALUATION_ACCESS_DENIED",
+            message="Only supervisors can review production AI feedback.",
+            status_code=403,
+        )
+
+
+def _load_feedback_context(
+    *,
+    feedback_id: int,
+    actor: ConsoleAgentActor,
+    settings: Settings,
+) -> JavaFeedbackContext:
+    tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
+    try:
+        return JavaFeedbackClient.from_settings(settings).get_context(feedback_id)
+    finally:
+        reset_business_context(tokens)
+
+
+@router.get(
+    "/feedback-candidates/{feedback_id}",
+    response_model=ProductionFeedbackContextView,
+)
+def production_feedback_context(
+    feedback_id: int,
+    actor: ConsoleAgentActor = Depends(get_evaluation_actor),
+    settings: Settings = Depends(get_settings),
+) -> ProductionFeedbackContextView:
+    require_evaluation_supervisor(actor)
+    return _feedback_context_view(_load_feedback_context(feedback_id=feedback_id, actor=actor, settings=settings))
+
+
+@router.post(
+    "/feedback-candidates/{feedback_id}/promote",
+    response_model=PromoteProductionFeedbackResponse,
+)
+def promote_production_feedback(
+    feedback_id: int,
+    request: PromoteProductionFeedbackRequest,
+    actor: ConsoleAgentActor = Depends(get_evaluation_actor),
+    settings: Settings = Depends(get_settings),
+    bad_case_registry_path: Path = Depends(get_bad_case_registry_path),
+) -> PromoteProductionFeedbackResponse:
+    require_evaluation_supervisor(actor)
+    context = _load_feedback_context(feedback_id=feedback_id, actor=actor, settings=settings)
+    if context.review_status == "regression_added" and context.bad_case_id:
+        existing = _find_bad_case_by_id(bad_case_registry_path, context.bad_case_id)
+        if existing is not None:
+            return _promotion_response(existing)
+
+    record = _build_production_bad_case(context, request)
+    stored_record = append_production_bad_case(bad_case_registry_path, record)
+    tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
+    try:
+        JavaFeedbackClient.from_settings(settings).mark_promoted(
+            feedback_id,
+            bad_case_id=stored_record.id,
+        )
+    finally:
+        reset_business_context(tokens)
+    return _promotion_response(stored_record)
+
+
+@router.post(
+    "/feedback-candidates/{feedback_id}/review",
+    response_model=ProductionFeedbackContextView,
+)
+def review_production_feedback(
+    feedback_id: int,
+    request: ReviewProductionFeedbackRequest,
+    actor: ConsoleAgentActor = Depends(get_evaluation_actor),
+    settings: Settings = Depends(get_settings),
+) -> ProductionFeedbackContextView:
+    require_evaluation_supervisor(actor)
+    tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
+    try:
+        context = JavaFeedbackClient.from_settings(settings).mark_reviewed(
+            feedback_id,
+            review_status=request.review_status,
+            review_note=request.review_note,
+        )
+    finally:
+        reset_business_context(tokens)
+    return _feedback_context_view(context)
+
+
+@router.post(
+    "/runs/production-regression",
+    response_model=ProductionRegressionRunView,
+)
+def run_production_regression(
+    actor: ConsoleAgentActor = Depends(get_evaluation_actor),
+    bad_case_registry_path: Path = Depends(get_bad_case_registry_path),
+    history_path: Path = Depends(get_production_regression_history_path),
+) -> ProductionRegressionRunView:
+    require_evaluation_supervisor(actor)
+    registry = BadCaseRegistry.model_validate_json(
+        bad_case_registry_path.read_text(encoding="utf-8")
+    )
+    run = run_production_bad_case_regression(registry.records)
+    append_production_regression_run(history_path, run)
+    return _production_regression_run_view(run)
+
+
 @router.get("/overview", response_model=EvaluationOverviewResponse)
 def evaluation_overview(
     registry_path: Path = Depends(get_evaluation_registry_path),
     bad_case_registry_path: Path = Depends(get_bad_case_registry_path),
+    production_regression_history_path: Path = Depends(get_production_regression_history_path),
 ) -> EvaluationOverviewResponse:
     try:
         registry = load_eval_dataset_registry(registry_path)
@@ -104,6 +250,9 @@ def evaluation_overview(
         ),
         bad_cases=[_bad_case_view(record) for record in bad_cases],
         generated_from_latest_run=generated_from_latest_run,
+        latest_production_regression_run=_optional_production_regression_run_view(
+            load_latest_production_regression_run(production_regression_history_path)
+        ),
         trace_id=get_trace_id(),
     )
 
@@ -117,7 +266,8 @@ def _load_or_generate_bad_cases(
     bad_case_registry = BadCaseRegistry.model_validate_json(
         bad_case_registry_path.read_text(encoding="utf-8")
     )
-    if bad_case_registry.records:
+    production_records = [record for record in bad_case_registry.records if record.source == "production"]
+    if bad_case_registry.records and not production_records:
         return bad_case_registry.records, False
 
     analysis_report = analyze_agent_eval_bad_cases(run_report)
@@ -130,7 +280,10 @@ def _load_or_generate_bad_cases(
         )
         for item in analysis_report.items
     ]
-    return generated_records, True
+    merged_records = {record.id: record for record in generated_records}
+    for record in bad_case_registry.records:
+        merged_records[record.id] = record
+    return list(merged_records.values()), True
 
 
 def _dataset_view(dataset: EvalDatasetManifest) -> EvaluationDatasetView:
@@ -208,3 +361,146 @@ def _format_metric_value(name: str, value: float) -> str:
     if value.is_integer():
         return str(int(value))
     return f"{value:.4f}"
+
+
+def _feedback_context_view(context: JavaFeedbackContext) -> ProductionFeedbackContextView:
+    return ProductionFeedbackContextView(
+        feedback_id=context.feedback_id,
+        conversation_id=context.conversation_id,
+        trace_id=context.trace_id,
+        reason=context.reason,
+        agent_route=context.agent_route,
+        citation_count=context.citation_count,
+        human_handoff_suggested=context.human_handoff_suggested,
+        user_message_excerpt=context.user_message_excerpt,
+        assistant_answer_excerpt=context.assistant_answer_excerpt,
+        citation_summary=_parse_citation_summary(context.citation_summary_json),
+        review_status=context.review_status,
+        bad_case_id=context.bad_case_id,
+        review_note=context.review_note,
+    )
+
+
+def _build_production_bad_case(
+    context: JavaFeedbackContext,
+    request: PromoteProductionFeedbackRequest,
+) -> BadCaseRecord:
+    failure_layer = request.failure_layer
+    bad_case_id = build_bad_case_id(
+        dataset_name="production_feedback",
+        dataset_version="stage11",
+        source_case_id=f"feedback_{context.feedback_id}",
+        failure_layer=failure_layer,
+    )
+    user_message = context.user_message_excerpt or "The original customer request was unavailable."
+    answer = context.assistant_answer_excerpt or "The original AI answer was unavailable."
+    citations = _parse_citation_summary(context.citation_summary_json)
+    citation_evidence = ", ".join(
+        item.get("source") or item.get("title") or "unknown source" for item in citations
+    ) or "no citations"
+    return BadCaseRecord(
+        id=bad_case_id,
+        title=f"Production feedback {context.feedback_id}: {request.failure_category.strip()}",
+        source="production",
+        task_type="rag" if failure_layer in {"rag_retrieval", "rag_citation"} else "agent",
+        severity=request.severity,
+        status="regression_added",
+        source_case_id=f"feedback_{context.feedback_id}",
+        failure_layer=failure_layer,
+        failure_category=request.failure_category.strip(),
+        expected_behavior=request.expected_behavior.strip(),
+        actual_behavior=f"Customer request: {user_message}\n\nAI answer: {answer}",
+        root_cause=request.review_note.strip(),
+        recommended_action=request.recommended_action.strip(),
+        regression_action=request.regression_action.strip(),
+        regression_dataset_name="agent_eval",
+        regression_case_id=f"feedback_{context.feedback_id}_regression_{failure_layer}",
+        production_regression=ProductionRegressionSpec(
+            message=request.regression_message,
+            assertion=request.regression_assertion,
+            expected_intent=request.regression_expected_intent,
+        ),
+        evidence_summary=(
+            f"production_feedback_id={context.feedback_id}; trace_id={context.trace_id}; "
+            f"reason={context.reason or 'unspecified'}; route={context.agent_route}; citations={citation_evidence}"
+        ),
+        tags=[
+            "bad_case",
+            "production_feedback",
+            "regression_added",
+            failure_layer,
+            request.severity,
+            *( [context.reason] if context.reason else [] ),
+        ],
+    )
+
+
+def _promotion_response(record: BadCaseRecord) -> PromoteProductionFeedbackResponse:
+    return PromoteProductionFeedbackResponse(
+        bad_case=_bad_case_view(record),
+        regression_draft=build_regression_case_draft(record).model_dump(mode="json"),
+    )
+
+
+def _optional_production_regression_run_view(
+    run: ProductionRegressionRun | None,
+) -> ProductionRegressionRunView | None:
+    return _production_regression_run_view(run) if run is not None else None
+
+
+def _production_regression_run_view(run: ProductionRegressionRun) -> ProductionRegressionRunView:
+    return ProductionRegressionRunView(
+        run_id=run.run_id,
+        started_at=run.started_at.isoformat(),
+        completed_at=run.completed_at.isoformat(),
+        total_case_count=run.total_case_count,
+        passed_case_count=run.passed_case_count,
+        failed_case_count=run.failed_case_count,
+        not_ready_case_count=run.not_ready_case_count,
+        error_case_count=run.error_case_count,
+        passed=run.passed,
+        results=[
+            ProductionRegressionCaseResultView(
+                bad_case_id=result.bad_case_id,
+                title=result.title,
+                outcome=result.outcome,
+                assertion=result.assertion,
+                expected=result.expected,
+                actual=result.actual,
+                detail=result.detail,
+            )
+            for result in run.results
+        ],
+    )
+
+
+def _find_bad_case_by_id(path: Path, bad_case_id: str) -> BadCaseRecord | None:
+    registry = BadCaseRegistry.model_validate_json(path.read_text(encoding="utf-8"))
+    return next((record for record in registry.records if record.id == bad_case_id), None)
+
+
+def _parse_citation_summary(raw: str | None) -> list[dict[str, str | None]]:
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    results: list[dict[str, str | None]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        results.append(
+            {
+                "source": _optional_string(item.get("source")),
+                "title": _optional_string(item.get("title")),
+                "chunk_id": _optional_string(item.get("chunk_id")),
+            }
+        )
+    return results
+
+
+def _optional_string(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
