@@ -230,17 +230,17 @@ class ConsoleAgentService:
         return self._graph
 
     def _build_graph(self) -> Any:
-        if self.settings.agent_mcp_tools_enabled:
-            from app.agents.mcp_tool_adapters import (
-                create_mcp_order_query_executor,
-                create_mcp_ticket_creator,
-            )
+        ticket_creator, order_query_executor = self._build_tool_dependencies()
+        if self.settings.agent_multi_agent_enabled:
+            from app.agents.supervisor.supervisor_graph import build_supervisor_graph
 
-            ticket_creator = create_mcp_ticket_creator(self.settings)
-            order_query_executor = create_mcp_order_query_executor(self.settings)
-        else:
-            ticket_creator = JavaTicketClient.from_settings(self.settings)
-            order_query_executor = lambda arguments: query_order(arguments, settings=self.settings)
+            return build_supervisor_graph(
+                knowledge_service=ProductionPolicyRagService(self.settings),
+                order_query_executor=order_query_executor,
+                ticket_creator=ticket_creator,
+                checkpointer=self._create_redis_checkpointer(),
+                interrupt_confirmation=True,
+            )
         return build_ticket_agent_graph_for_model_mode(
             ticket_creator=ticket_creator,
             policy_rag_service=ProductionPolicyRagService(self.settings),
@@ -249,6 +249,24 @@ class ConsoleAgentService:
             settings=self.settings,
             checkpointer=self._create_redis_checkpointer(),
             interrupt_confirmation=True,
+        )
+
+    def _build_tool_dependencies(self) -> tuple[Any, Any]:
+        if self.settings.agent_mcp_tools_enabled:
+            from app.agents.mcp_tool_adapters import (
+                create_mcp_order_query_executor,
+                create_mcp_ticket_creator,
+            )
+
+            return (
+                create_mcp_ticket_creator(self.settings),
+                create_mcp_order_query_executor(self.settings),
+            )
+        from app.tools.fake_order_tool import query_order
+
+        return (
+            JavaTicketClient.from_settings(self.settings),
+            lambda arguments: query_order(arguments, settings=self.settings),
         )
 
     def close(self) -> None:
