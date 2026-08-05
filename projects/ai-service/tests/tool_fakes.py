@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from app.core.exceptions import AppException
 from app.rag.generator import (
     RagAnswer,
     build_grounded_rag_answer,
@@ -167,3 +168,21 @@ class FakeTicketCreator:
         if self.error is not None:
             raise self.error
         return self.ticket or make_created_ticket(arguments)
+
+
+class FakeMcpToolCaller:
+    """In-memory McpToolCaller used to test agent adapters without HTTP."""
+
+    def __init__(self, responses: dict[str, dict] | None = None) -> None:
+        self.responses: dict[str, dict] = responses or {}
+        self.calls: list[tuple[str, dict]] = []
+
+    def call_tool(self, tool_name: str, arguments: dict) -> dict:
+        self.calls.append((tool_name, arguments))
+        if tool_name in self.responses:
+            return self.responses[tool_name]
+        raise AppException(
+            code="MCP_TOOL_NOT_FOUND",
+            message=f"tool {tool_name} not available",
+            status_code=404,
+        )
