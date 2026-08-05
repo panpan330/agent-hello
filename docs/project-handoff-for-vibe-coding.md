@@ -365,7 +365,7 @@ npm run build
 | LangSmith / OpenTelemetry | 有学习型适配和本地 trace 设计；未接入真实 LangSmith 或 OTEL Collector。 |
 | Docker Compose 整体部署 | Redis/Qdrant/Milvus 使用 Docker；前后端项目尚未统一 Compose 化。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 尚未实现。 |
-| 多 Agent 协作 | 当前是单个 LangGraph 工单 Agent，不是 Multi-Agent 系统。 |
+| 多 Agent 协作 | 已升级为监督-工作（supervisor-worker）多 Agent：顶层监督 Agent（LLM/rule 可切换路由）+ 3 个工作子 Agent（知识库问答、订单查询、工单创建）。默认关闭，需设 `AGENT_MULTI_AGENT_ENABLED=true` 启用；`SUPERVISOR_ROUTER_MODE=rule|llm` 切换监督路由方式。 |
 
 ## 10. Java API 与内部接口清单
 
@@ -480,7 +480,7 @@ candidate/triaged -> regression_added
 
 ### Agent 图
 
-核心实现位于 `projects/ai-service/app/agents/ticket_agent.py`。它是单 Agent LangGraph，而不是 Multi-Agent。
+核心实现位于 `projects/ai-service/app/agents/`。默认是单 Agent（`ticket_agent.py`，`AGENT_MULTI_AGENT_ENABLED=false`）；开启后为监督-工作多 Agent（`supervisor/supervisor_graph.py` + `workers/` 三个子图）。
 
 主要节点和分支：
 
@@ -637,6 +637,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | Qdrant 中中文显示异常 | 先按 PowerShell UTF-8 显示问题排查，不要先修改原始文档编码。 |
 | Java 启动时反馈表字段缺失 | 检查 `AiFeedbackSchemaMigration` 日志和 MySQL 表权限；它负责已有表的审核字段迁移。 |
 | MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致；或确认 `.env` 已设 `AGENT_MCP_TOOLS_ENABLED=true`。`MCP_PRODUCT_AUTH_TOKEN` 必须设置：未设置时 product MCP server 启动直接退出（fail-fast），且 client 端会返回 `MCP_AUTH_FAILED` 而非无限重试。 |
+| 多 Agent 模式 Agent 报错或路由异常 | 确认 `.env` 已设 `AGENT_MULTI_AGENT_ENABLED=true`；LLM 路由模式（`SUPERVISOR_ROUTER_MODE=llm`）下确认 `LLM_API_KEY` 已配置（失败会自动回退 rule）。 |
 
 ## 17. 已实现但未接入产品主流程的模块
 
@@ -649,3 +650,4 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | LangChain 学习接口 | `langchain_chat` 等服务和路由 | 仍可学习/验证；产品主 Agent 使用 LangGraph 和直接 OpenAI-compatible 调用。 |
 | Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |
+| 多 Agent 协作 | `app/agents/supervisor/`（监督图+路由）、`app/agents/workers/`（3 个工作子图） | 监督-工作多 Agent 已实现：监督 Agent 嵌套 3 个子图（知识库问答、订单查询、工单创建），LLM/rule 可切换路由（`SUPERVISOR_ROUTER_MODE`）；`AGENT_MULTI_AGENT_ENABLED=true` 开启后生效，与 MCP 工具链路（`AGENT_MCP_TOOLS_ENABLED`）正交可叠加；单 Agent 图（`ticket_agent.py`）保留，默认关闭。 |
