@@ -97,8 +97,8 @@ def _product_create_ticket(
             ticket=None,
         )
 
-    store = create_tool_confirmation_store()
     try:
+        store = create_tool_confirmation_store()
         store.require_confirmed(confirmation_id, actor_id=requester_id)
     except AppException as exc:
         return _create_ticket_response(
@@ -106,6 +106,21 @@ def _product_create_ticket(
             confirmation_id=confirmation_id,
             error_code=exc.code,
             message=exc.message,
+            ticket=None,
+        )
+    except Exception as exc:
+        # e.g. redis ConnectionError under the redis backend: never let
+        # infrastructure errors escape as MCP protocol errors.
+        logger.warning(
+            "product_mcp_confirmation_unavailable error_type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return _create_ticket_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="TOOL_CONFIRMATION_UNAVAILABLE",
+            message="确认服务暂时不可用，请稍后重试或联系人工处理。",
             ticket=None,
         )
 
@@ -265,10 +280,13 @@ def create_product_mcp_app(settings: Settings | None = None) -> Any:
 
     # mcp 2.0.0: keep DNS-rebinding protection on but allow the starlette
     # TestClient ``testserver`` host, and use stateless HTTP so requests
-    # without a prior initialize/session are handled directly.
+    # without a prior initialize/session are handled directly. Allow only
+    # local origins (browser tools such as MCP Inspector on localhost) to
+    # match the project's localhost CORS convention; remote origins stay 403.
     transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*", "testserver"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
     )
     app = server.streamable_http_app(
         streamable_http_path="/mcp",

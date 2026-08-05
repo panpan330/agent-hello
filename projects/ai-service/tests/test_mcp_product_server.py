@@ -121,3 +121,64 @@ def test_product_app_uses_bearer_middleware() -> None:
         headers={"Authorization": "Bearer test-token"},
     )
     assert response.status_code in (200, 202)
+
+
+def test_product_app_allows_local_origin() -> None:
+    app = create_product_mcp_app(_settings(token="test-token"))
+    from starlette.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+        headers={
+            "Authorization": "Bearer test-token",
+            "Origin": "http://localhost:5173",
+        },
+    )
+    assert response.status_code in (200, 202)
+
+
+def test_product_app_rejects_non_local_origin() -> None:
+    app = create_product_mcp_app(_settings(token="test-token"))
+    from starlette.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}},
+        headers={
+            "Authorization": "Bearer test-token",
+            "Origin": "https://evil.example.com",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_product_create_ticket_confirmation_unavailable_mapped_to_ok_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.mcp_servers import product_server
+
+    class _FailingConfirmationStore:
+        def require_confirmed(self, confirmation_id: str, *, actor_id: str) -> None:
+            raise RedisConnectionError("redis connection refused")
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _FailingConfirmationStore(),
+    )
+    result = product_server._product_create_ticket(
+        requester_id="user-1",
+        title="测试工单",
+        description="测试描述",
+        category="refund",
+        confirmation_id="a" * 32,
+        user_confirmed=True,
+    )
+    assert result["ok"] is False
+    assert result["error_code"] == "TOOL_CONFIRMATION_UNAVAILABLE"
+    assert result["ticket"] is None
