@@ -22,7 +22,6 @@ from tests.tool_fakes import (
     make_policy_rag_answer,
 )
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
-from app.core.exceptions import AppException
 
 
 def _order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
