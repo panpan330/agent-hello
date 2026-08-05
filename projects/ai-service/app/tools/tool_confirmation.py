@@ -122,6 +122,13 @@ class ToolConfirmationStore:
             expires_at=created_at + timedelta(seconds=ttl_seconds),
         )
         with self._lock:
+            existing = self._records.get(confirmation_id)
+            if existing is not None and existing.actor_id != actor_id:
+                raise AppException(
+                    code="TOOL_CONFIRMATION_FORBIDDEN",
+                    message="当前操作者不能覆盖其他人的确认记录。",
+                    status_code=403,
+                )
             self._records[record.confirmation_id] = record
         return deepcopy(record)
 
@@ -227,9 +234,17 @@ class RedisToolConfirmationStore:
             "created_at": record.created_at.isoformat(),
             "expires_at": record.expires_at.isoformat(),
         }
+        try:
+            raw_value = json.dumps(payload, ensure_ascii=True)
+        except TypeError as exc:
+            raise AppException(
+                code="TOOL_CONFIRMATION_SERIALIZATION_FAILED",
+                message="确认记录参数包含无法序列化的类型，无法存储。",
+                status_code=422,
+            ) from exc
         self._redis.set(
             self._key(record.confirmation_id),
-            json.dumps(payload, ensure_ascii=True),
+            raw_value,
             ex=ttl_seconds,
         )
 
@@ -241,13 +256,15 @@ class RedisToolConfirmationStore:
                 message="确认请求不存在或已失效。",
                 status_code=404,
             )
+        return record
+
+    def _check_expired(self, record: ToolConfirmationRecord) -> None:
         if self._clock() >= record.expires_at:
             raise AppException(
                 code="TOOL_CONFIRMATION_EXPIRED",
                 message="确认请求已过期，请重新发起操作。",
                 status_code=409,
             )
-        return record
 
     def create(
         self,
@@ -284,6 +301,7 @@ class RedisToolConfirmationStore:
                 message="当前操作者不能确认其他人的工具请求。",
                 status_code=403,
             )
+        self._check_expired(record)
         if record.status == ToolConfirmationStatus.PENDING:
             record = ToolConfirmationRecord(
                 confirmation_id=record.confirmation_id,
@@ -295,7 +313,8 @@ class RedisToolConfirmationStore:
                 created_at=record.created_at,
                 expires_at=record.expires_at,
             )
-            self._store(record, ttl_seconds=int((record.expires_at - record.created_at).total_seconds()))
+            remaining = int((record.expires_at - self._clock()).total_seconds())
+            self._store(record, ttl_seconds=max(1, remaining))
         return deepcopy(record)
 
     def require_confirmed(
@@ -311,6 +330,7 @@ class RedisToolConfirmationStore:
                 message="当前操作者不能执行其他人的工具请求。",
                 status_code=403,
             )
+        self._check_expired(record)
         if record.status != ToolConfirmationStatus.CONFIRMED:
             raise AppException(
                 code="TOOL_CONFIRMATION_REQUIRED",
@@ -329,6 +349,13 @@ class RedisToolConfirmationStore:
         ttl_seconds: int,
     ) -> ToolConfirmationRecord:
         created_at = self._clock()
+        existing = self._load(confirmation_id)
+        if existing is not None and existing.actor_id != actor_id:
+            raise AppException(
+                code="TOOL_CONFIRMATION_FORBIDDEN",
+                message="当前操作者不能覆盖其他人的确认记录。",
+                status_code=403,
+            )
         record = ToolConfirmationRecord(
             confirmation_id=confirmation_id,
             status=ToolConfirmationStatus.CONFIRMED,
@@ -347,7 +374,7 @@ class RedisToolConfirmationStore:
             self._redis.delete(key)
 
     def count(self) -> int:
-        return len(self._redis.scan_iter(match=f"{self._key_prefix}:*"))
+        return sum(1 for _ in self._redis.scan_iter(match=f"{self._key_prefix}:*"))
 
 
 def create_tool_confirmation_store(
@@ -360,7 +387,7 @@ def create_tool_confirmation_store(
         import redis as redis_lib
 
         redis_client = redis_lib.Redis.from_url(
-            resolved_settings.agent_redis_url,
+            resolved_settings.resolved_agent_redis_url,
             decode_responses=True,
         )
         return RedisToolConfirmationStore(redis_client)
