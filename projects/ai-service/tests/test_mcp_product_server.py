@@ -34,7 +34,7 @@ def test_product_server_registers_only_business_tools() -> None:
     asyncio.run(run())
 
 
-def test_product_create_ticket_accepts_16_hex_confirmation_id() -> None:
+def test_product_create_ticket_accepts_16_to_32_hex_confirmation_id() -> None:
     server = create_product_mcp_server(_settings())
 
     async def run() -> None:

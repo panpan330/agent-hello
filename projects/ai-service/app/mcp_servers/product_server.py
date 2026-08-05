@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 CREATE_TICKET_TOOL_NAME = "create_ticket"
 QUERY_ORDER_TOOL_NAME = "query_order"
 
-# Confirmation ids come from the agent (16-hex sha256 prefix) or from the
-# confirmation store (32-hex uuid), so accept both.
+# Confirmation ids come from the agent (32-hex sha256 prefix) or from the
+# confirmation store (32-hex uuid), so accept 16-32 hex for compatibility.
 CONFIRMATION_ID_PATTERN = r"^[a-f0-9]{16,32}$"
 
 
