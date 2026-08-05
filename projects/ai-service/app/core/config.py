@@ -310,7 +310,8 @@ class Settings(BaseSettings):
 
     @property
     def resolved_tool_confirmation_backend(self) -> str:
-        return self.tool_confirmation_backend if self.tool_confirmation_backend == "redis" else "memory"
+        value = self.tool_confirmation_backend.strip()
+        return value if value == "redis" else "memory"
 
 
 @lru_cache

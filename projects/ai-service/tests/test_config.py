@@ -799,11 +799,12 @@ def test_mcp_product_settings_env_overrides() -> None:
         mcp_product_auth_token=" secret-token ",
         mcp_product_timeout_seconds=15,
         mcp_product_retry_count=3,
-        tool_confirmation_backend="redis",
+        tool_confirmation_backend=" redis ",
         agent_mcp_tools_enabled=True,
     )
     assert settings.resolved_mcp_product_base_url == "http://127.0.0.1:9200/mcp"
     assert settings.resolved_mcp_product_auth_token == "secret-token"
+    # The backend value is stripped before comparison: " redis " resolves to redis.
     assert settings.resolved_tool_confirmation_backend == "redis"
 
 
