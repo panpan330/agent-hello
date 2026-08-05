@@ -226,16 +226,30 @@ class ConsoleAgentService:
         if self._graph is None:
             with self._graph_lock:
                 if self._graph is None:
-                    self._graph = build_ticket_agent_graph_for_model_mode(
-                        ticket_creator=JavaTicketClient.from_settings(self.settings),
-                        policy_rag_service=ProductionPolicyRagService(self.settings),
-                        order_query_executor=lambda arguments: query_order(arguments, settings=self.settings),
-                        mode=self.settings.ticket_agent_model_mode,
-                        settings=self.settings,
-                        checkpointer=self._create_redis_checkpointer(),
-                        interrupt_confirmation=True,
-                    )
+                    self._graph = self._build_graph()
         return self._graph
+
+    def _build_graph(self) -> Any:
+        if self.settings.agent_mcp_tools_enabled:
+            from app.agents.mcp_tool_adapters import (
+                create_mcp_order_query_executor,
+                create_mcp_ticket_creator,
+            )
+
+            ticket_creator = create_mcp_ticket_creator(self.settings)
+            order_query_executor = create_mcp_order_query_executor(self.settings)
+        else:
+            ticket_creator = JavaTicketClient.from_settings(self.settings)
+            order_query_executor = lambda arguments: query_order(arguments, settings=self.settings)
+        return build_ticket_agent_graph_for_model_mode(
+            ticket_creator=ticket_creator,
+            policy_rag_service=ProductionPolicyRagService(self.settings),
+            order_query_executor=order_query_executor,
+            mode=self.settings.ticket_agent_model_mode,
+            settings=self.settings,
+            checkpointer=self._create_redis_checkpointer(),
+            interrupt_confirmation=True,
+        )
 
     def close(self) -> None:
         if self._checkpointer_context is not None:
@@ -426,6 +440,14 @@ class ConsoleAgentService:
                 approved=approved,
                 actor_id=actor.user_id,
             )
+            if approved:
+                from app.agents.mcp_tool_adapters import register_ticket_confirmation
+
+                register_ticket_confirmation(
+                    actor_id=actor.user_id,
+                    fields=fields,
+                    settings=self.settings,
+                )
         finally:
             reset_business_context(tokens)
         response = self._to_response(state, conversation_id=conversation_id)
