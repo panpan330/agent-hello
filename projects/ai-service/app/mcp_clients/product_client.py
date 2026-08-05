@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import httpx2
 from mcp import ClientSession
@@ -52,12 +52,27 @@ class ProductMcpClient:
         )
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return self._with_error_mapping(
+            operation=f"call_tool:{tool_name}",
+            fn=lambda: asyncio.run(self._call_tool_async(tool_name, arguments)),
+        )
+
+    def _with_error_mapping(
+        self,
+        operation: str,
+        fn: Callable[[], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Run an MCP call with the shared retry and error-mapping policy.
+
+        - ``AppException`` propagates immediately (no retry).
+        - Timeout errors map to ``MCP_SERVER_TIMEOUT`` (504) immediately.
+        - Any other exception is retried up to ``retry_count`` times, then
+          mapped to ``MCP_SERVER_UNREACHABLE`` (502).
+        """
         last_error: Exception | None = None
         for attempt in range(self.retry_count + 1):
             try:
-                return asyncio.run(
-                    self._call_tool_async(tool_name, arguments)
-                )
+                return fn()
             except AppException:
                 raise
             except Exception as exc:
@@ -69,8 +84,8 @@ class ProductMcpClient:
                         status_code=504,
                     ) from exc
                 logger.warning(
-                    "product_mcp_client_retry tool=%s attempt=%s error_type=%s",
-                    tool_name,
+                    "product_mcp_client_retry operation=%s attempt=%s error_type=%s",
+                    operation,
                     attempt + 1,
                     type(exc).__name__,
                 )
@@ -127,7 +142,10 @@ class ProductMcpClient:
     def list_tools(self) -> list[str]:
         if self._tools_cache is not None:
             return self._tools_cache
-        tools = asyncio.run(self._list_tools_async())
+        tools = self._with_error_mapping(
+            operation="list_tools",
+            fn=lambda: asyncio.run(self._list_tools_async()),
+        )
         self._tools_cache = tools
         return tools
 
