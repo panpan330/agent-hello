@@ -58,7 +58,12 @@ def build_supervisor_graph(
 
     def supervisor_route_node(state: SupervisorState) -> SupervisorState:
         message = state.get("normalized_message") or state.get("user_message", "")
-        route = resolved_router.route(message)
+        # LLM 模式 router 失败时回退规则路由（设计规格 3.3）；
+        # 无 route_with_fallback 的 router（RuleSupervisorRouter / fakes）走 route()。
+        if hasattr(resolved_router, "route_with_fallback"):
+            route, source = resolved_router.route_with_fallback(message)
+        else:
+            route, source = resolved_router.route(message), "rule"
         intent = {
             SupervisorRoute.KNOWLEDGE_QUESTION: "policy_question",
             SupervisorRoute.ORDER_QUERY: "order_query",
@@ -67,10 +72,15 @@ def build_supervisor_graph(
             SupervisorRoute.UNSUPPORTED: "unsupported",
             SupervisorRoute.UNCLEAR: "unclear",
         }[route]
-        logger.info("supervisor_routed intent=%s worker=%s", intent, SUPERVISOR_ROUTE_TABLE[route])
+        logger.info(
+            "supervisor_routed intent=%s worker=%s source=%s",
+            intent,
+            SUPERVISOR_ROUTE_TABLE[route],
+            source,
+        )
         return {
             "intent": intent,
-            "intent_reason": f"supervisor routed to {route.value}",
+            "intent_reason": f"supervisor routed to {route.value} (source={source})",
             "node_history": ["supervisor_route"],
         }
 

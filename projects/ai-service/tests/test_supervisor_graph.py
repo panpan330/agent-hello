@@ -9,8 +9,10 @@ from app.agents.supervisor.supervisor_graph import (
 )
 from app.agents.supervisor.supervisor_router import (
     FakeLLMSupervisorRouter,
+    RuleSupervisorRouter,
     SupervisorRoute,
 )
+from app.core.exceptions import AppException
 from tests.rag_fakes import make_retrieved_chunk
 from tests.tool_fakes import (
     FakeNoContextPolicyRagService,
@@ -200,3 +202,32 @@ def test_ticket_interrupt_pause_and_resume() -> None:
     )
     assert resumed.get("ticket_creation_status") == "created"
     assert resumed.get("created_ticket") is not None
+
+
+class _FailingLLMRouter:
+    """模拟 LLM 模式 router 失败：route() 抛 AppException，
+    route_with_fallback 捕获后回退规则路由（与 LLMSupervisorRouter 行为一致）。"""
+
+    def route(self, message: str) -> SupervisorRoute:
+        raise AppException(
+            code="LLM_API_KEY_MISSING",
+            message="LLM API key 未配置",
+            status_code=500,
+        )
+
+    def route_with_fallback(self, message: str) -> tuple[SupervisorRoute, str]:
+        try:
+            return self.route(message), "llm"
+        except AppException:
+            return RuleSupervisorRouter().route(message), "rule_fallback"
+
+
+def test_supervisor_llm_router_failure_falls_back_to_rule() -> None:
+    """LLM 路由失败（LLM_API_KEY_MISSING）时监督图应回退规则路由并正常完成。"""
+    graph = build_supervisor_graph(
+        router=_FailingLLMRouter(),
+        order_query_executor=_order_executor,
+    )
+    result = graph.invoke({"user_message": "查订单 A1001 物流"})
+    assert result["intent"] == "order_query"
+    assert "已发货" in (result.get("final_answer") or "")
