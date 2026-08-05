@@ -33,6 +33,7 @@ class KnowledgeWorkerState(TypedDict, total=False):
     rag_suggestions: list[str]
     needs_ticket: bool
     ticket_need_reason: str
+    ticket_need_source: str
     final_answer: str | None
     node_history: Annotated[list[str], add]
 
@@ -56,6 +57,7 @@ class OrderWorkerState(TypedDict, total=False):
 class TicketWorkerState(TypedDict, total=False):
     normalized_message: str
     agent_trace_id: str
+    rag_answer_status: str
     ticket_fields: dict | None
     missing_ticket_fields: list[str]
     ticket_fields_complete: bool | None

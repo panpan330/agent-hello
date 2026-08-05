@@ -1,20 +1,13 @@
-import pytest
-
 from app.agents.workers.knowledge_agent import build_knowledge_agent_graph
 from app.agents.workers.order_agent import build_order_agent_graph
 from app.agents.workers.ticket_worker import build_ticket_worker_graph
-from tests.rag_fakes import make_retrieved_chunk
 from tests.tool_fakes import (
     FakeNoContextPolicyRagService,
-    FakeOrderLookupClient,
     FakePolicyRagService,
     FakeTicketCreator,
-    make_created_ticket,
     make_policy_rag_answer,
 )
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
-from app.agents.ticket_agent import OrderQueryExecutor
-from app.core.exceptions import AppException
 
 
 def test_knowledge_agent_answers_policy_question() -> None:
@@ -34,6 +27,20 @@ def test_knowledge_agent_marks_no_context_for_ticket_transfer() -> None:
     )
     result = graph.invoke({"normalized_message": "完全不知道的问题"})
     assert result["rag_answer_status"] == "no_context"
+
+
+def test_knowledge_agent_marks_ticket_need_for_no_context_transfer() -> None:
+    graph = build_knowledge_agent_graph(
+        service=FakeNoContextPolicyRagService()
+    )
+    result = graph.invoke(
+        {
+            "normalized_message": "完全不知道的问题",
+            "intent": "policy_question",
+        }
+    )
+    assert result["needs_ticket"] is True
+    assert result["ticket_need_source"] == "rag_no_context"
 
 
 def test_order_agent_queries_order() -> None:
