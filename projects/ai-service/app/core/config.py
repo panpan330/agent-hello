@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     mcp_enable_learning_resources: bool = Field(default=True)
     mcp_enable_project_resources: bool = Field(default=True)
     mcp_project_resource_root: str | None = Field(default=None)
+    mcp_product_base_url: str = Field(default="http://127.0.0.1:9100/mcp")
+    mcp_product_auth_token: str | None = Field(default=None, repr=False)
+    mcp_product_timeout_seconds: float = Field(default=30, ge=1, le=120)
+    mcp_product_retry_count: int = Field(default=2, ge=0, le=5)
+    mcp_product_port: int = Field(default=9100, ge=1, le=65535)
+    tool_confirmation_backend: str = Field(default="memory")
+    agent_mcp_tools_enabled: bool = Field(default=False)
     log_level: str = Field(default="INFO")
     cors_allowed_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173"
@@ -290,6 +297,20 @@ class Settings(BaseSettings):
         if not self.mcp_project_resource_root or not self.mcp_project_resource_root.strip():
             return None
         return Path(self.mcp_project_resource_root.strip()).expanduser().resolve()
+
+    @property
+    def resolved_mcp_product_base_url(self) -> str:
+        value = self.mcp_product_base_url.strip()
+        return value or "http://127.0.0.1:9100/mcp"
+
+    @property
+    def resolved_mcp_product_auth_token(self) -> str | None:
+        value = (self.mcp_product_auth_token or "").strip()
+        return value or None
+
+    @property
+    def resolved_tool_confirmation_backend(self) -> str:
+        return self.tool_confirmation_backend if self.tool_confirmation_backend == "redis" else "memory"
 
 
 @lru_cache

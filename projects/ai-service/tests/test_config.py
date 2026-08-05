@@ -779,3 +779,34 @@ def test_get_settings_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first.app_name == "Cached AI Service"
 
     get_settings.cache_clear()
+
+
+def test_mcp_product_settings_defaults() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.mcp_product_base_url == "http://127.0.0.1:9100/mcp"
+    assert settings.mcp_product_port == 9100
+    assert settings.mcp_product_timeout_seconds == 30
+    assert settings.mcp_product_retry_count == 2
+    assert settings.tool_confirmation_backend == "memory"
+    assert settings.agent_mcp_tools_enabled is False
+    assert settings.resolved_mcp_product_auth_token is None
+
+
+def test_mcp_product_settings_env_overrides() -> None:
+    settings = Settings(
+        _env_file=None,
+        mcp_product_base_url=" http://127.0.0.1:9200/mcp ",
+        mcp_product_auth_token=" secret-token ",
+        mcp_product_timeout_seconds=15,
+        mcp_product_retry_count=3,
+        tool_confirmation_backend="redis",
+        agent_mcp_tools_enabled=True,
+    )
+    assert settings.resolved_mcp_product_base_url == "http://127.0.0.1:9200/mcp"
+    assert settings.resolved_mcp_product_auth_token == "secret-token"
+    assert settings.resolved_tool_confirmation_backend == "redis"
+
+
+def test_mcp_product_settings_invalid_backend_falls_back_to_memory() -> None:
+    settings = Settings(_env_file=None, tool_confirmation_backend="invalid")
+    assert settings.resolved_tool_confirmation_backend == "memory"
