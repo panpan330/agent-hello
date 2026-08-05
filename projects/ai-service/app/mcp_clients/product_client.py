@@ -111,18 +111,28 @@ class ProductMcpClient:
                     result = await session.call_tool(tool_name, arguments)
                     return self._parse_result(result)
 
-    def _parse_result(self, result: Any) -> dict[str, Any]:
+    def _collect_text(self, result: Any) -> str:
         text_parts: list[str] = []
-        for block in result.content:
+        for block in getattr(result, "content", []):
             if getattr(block, "type", None) == "text":
-                text_parts.append(block.text)
-        if not text_parts:
+                text_parts.append(getattr(block, "text", ""))
+        return "\n".join(text_parts).strip()
+
+    def _parse_result(self, result: Any) -> dict[str, Any]:
+        if getattr(result, "is_error", getattr(result, "isError", False)):
+            error_text = self._collect_text(result)
+            raise AppException(
+                code="MCP_TOOL_ERROR",
+                message=(error_text or "AI 工具服务返回了错误。")[:200],
+                status_code=502,
+            )
+        raw_text = self._collect_text(result)
+        if not raw_text:
             raise AppException(
                 code="MCP_RESULT_INVALID",
                 message="AI 工具服务返回了无法解析的结果。",
                 status_code=502,
             )
-        raw_text = "\n".join(text_parts)
         try:
             parsed = json.loads(raw_text)
         except json.JSONDecodeError as exc:

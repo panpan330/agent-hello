@@ -121,6 +121,46 @@ def test_parse_result_rejects_missing_text_blocks() -> None:
     assert exc_info.value.status_code == 502
 
 
+def test_parse_result_surfaces_tool_error_text() -> None:
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None)
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text='{"error_code":"TOOL_TIMEOUT","detail":"upstream timed out"}',
+            )
+        ],
+        isError=True,
+    )
+    with pytest.raises(AppException) as exc_info:
+        client._parse_result(result)
+    assert exc_info.value.code == "MCP_TOOL_ERROR"
+    assert exc_info.value.status_code == 502
+    assert "TOOL_TIMEOUT" in exc_info.value.message
+
+
+def test_parse_result_tool_error_message_truncated() -> None:
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None)
+    result = CallToolResult(
+        content=[TextContent(type="text", text="x" * 500)],
+        isError=True,
+    )
+    with pytest.raises(AppException) as exc_info:
+        client._parse_result(result)
+    assert exc_info.value.code == "MCP_TOOL_ERROR"
+    assert len(exc_info.value.message) <= 200
+
+
+def test_parse_result_tool_error_without_text_falls_back() -> None:
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None)
+    result = CallToolResult(content=[], isError=True)
+    with pytest.raises(AppException) as exc_info:
+        client._parse_result(result)
+    assert exc_info.value.code == "MCP_TOOL_ERROR"
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.message
+
+
 def test_call_tool_retries_then_succeeds(monkeypatch) -> None:
     client = ProductMcpClient("http://127.0.0.1:9100/mcp", None, retry_count=2)
     flaky = _FlakyCallTool(fails=2, error=ConnectionError("boom"))
