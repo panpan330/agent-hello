@@ -22,6 +22,17 @@ class SupervisorState(TypedDict, total=False):
     ticket_confirmation_approved: bool | None
     ticket_creation_status: str | None
     created_ticket: dict | None
+    ticket_actor_id: str
+    # order worker 子图输出（顶层读取失败状态，供转人工/错误处理编排）
+    order_query_order_id: str | None
+    order_query_status: str
+    order_query_result: dict | None
+    order_query_error_code: str | None
+    order_query_error_message: str | None
+    order_query_error_kind: str | None
+    order_query_error_action: str | None
+    order_query_retryable: bool | None
+    order_query_error_status_code: int | None
     final_answer: str | None
     node_history: Annotated[list[str], add]
     agent_error_code: str | None
@@ -101,5 +112,14 @@ SUPERVISOR_OUTPUT_KEYS = frozenset(
         "created_ticket",
         "agent_error_code",
         "agent_error_message",
+        "order_query_order_id",
+        "order_query_status",
+        "order_query_result",
+        "order_query_error_code",
+        "order_query_error_message",
+        "order_query_error_kind",
+        "order_query_error_action",
+        "order_query_retryable",
+        "order_query_error_status_code",
     }
 )

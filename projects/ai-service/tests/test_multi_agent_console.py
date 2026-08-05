@@ -2,7 +2,11 @@ import pytest
 
 from app.agents.supervisor.supervisor_graph import build_supervisor_graph
 from app.core.config import Settings
-from app.services.console_agent_service import ConsoleAgentService
+from app.core.exceptions import AppException
+from app.services.console_agent_service import (
+    ConsoleAgentActor,
+    ConsoleAgentService,
+)
 from tests.tool_fakes import (
     FakePolicyRagService,
     FakeTicketCreator,
@@ -10,6 +14,27 @@ from tests.tool_fakes import (
     make_policy_rag_answer,
 )
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
+
+
+class _FakeConversationStore:
+    """In-memory conversation store so console flows never touch real Redis."""
+
+    def __init__(self) -> None:
+        self.exchanges: list[dict[str, object]] = []
+
+    def append_exchange(self, **kwargs: object) -> None:
+        self.exchanges.append(kwargs)
+
+    def close(self) -> None:
+        pass
+
+
+def _failing_order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
+    raise AppException(
+        code="ORDER_SERVICE_UNKNOWN",
+        message="order service temporarily unavailable",
+        status_code=500,
+    )
 
 
 def _order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
@@ -73,3 +98,106 @@ def test_multi_agent_console_end_to_end_rule_route(
     result = graph.invoke({"user_message": "查订单 A1001"})
     assert result["intent"] == "order_query"
     assert "已发货" in (result.get("final_answer") or "")
+
+
+def test_multi_agent_console_decide_confirmation_resumes_and_creates_ticket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多 Agent 图确认中断后，console 确认流程不能因顶层 next 值误报 409。
+
+    嵌套子图中断时顶层 next 为 ("ticket_agent",)，且顶层 state 不含
+    ticket_fields（草稿位于顶层 interrupt payload）。修复前
+    decide_ticket_confirmation 因 next 检查直接抛 409。
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from app.agents.supervisor.supervisor_router import (
+        FakeLLMSupervisorRouter,
+        SupervisorRoute,
+    )
+
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=True,
+    )
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        agent_mcp_tools_enabled=False,
+    )
+    service = ConsoleAgentService(
+        settings,
+        graph=graph,
+        conversation_store=_FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-ma-001"
+
+    reply = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+    assert reply.pending_ticket_confirmation is not None
+    confirmation_id = reply.pending_ticket_confirmation.confirmation_id
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        approved=True,
+    )
+    assert response.created_ticket is not None
+    assert response.created_ticket.requester_id == "U1001"
+
+
+def test_multi_agent_console_order_failure_offers_human_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多 Agent 模式订单查询失败必须保留"转人工"行为（human_handoff 非空）。
+
+    修复前 SupervisorState 缺 order_query_* 字段，order 子图失败状态无法
+    写回顶层，_human_handoff_from_state 读不到状态导致转人工恒为 None。
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from app.agents.supervisor.supervisor_router import (
+        FakeLLMSupervisorRouter,
+        SupervisorRoute,
+    )
+
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.ORDER_QUERY),
+        order_query_executor=_failing_order_executor,
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=True,
+    )
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        agent_mcp_tools_enabled=False,
+    )
+    service = ConsoleAgentService(
+        settings,
+        graph=graph,
+        conversation_store=_FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-ma-002"
+
+    response = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="查订单 A1001",
+    )
+    assert response.human_handoff is not None
+    assert response.human_handoff.related_order_id == "A1001"

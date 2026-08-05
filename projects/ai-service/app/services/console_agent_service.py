@@ -65,6 +65,7 @@ class ConsoleAgentActor:
 
 AGENT_PROGRESS_BY_NODE: dict[str, tuple[str, str]] = {
     "normalize_user_input": ("preparing", "正在准备本次请求"),
+    "supervisor_route": ("analyzing", "正在分析问题类型"),
     "classify_intent": ("analyzing", "正在分析问题类型"),
     "retrieve_policy": ("knowledge_search", "正在检索知识库"),
     "decide_ticket_need": ("planning", "正在规划处理方式"),
@@ -160,6 +161,41 @@ class JavaConsoleAgentActorResolver:
                 status_code=502,
             )
         return ConsoleAgentActor(user_id=user_id, tenant_id=tenant_id, roles=roles)
+
+
+_TICKET_CONFIRMATION_PENDING_NEXT_NODES = frozenset(
+    {"request_ticket_confirmation", "ticket_agent"}
+)
+
+
+def _has_pending_ticket_confirmation_next(snapshot: Any) -> bool:
+    """Whether a snapshot is paused waiting for a ticket confirmation decision.
+
+    单 Agent 图：顶层 next 直接含 "request_ticket_confirmation"。
+    多 Agent 监督图：确认中断发生在 ticket worker 子图内部，顶层 next 为
+    ("ticket_agent",)，两者都代表有待决工单确认。
+    """
+    return bool(set(snapshot.next) & _TICKET_CONFIRMATION_PENDING_NEXT_NODES)
+
+
+def _pending_confirmation_fields(snapshot: Any) -> dict | None:
+    """Resolve the confirmed ticket draft from a state snapshot.
+
+    单 Agent 图：ticket_fields 直接位于顶层 state；
+    多 Agent 嵌套子图中断：ticket worker 子图尚未完成，草稿位于顶层
+    interrupt payload 的 pending_ticket_confirmation.ticket_fields。
+    """
+    fields = snapshot.values.get("ticket_fields")
+    if isinstance(fields, dict):
+        return fields
+    for interrupt in getattr(snapshot, "interrupts", ()) or ():
+        value = getattr(interrupt, "value", None)
+        if not isinstance(value, dict):
+            continue
+        pending = value.get("pending_ticket_confirmation")
+        if isinstance(pending, dict) and isinstance(pending.get("ticket_fields"), dict):
+            return pending["ticket_fields"]
+    return None
 
 
 class ProductionPolicyRagService:
@@ -428,15 +464,15 @@ class ConsoleAgentService:
     ) -> ConsoleAgentResponse:
         thread_id = self._thread_id(actor, conversation_id)
         snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
-        if "request_ticket_confirmation" not in snapshot.next:
+        if not _has_pending_ticket_confirmation_next(snapshot):
             raise AppException(
                 code="TICKET_CONFIRMATION_NOT_FOUND",
                 message="There is no pending ticket confirmation for this conversation.",
                 status_code=409,
             )
 
-        fields = snapshot.values.get("ticket_fields")
-        if not isinstance(fields, dict):
+        fields = _pending_confirmation_fields(snapshot)
+        if fields is None:
             raise AppException(
                 code="TICKET_CONFIRMATION_NOT_FOUND",
                 message="The pending ticket confirmation is no longer available.",
@@ -678,15 +714,15 @@ class ConsoleAgentService:
         confirmation_id: str,
     ) -> None:
         snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
-        if "request_ticket_confirmation" not in snapshot.next:
+        if not _has_pending_ticket_confirmation_next(snapshot):
             raise AppException(
                 code="TICKET_CONFIRMATION_NOT_FOUND",
                 message="There is no pending ticket confirmation for this conversation.",
                 status_code=409,
             )
 
-        fields = snapshot.values.get("ticket_fields")
-        if not isinstance(fields, dict):
+        fields = _pending_confirmation_fields(snapshot)
+        if fields is None:
             raise AppException(
                 code="TICKET_CONFIRMATION_NOT_FOUND",
                 message="The pending ticket confirmation is no longer available.",
@@ -716,7 +752,7 @@ class ConsoleAgentService:
 
     def _reject_if_confirmation_is_pending(self, thread_id: str) -> None:
         snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
-        if "request_ticket_confirmation" in snapshot.next:
+        if _has_pending_ticket_confirmation_next(snapshot):
             raise AppException(
                 code="TICKET_CONFIRMATION_PENDING",
                 message="Please confirm or cancel the pending ticket before sending a new message.",

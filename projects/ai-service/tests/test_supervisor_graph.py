@@ -20,6 +20,7 @@ from tests.tool_fakes import (
     make_policy_rag_answer,
 )
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
+from app.core.exceptions import AppException
 
 
 def _order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
@@ -31,6 +32,14 @@ def _order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
         latest_event="包裹已发出",
         can_create_ticket=True,
         source="java_business_service",
+    )
+
+
+def _failing_order_executor(arguments: QueryOrderArgs) -> QueryOrderResult:
+    raise AppException(
+        code="ORDER_SERVICE_UNKNOWN",
+        message="order service temporarily unavailable",
+        status_code=500,
     )
 
 
@@ -121,6 +130,54 @@ def test_knowledge_no_context_transfers_to_ticket() -> None:
     # 转单语义完整验证：ticket worker 实际创建了 policy_gap 工单
     assert result["created_ticket"] is not None
     assert result["created_ticket"]["category"] == "policy_gap"
+
+
+def test_supervisor_order_query_failure_writes_state_to_top_level() -> None:
+    """order 子图查询失败时，order_query_* 状态必须写回监督层顶层。
+
+    修复前 SupervisorState 无 order_query_* 键，子图输出被过滤，
+    "订单失败转人工"行为（_human_handoff_from_state）在多 Agent 模式静默丢失。
+    """
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.ORDER_QUERY),
+        order_query_executor=_failing_order_executor,
+    )
+    result = graph.invoke({"user_message": "查订单 A1001"})
+    assert result["intent"] == "order_query"
+    assert result["order_query_status"] == "failed"
+    assert result["order_query_error_code"] == "ORDER_SERVICE_UNKNOWN"
+    assert result["order_query_error_action"] == "contact_human_support"
+    assert result["order_query_order_id"] == "A1001"
+
+
+def test_supervisor_ticket_actor_id_reaches_created_ticket() -> None:
+    """ticket_actor_id 必须穿透监督层到达工单创建者。
+
+    修复前 SupervisorState 无 ticket_actor_id 键，顶层输入被过滤，
+    工单创建者退化为 DEFAULT_TICKET_ACTOR_ID。
+    """
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        interrupt_confirmation=False,
+    )
+    result = graph.invoke(
+        {
+            "user_message": "申请退款，订单 A1001 破损",
+            "ticket_actor_id": "user_agent_42",
+            "ticket_confirmation_approved": True,
+            "ticket_fields": {
+                "issue_type": "refund",
+                "order_id": "A1001",
+                "description": "订单破损",
+                "user_request": "申请退款",
+                "urgency": "high",
+                "need_human_review": False,
+            },
+        }
+    )
+    assert result["ticket_creation_status"] == "created"
+    assert result["created_ticket"]["requester_id"] == "user_agent_42"
 
 
 def test_ticket_interrupt_pause_and_resume() -> None:
