@@ -1600,7 +1600,7 @@ def build_missing_ticket_fields_question(missing_fields: list[str]) -> str:
 
 def build_ticket_confirmation_id(fields: TicketFields) -> str:
     confirmation_payload = json.dumps(fields, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(confirmation_payload.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(confirmation_payload.encode("utf-8")).hexdigest()[:32]
 
 
 def build_ticket_confirmation_message(fields: TicketFields) -> str:
