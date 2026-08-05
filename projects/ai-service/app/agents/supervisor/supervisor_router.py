@@ -11,7 +11,6 @@ from app.agents.ticket_agent import (
 )
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
-from app.schemas.structured import TicketIntent
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ class SupervisorRoute(StrEnum):
     UNCLEAR = "unclear"
 
 
-TICKET_INTENT_TO_SUPERVISOR_ROUTE: dict[TicketIntent, SupervisorRoute] = {
+TICKET_INTENT_TO_SUPERVISOR_ROUTE: dict[str, SupervisorRoute] = {
     "policy_question": SupervisorRoute.KNOWLEDGE_QUESTION,
     "order_query": SupervisorRoute.ORDER_QUERY,
     "ticket_request": SupervisorRoute.TICKET_REQUEST,
@@ -44,16 +43,11 @@ class SupervisorRouter(Protocol):
 
 class RuleSupervisorRouter:
     def route(self, message: str) -> SupervisorRoute:
+        # 直接映射 classify_ticket_intent 的结果：安全边界词（如"直接退款到账"）
+        # 判为 unsupported 时保留 SupervisorRoute.UNSUPPORTED（安全拒绝语义），
+        # 不做 UNCLEAR 降级；与 LLMSupervisorRouter 路径行为一致。
         classification = classify_ticket_intent(message)
-        intent = classification["intent"]
-        if intent == "unsupported":
-            # 规则分类器将天气/写小说等话题判为"超出客服 Agent 安全业务范围"；
-            # 监督路由层将其视为无法分配给任何 worker 的请求，回退 UNCLEAR 以引导澄清
-            # （对应 test_rule_router_falls_back_to_unclear_for_unknown 的语义）。
-            return SupervisorRoute.UNCLEAR
-        return TICKET_INTENT_TO_SUPERVISOR_ROUTE.get(
-            intent, SupervisorRoute.UNCLEAR
-        )
+        return TICKET_INTENT_TO_SUPERVISOR_ROUTE[classification["intent"]]
 
 
 class LLMSupervisorRouter:
@@ -80,9 +74,7 @@ class LLMSupervisorRouter:
 
     def route(self, message: str) -> SupervisorRoute:
         classification = self._classifier.classify_intent(message)
-        return TICKET_INTENT_TO_SUPERVISOR_ROUTE.get(
-            classification["intent"], SupervisorRoute.UNCLEAR
-        )
+        return TICKET_INTENT_TO_SUPERVISOR_ROUTE[classification["intent"]]
 
     def route_with_fallback(self, message: str) -> tuple[SupervisorRoute, str]:
         """Return (route, source) where source is 'llm' or 'rule_fallback'."""

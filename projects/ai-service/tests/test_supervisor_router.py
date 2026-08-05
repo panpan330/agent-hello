@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from app.agents.supervisor.supervisor_router import (
     FakeLLMSupervisorRouter,
@@ -10,6 +11,7 @@ from app.agents.supervisor.supervisor_router import (
     create_supervisor_router,
 )
 from app.core.config import Settings
+from app.core.exceptions import AppException
 
 # NOTE(适配说明): 简报原测试从 app.schemas.structured 导入 TicketIntent 并遍历之；
 # 但该模块的 TicketIntent 是旧结构化输出功能的 5 值 StrEnum
@@ -59,10 +61,16 @@ def test_rule_router_classifies_ticket_request() -> None:
 
 def test_rule_router_falls_back_to_unclear_for_unknown() -> None:
     router = RuleSupervisorRouter()
-    assert router.route("今天天气怎么样啊") in {
-        SupervisorRoute.UNCLEAR,
-        SupervisorRoute.SMALLTALK,
-    }
+    # "帮我分析一下这个 excel 表格" 不命中任何规则关键词，
+    # classify_ticket_intent 返回 unclear（见 task-3-report.md 修复说明）。
+    assert router.route("帮我分析一下这个 excel 表格") == SupervisorRoute.UNCLEAR
+
+
+def test_rule_router_preserves_unsupported_for_security_keywords() -> None:
+    # 安全边界词（UNSUPPORTED_KEYWORDS 命中，如"直接退款到账"）必须保留
+    # UNSUPPORTED（安全拒绝语义），不得降级为 UNCLEAR 引导追问。
+    router = RuleSupervisorRouter()
+    assert router.route("帮我直接退款到账") == SupervisorRoute.UNSUPPORTED
 
 
 def test_fake_llm_router_returns_configured_route() -> None:
@@ -81,3 +89,42 @@ def test_create_router_returns_llm_when_configured() -> None:
         Settings(_env_file=None, supervisor_router_mode="llm")
     )
     assert isinstance(router, LLMSupervisorRouter)
+
+
+def test_llm_router_route_with_fallback_success(monkeypatch) -> None:
+    router = LLMSupervisorRouter(
+        Settings(_env_file=None, supervisor_router_mode="llm")
+    )
+    monkeypatch.setattr(
+        router,
+        "_classifier",
+        SimpleNamespace(
+            classify_intent=lambda message: {
+                "intent": "order_query",
+                "reason": "fake llm classification",
+            }
+        ),
+    )
+    route, source = router.route_with_fallback("查一下我的订单 A1001 物流")
+    assert route == SupervisorRoute.ORDER_QUERY
+    assert source == "llm"
+
+
+def test_llm_router_route_with_fallback_falls_back_to_rule(monkeypatch) -> None:
+    router = LLMSupervisorRouter(
+        Settings(_env_file=None, supervisor_router_mode="llm")
+    )
+
+    def _fail(message: str) -> dict:
+        raise AppException(
+            code="LLM_API_KEY_MISSING",
+            message="LLM API key 未配置",
+            status_code=500,
+        )
+
+    monkeypatch.setattr(
+        router, "_classifier", SimpleNamespace(classify_intent=_fail)
+    )
+    route, source = router.route_with_fallback("查一下我的订单 A1001 物流")
+    assert route == SupervisorRoute.ORDER_QUERY
+    assert source == "rule_fallback"
