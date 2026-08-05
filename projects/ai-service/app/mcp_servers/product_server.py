@@ -8,12 +8,15 @@ Run as a standalone process:
 import logging
 from typing import Annotated, Any
 
+import uvicorn
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
+from app.core.business_context import reset_business_context, set_business_context
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
+from app.mcp_clients.product_client import MCP_AUTH_FAILED_ERROR_CODE
 from app.mcp_servers import order_tool
 from app.schemas.ticket import CreateTicketArgs
 from app.services.java_ticket_client import JavaTicketClient
@@ -64,8 +67,16 @@ def _product_create_ticket(
     priority: str = "normal",
     related_order_id: str | None = None,
     user_confirmed: bool = False,
+    user_id: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create a ticket with confirmation + authorization + idempotency guards."""
+    """Create a ticket with confirmation + authorization + idempotency guards.
+
+    ``user_id``/``tenant_id`` carry the authenticated actor identity that the
+    AI service injected into the tool call; they are applied to the Java
+    business call via the business context so order/ticket ownership checks
+    see the real caller instead of the default fallback identity.
+    """
     if not user_confirmed:
         return _create_ticket_response(
             ok=False,
@@ -127,15 +138,19 @@ def _product_create_ticket(
     try:
         authorize_tool_call(CREATE_TICKET_TOOL_NAME, user_confirmed=True)
         ticket_creator = JavaTicketClient.from_settings(get_settings())
-        ticket = run_idempotent_tool(
-            CREATE_TICKET_TOOL_NAME,
-            arguments,
-            confirmation_id,
-            lambda: ticket_creator.create_ticket(
+        tokens = set_business_context(user_id=user_id, tenant_id=tenant_id)
+        try:
+            ticket = run_idempotent_tool(
+                CREATE_TICKET_TOOL_NAME,
                 arguments,
-                idempotency_key=confirmation_id,
-            ),
-        )
+                confirmation_id,
+                lambda: ticket_creator.create_ticket(
+                    arguments,
+                    idempotency_key=confirmation_id,
+                ),
+            )
+        finally:
+            reset_business_context(tokens)
     except AppException as exc:
         return _create_ticket_response(
             ok=False,
@@ -180,9 +195,23 @@ def create_product_mcp_server(
     server = MCPServer(name="ai-service-product-mcp")
 
     @server.tool()
-    def query_order(order_id: str) -> dict[str, Any]:
-        """Query a business order through the guarded Java adapter (read-only)."""
-        return order_tool.query_order_for_mcp(order_id)
+    def query_order(
+        order_id: str,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Query a business order through the guarded Java adapter (read-only).
+
+        The authenticated actor identity (user_id/tenant_id) is injected by the
+        AI service and applied to the Java business call via the business
+        context; without it the order lookup would fall back to the default
+        identity and ownership checks would be bypassed.
+        """
+        tokens = set_business_context(user_id=user_id, tenant_id=tenant_id)
+        try:
+            return order_tool.query_order_for_mcp(order_id)
+        finally:
+            reset_business_context(tokens)
 
     @server.tool()
     def create_ticket(
@@ -194,8 +223,15 @@ def create_product_mcp_server(
         priority: str = "normal",
         related_order_id: str | None = None,
         user_confirmed: bool = False,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a support ticket after user confirmation and idempotency checks."""
+        """Create a support ticket after user confirmation and idempotency checks.
+
+        ``user_id``/``tenant_id`` carry the authenticated actor identity injected
+        by the AI service; they are applied to the Java business call so ticket
+        ownership is attributed to the real caller.
+        """
         return _product_create_ticket(
             requester_id=requester_id,
             title=title,
@@ -205,6 +241,8 @@ def create_product_mcp_server(
             related_order_id=related_order_id,
             confirmation_id=confirmation_id,
             user_confirmed=user_confirmed,
+            user_id=user_id,
+            tenant_id=tenant_id,
         )
 
     return server
@@ -231,8 +269,19 @@ class BearerAuthMiddleware:
         if authorization != self.expected:
             from starlette.responses import JSONResponse
 
+            # A JSON-RPC error body (instead of a plain JSON error) lets the MCP
+            # client SDK surface the failure as MCPError with our reserved code,
+            # so the product client can fail fast with MCP_AUTH_FAILED instead of
+            # treating a 401 as a transient server outage and retrying.
             response = JSONResponse(
-                {"error": "unauthorized", "message": "missing or invalid bearer token"},
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": MCP_AUTH_FAILED_ERROR_CODE,
+                        "message": "missing or invalid bearer token",
+                    },
+                },
                 status_code=401,
             )
             await response(scope, receive, send)
@@ -301,9 +350,18 @@ def create_product_mcp_app(settings: Settings | None = None) -> Any:
 
 
 def main() -> None:
-    import uvicorn
-
     settings = get_settings()
+    if settings.resolved_mcp_product_auth_token is None:
+        # Fail fast in production: without the Bearer token every request to the
+        # product MCP server would be accepted, exposing the Java business tools
+        # to the whole local network.
+        logger.error(
+            "product_mcp_startup_rejected reason=%s",
+            "MCP_PRODUCT_AUTH_TOKEN is not set; refusing to start an "
+            "unauthenticated product MCP server. Set MCP_PRODUCT_AUTH_TOKEN "
+            "in the environment or .env before starting.",
+        )
+        raise SystemExit(1)
     app = create_product_mcp_app(settings)
     uvicorn.run(app, host="127.0.0.1", port=settings.mcp_product_port)
 
