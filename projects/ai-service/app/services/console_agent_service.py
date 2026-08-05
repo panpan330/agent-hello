@@ -434,12 +434,6 @@ class ConsoleAgentService:
 
         tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
         try:
-            state = resume_ticket_confirmation_interrupt(
-                self.graph,
-                thread_id=thread_id,
-                approved=approved,
-                actor_id=actor.user_id,
-            )
             if approved:
                 from app.agents.mcp_tool_adapters import register_ticket_confirmation
 
@@ -448,6 +442,12 @@ class ConsoleAgentService:
                     fields=fields,
                     settings=self.settings,
                 )
+            state = resume_ticket_confirmation_interrupt(
+                self.graph,
+                thread_id=thread_id,
+                approved=approved,
+                actor_id=actor.user_id,
+            )
         finally:
             reset_business_context(tokens)
         response = self._to_response(state, conversation_id=conversation_id)

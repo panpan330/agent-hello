@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 import pytest
 
+from app.agents.mcp_tool_adapters import McpTicketCreator, mcp_order_query_executor
+from app.agents.ticket_agent import (
+    build_pending_ticket_confirmation,
+    build_ticket_agent_thread_config,
+)
 from app.core.config import Settings
 from app.core.exceptions import AppException
 from app.core.trace import TRACE_ID_HEADER
@@ -23,10 +28,13 @@ from app.services.console_agent_service import (
     ConsoleAgentService,
     build_agent_progress_event,
 )
+from app.tools.tool_confirmation import create_tool_confirmation_store
+from tests.tool_fakes import FakeMcpToolCaller
 
 
 class FakeRedisSaver(MemorySaver):
     def __init__(self) -> None:
+        super().__init__()
         self.setup_called = False
 
     def setup(self) -> None:
@@ -594,3 +602,226 @@ def test_console_agent_service_uses_redis_checkpointer_with_ttl(
 
     service.close()
     assert context.closed is True
+
+
+def _install_fake_redis_checkpointer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> FakeRedisSaverContext:
+    context = FakeRedisSaverContext()
+    monkeypatch.setattr(
+        "app.services.console_agent_service.RedisSaver.from_conn_string",
+        lambda *args, **kwargs: context,
+    )
+    return context
+
+
+def _install_fake_mcp_caller(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    check_confirmation_store: bool,
+) -> tuple[FakeMcpToolCaller, FakeRedisSaverContext]:
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=True,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    context = _install_fake_redis_checkpointer(monkeypatch)
+    fake_caller = FakeMcpToolCaller(
+        responses={
+            "query_order": {
+                "ok": True,
+                "result": {
+                    "order_id": "A1001",
+                    "order_status": "waiting_shipment",
+                    "payment_status": "paid",
+                    "logistics_message": "商家已接单。",
+                    "latest_event": "仓库准备出库。",
+                    "can_create_ticket": True,
+                    "source": "java_business_service",
+                },
+            },
+            "create_ticket": {
+                "ok": True,
+                "confirmation_checked": True,
+                "confirmation_id": "a" * 16,
+                "error_code": None,
+                "message": "工单创建成功。",
+                "ticket": {
+                    "ticket_id": "T1000001",
+                    "requester_id": "U1001",
+                    "title": "退款申请",
+                    "description": "订单破损",
+                    "category": "refund",
+                    "priority": "high",
+                    "related_order_id": "A1001",
+                    "created_at": "2026-01-01T00:00:00Z",
+                },
+            },
+        }
+    )
+    store = create_tool_confirmation_store(settings)
+    captured: dict[str, object] = {}
+
+    class ConfirmationGatedCaller:
+        def call_tool(self, tool_name: str, arguments: dict) -> dict:
+            if tool_name == "create_ticket":
+                captured["confirmation_id"] = arguments["confirmation_id"]
+                captured["user_confirmed"] = arguments["user_confirmed"]
+                if check_confirmation_store:
+                    # Mirror the MCP server's confirmation gate: when create_ticket
+                    # executes, the shared store must already hold a confirmed record.
+                    # This fails (TOOL_CONFIRMATION_NOT_FOUND) if registration happens
+                    # after resume instead of before it.
+                    record = store.require_confirmed(
+                        arguments["confirmation_id"],
+                        actor_id="U1001",
+                    )
+                    assert record.status.value == "confirmed"
+            return fake_caller.call_tool(tool_name, arguments)
+
+    gated_caller = ConfirmationGatedCaller()
+
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.create_mcp_ticket_creator",
+        lambda resolved: McpTicketCreator(gated_caller, settings=resolved),
+    )
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.create_mcp_order_query_executor",
+        lambda resolved: mcp_order_query_executor(gated_caller),
+    )
+    return fake_caller, context
+
+
+def test_mcp_mode_decide_approved_registers_confirmation_before_create_ticket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=True,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    _install_fake_redis_checkpointer(monkeypatch)
+    fake_caller, _ = _install_fake_mcp_caller(
+        monkeypatch,
+        check_confirmation_store=True,
+    )
+    store = create_tool_confirmation_store(settings)
+
+    service = ConsoleAgentService(
+        settings,
+        conversation_store=FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-mcp-001"
+    thread_id = f"console-{actor.tenant_id}-{actor.user_id}-{conversation_id}"
+
+    service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+
+    snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" in snapshot.next
+    fields = snapshot.values["ticket_fields"]
+    confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        approved=True,
+    )
+
+    create_calls = [
+        call for call in fake_caller.calls if call[0] == "create_ticket"
+    ]
+    assert len(create_calls) == 1
+    assert create_calls[0][1]["confirmation_id"] == confirmation_id
+    assert create_calls[0][1]["user_confirmed"] is True
+
+    # The registration happened before the MCP create_ticket call: the shared
+    # store already holds a confirmed record for the idempotency key.
+    record = store.require_confirmed(confirmation_id, actor_id="U1001")
+    assert record.status.value == "confirmed"
+    assert record.arguments["order_id"] == "A1001"
+
+    assert response.created_ticket is not None
+    assert response.created_ticket.ticket_id == "T1000001"
+
+    resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" not in resolved.next
+
+
+def test_mcp_mode_register_failure_keeps_interrupt_pending_and_skips_create_ticket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=True,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    _install_fake_redis_checkpointer(monkeypatch)
+    fake_caller, _ = _install_fake_mcp_caller(
+        monkeypatch,
+        check_confirmation_store=False,
+    )
+
+    def failing_register(**kwargs: object) -> str:
+        raise AppException(
+            code="TOOL_CONFIRMATION_STORE_UNAVAILABLE",
+            message="确认存储暂时不可用。",
+            status_code=503,
+        )
+
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.register_ticket_confirmation",
+        failing_register,
+    )
+
+    service = ConsoleAgentService(
+        settings,
+        conversation_store=FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-mcp-002"
+    thread_id = f"console-{actor.tenant_id}-{actor.user_id}-{conversation_id}"
+
+    service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+
+    snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    confirmation_id = build_pending_ticket_confirmation(
+        snapshot.values["ticket_fields"]
+    )["confirmation_id"]
+
+    with pytest.raises(AppException) as exc:
+        service.decide_ticket_confirmation(
+            actor=actor,
+            conversation_id=conversation_id,
+            confirmation_id=confirmation_id,
+            approved=True,
+        )
+    assert exc.value.code == "TOOL_CONFIRMATION_STORE_UNAVAILABLE"
+
+    # Resume never ran: the interrupt stays pending and create_ticket was not
+    # dispatched through MCP, so the user can safely retry.
+    pending = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" in pending.next
+    assert not [
+        call for call in fake_caller.calls if call[0] == "create_ticket"
+    ]
