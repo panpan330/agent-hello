@@ -745,6 +745,10 @@ def test_mcp_mode_decide_approved_registers_confirmation_before_create_ticket(
     assert len(create_calls) == 1
     assert create_calls[0][1]["confirmation_id"] == confirmation_id
     assert create_calls[0][1]["user_confirmed"] is True
+    # The authenticated actor is forwarded through the MCP tool contract so the
+    # standalone MCP server sets the Java business context to the real caller.
+    assert create_calls[0][1]["user_id"] == "U1001"
+    assert create_calls[0][1]["tenant_id"] == "default"
 
     # The registration happened before the MCP create_ticket call: the shared
     # store already holds a confirmed record for the idempotency key.
@@ -825,3 +829,91 @@ def test_mcp_mode_register_failure_keeps_interrupt_pending_and_skips_create_tick
     assert not [
         call for call in fake_caller.calls if call[0] == "create_ticket"
     ]
+
+
+def test_direct_mode_decide_approved_skips_confirmation_registration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D6: in direct (non-MCP) mode the confirmation is not pre-registered.
+
+    The direct-Java path is idempotency-keyed at the Java service, so writing a
+    confirmed record into the shared store here would be a dead write.
+    """
+    from app.schemas.tool import QueryOrderResult
+    from tests.tool_fakes import FakeTicketCreator
+
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=False,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    _install_fake_redis_checkpointer(monkeypatch)
+    fake_creator = FakeTicketCreator()
+    monkeypatch.setattr(
+        "app.services.console_agent_service.JavaTicketClient.from_settings",
+        lambda resolved: fake_creator,
+    )
+
+    def fake_query_order(arguments: object, *, settings: object = None) -> QueryOrderResult:
+        return QueryOrderResult(
+            order_id="A1001",
+            order_status="waiting_shipment",
+            payment_status="paid",
+            logistics_message="商家已接单。",
+            latest_event="仓库准备出库。",
+            can_create_ticket=True,
+            source="java_business_service",
+        )
+
+    monkeypatch.setattr(
+        "app.services.console_agent_service.query_order",
+        fake_query_order,
+    )
+
+    register_calls: list[dict[str, object]] = []
+
+    def recording_register(**kwargs: object) -> str:
+        register_calls.append(kwargs)
+        return "a" * 32
+
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.register_ticket_confirmation",
+        recording_register,
+    )
+
+    service = ConsoleAgentService(
+        settings,
+        conversation_store=FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-direct-001"
+    thread_id = f"console-{actor.tenant_id}-{actor.user_id}-{conversation_id}"
+
+    service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+    snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    confirmation_id = build_pending_ticket_confirmation(
+        snapshot.values["ticket_fields"]
+    )["confirmation_id"]
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        approved=True,
+    )
+
+    # No dead write: register_ticket_confirmation was not called in direct mode.
+    assert register_calls == []
+    assert response.created_ticket is not None
+    assert response.created_ticket.ticket_id == "T1001"
+    resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" not in resolved.next

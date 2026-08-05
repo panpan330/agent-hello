@@ -434,7 +434,11 @@ class ConsoleAgentService:
 
         tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
         try:
-            if approved:
+            if approved and self.settings.agent_mcp_tools_enabled:
+                # Only the MCP path needs the confirmation pre-registered in the
+                # shared store: the standalone MCP server re-checks it before
+                # calling Java. The direct-Java path is idempotency-keyed at the
+                # Java service instead, so registering here would be a dead write.
                 from app.agents.mcp_tool_adapters import register_ticket_confirmation
 
                 register_ticket_confirmation(
