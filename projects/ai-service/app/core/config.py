@@ -317,7 +317,8 @@ class Settings(BaseSettings):
 
     @property
     def resolved_supervisor_router_mode(self) -> str:
-        return self.supervisor_router_mode if self.supervisor_router_mode == "llm" else "rule"
+        value = self.supervisor_router_mode.strip()
+        return "llm" if value == "llm" else "rule"
 
 
 @lru_cache

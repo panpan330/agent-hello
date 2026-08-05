@@ -830,6 +830,11 @@ def test_multi_agent_settings_env_overrides() -> None:
     assert settings.resolved_supervisor_router_mode == "llm"
 
 
+def test_supervisor_router_mode_env_override_with_surrounding_whitespace() -> None:
+    settings = Settings(_env_file=None, supervisor_router_mode=" llm ")
+    assert settings.resolved_supervisor_router_mode == "llm"
+
+
 def test_supervisor_router_mode_invalid_falls_back_to_rule() -> None:
     settings = Settings(_env_file=None, supervisor_router_mode="invalid")
     assert settings.resolved_supervisor_router_mode == "rule"
