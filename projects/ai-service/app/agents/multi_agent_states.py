@@ -17,6 +17,11 @@ class SupervisorState(TypedDict, total=False):
     rag_citations: list[dict]
     needs_ticket: bool
     ticket_need_source: str
+    # ticket worker 子图字段（顶层传入确认/字段、读取创建结果，供监督层编排）
+    ticket_fields: dict | None
+    ticket_confirmation_approved: bool | None
+    ticket_creation_status: str | None
+    created_ticket: dict | None
     final_answer: str | None
     node_history: Annotated[list[str], add]
     agent_error_code: str | None
@@ -88,8 +93,11 @@ SUPERVISOR_OUTPUT_KEYS = frozenset(
     {
         "final_answer",
         "needs_ticket",
+        "ticket_need_source",
         "rag_answer_status",
         "rag_citations",
+        "ticket_creation_status",
+        "created_ticket",
         "agent_error_code",
         "agent_error_message",
     }
