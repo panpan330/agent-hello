@@ -9,12 +9,37 @@ import httpx2
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.exceptions import MCPError
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 
 
 logger = logging.getLogger(__name__)
+
+# Reserved JSON-RPC server error code that the product MCP server's BearerAuth
+# middleware returns in a JSON-RPC error body on authentication failure
+# (401/403). The MCP client SDK surfaces it as MCPError with this code, which
+# lets us distinguish "token wrong / server unauthenticated" from a transient
+# server outage and fail fast without retrying.
+MCP_AUTH_FAILED_ERROR_CODE = -32001
+MCP_AUTH_FAILED_MESSAGE = "AI 工具服务认证失败，请检查 MCP_PRODUCT_AUTH_TOKEN 配置。"
+
+
+MAX_LAST_ERROR_LOG_CHARS = 300
+
+
+def _is_mcp_auth_failure(exc: Exception) -> bool:
+    """True when the exception chain reports the server's auth failure code.
+
+    The MCP SDK can wrap errors in an anyio ExceptionGroup (e.g. the GET SSE
+    back-channel task), so recurse into group members defensively.
+    """
+    if isinstance(exc, MCPError) and exc.code == MCP_AUTH_FAILED_ERROR_CODE:
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_is_mcp_auth_failure(sub) for sub in exc.exceptions)
+    return False
 
 
 class McpToolCaller(Protocol):
@@ -83,12 +108,27 @@ class ProductMcpClient:
                         message="AI 工具服务响应超时，请稍后再试。",
                         status_code=504,
                     ) from exc
+                if _is_mcp_auth_failure(exc):
+                    # Authentication is a configuration problem, not a transient
+                    # outage: fail fast instead of burning retries against a
+                    # server that will keep rejecting us.
+                    raise AppException(
+                        code="MCP_AUTH_FAILED",
+                        message=MCP_AUTH_FAILED_MESSAGE,
+                        status_code=502,
+                    ) from exc
                 logger.warning(
                     "product_mcp_client_retry operation=%s attempt=%s error_type=%s",
                     operation,
                     attempt + 1,
                     type(exc).__name__,
                 )
+        logger.error(
+            "product_mcp_client_failed operation=%s error_type=%s error_message=%s",
+            operation,
+            type(last_error).__name__,
+            str(last_error)[:MAX_LAST_ERROR_LOG_CHARS],
+        )
         raise AppException(
             code="MCP_SERVER_UNREACHABLE",
             message="AI 工具服务暂时不可用，请稍后再试。",

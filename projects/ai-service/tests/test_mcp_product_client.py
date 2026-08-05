@@ -219,6 +219,70 @@ def test_call_tool_propagates_app_exception_without_retry(monkeypatch) -> None:
     assert flaky.calls == 1
 
 
+def test_call_tool_auth_failure_maps_to_auth_failed_without_retry(
+    monkeypatch,
+) -> None:
+    from mcp.shared.exceptions import MCPError
+
+    from app.mcp_clients.product_client import MCP_AUTH_FAILED_ERROR_CODE
+
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None, retry_count=2)
+    flaky = _FlakyCallTool(
+        fails=99,
+        error=MCPError(
+            code=MCP_AUTH_FAILED_ERROR_CODE,
+            message="missing or invalid bearer token",
+        ),
+    )
+    monkeypatch.setattr(client, "_call_tool_async", flaky)
+    with pytest.raises(AppException) as exc_info:
+        client.call_tool("query_order", {"order_id": "A1001"})
+    assert exc_info.value.code == "MCP_AUTH_FAILED"
+    assert exc_info.value.status_code == 502
+    assert "MCP_PRODUCT_AUTH_TOKEN" in exc_info.value.message
+    # Authentication failure is a configuration problem, not a transient
+    # outage: no retries are burned.
+    assert flaky.calls == 1
+
+
+def test_call_tool_auth_failure_inside_exception_group_without_retry(
+    monkeypatch,
+) -> None:
+    from mcp.shared.exceptions import MCPError
+
+    from app.mcp_clients.product_client import MCP_AUTH_FAILED_ERROR_CODE
+
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None, retry_count=2)
+    inner = MCPError(code=MCP_AUTH_FAILED_ERROR_CODE, message="unauthorized")
+    flaky = _FlakyCallTool(fails=99, error=BaseExceptionGroup("mcp", [inner]))
+    monkeypatch.setattr(client, "_call_tool_async", flaky)
+    with pytest.raises(AppException) as exc_info:
+        client.call_tool("query_order", {"order_id": "A1001"})
+    assert exc_info.value.code == "MCP_AUTH_FAILED"
+    assert flaky.calls == 1
+
+
+def test_call_tool_exhausted_logs_last_error_type_and_message(
+    monkeypatch,
+    caplog,
+) -> None:
+    client = ProductMcpClient("http://127.0.0.1:9100/mcp", None, retry_count=1)
+    flaky = _FlakyCallTool(fails=99, error=ConnectionError("boom"))
+    monkeypatch.setattr(client, "_call_tool_async", flaky)
+    with caplog.at_level("ERROR", logger="app.mcp_clients.product_client"):
+        with pytest.raises(AppException) as exc_info:
+            client.call_tool("query_order", {"order_id": "A1001"})
+    assert exc_info.value.code == "MCP_SERVER_UNREACHABLE"
+    log_lines = [
+        record
+        for record in caplog.records
+        if record.getMessage().startswith("product_mcp_client_failed")
+    ]
+    assert len(log_lines) == 1
+    assert "error_type=ConnectionError" in log_lines[0].getMessage()
+    assert "error_message=boom" in log_lines[0].getMessage()
+
+
 def test_list_tools_caches_second_call(monkeypatch) -> None:
     client = ProductMcpClient("http://127.0.0.1:9100/mcp", None)
     tracking = _TrackingListTools()
