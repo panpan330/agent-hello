@@ -156,7 +156,7 @@ app/
 ├── evaluation/       Bad Case 注册、正式回归执行与历史
 ├── core/             配置、异常、trace、安全边界、业务上下文
 ├── middleware/       限流和追踪
-└── mcp_servers/      MCP 学习型服务，不是当前客服主链路
+└── mcp_servers/      MCP server：minimal（学习型）+ product（已接入客服主链路，streamable HTTP :9100）
 
 data/
 ├── knowledge_base/   知识库原始资料
