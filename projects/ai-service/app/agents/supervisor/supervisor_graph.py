@@ -14,6 +14,7 @@ from app.agents.ticket_agent import (
     ask_clarifying_question_node,
     build_direct_answer_node,
     build_unsupported_answer_node,
+    has_active_ticket_field_collection,
     normalize_user_input_node,
 )
 from app.agents.workers.knowledge_agent import build_knowledge_agent_graph
@@ -57,6 +58,23 @@ def build_supervisor_graph(
     builder.add_node("normalize_user_input", normalize_user_input_node)
 
     def supervisor_route_node(state: SupervisorState) -> SupervisorState:
+        # active-collection 检查：上一轮工单字段收集进行中（needs_ticket=True 且
+        # 已抽取部分字段但仍有缺失）时，强制回到 ticket_agent 继续收集，
+        # 不经过 supervisor 路由判定——否则"订单号是 A1001"这类补充消息会被
+        # ORDER_KEYWORDS 误路由到 order_agent，或 LLM 路由误判而偏离工单流程。
+        # 与单 Agent 图 classify_intent_node 的检查语义等价。
+        if has_active_ticket_field_collection(state):
+            logger.info(
+                "supervisor_active_ticket_field_collection forcing ticket_agent "
+                "missing_fields=%s",
+                state.get("missing_ticket_fields"),
+            )
+            return {
+                "intent": "ticket_request",
+                "intent_reason": "用户正在补充上一轮工单流程缺少的信息。",
+                "node_history": ["supervisor_route"],
+            }
+
         message = state.get("normalized_message") or state.get("user_message", "")
         # LLM 模式 router 失败时回退规则路由（设计规格 3.3）；
         # 无 route_with_fallback 的 router（RuleSupervisorRouter / fakes）走 route()。
@@ -78,11 +96,17 @@ def build_supervisor_graph(
             SUPERVISOR_ROUTE_TABLE[route],
             source,
         )
-        return {
+        update: SupervisorState = {
             "intent": intent,
             "intent_reason": f"supervisor routed to {route.value} (source={source})",
             "node_history": ["supervisor_route"],
         }
+        if intent == "ticket_request":
+            # 标记工单流程激活，与单 Agent decide_ticket_need 对 ticket_request
+            # 的输出一致：让 has_active_ticket_field_collection 能在多轮中生效。
+            update["needs_ticket"] = True
+            update["ticket_need_source"] = "explicit_user_request"
+        return update
 
     builder.add_node("supervisor_route", supervisor_route_node)
     builder.add_node("knowledge_agent", knowledge_graph)

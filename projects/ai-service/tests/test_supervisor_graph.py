@@ -230,3 +230,105 @@ def test_supervisor_llm_router_failure_falls_back_to_rule() -> None:
     result = graph.invoke({"user_message": "查订单 A1001 物流"})
     assert result["intent"] == "order_query"
     assert "已发货" in (result.get("final_answer") or "")
+
+
+def test_supervisor_multi_turn_rule_collects_missing_order_id() -> None:
+    """多 Agent 多轮（rule 路由）：缺字段追问后，补充消息不得被 ORDER_KEYWORDS
+    带偏到 order_agent，必须强制回工单并合并第一轮字段建单。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-multi-turn-rule-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要申请退款，商品破损"},
+        config=config,
+    )
+    # 进入工单流程并触发缺字段追问
+    assert first["needs_ticket"] is True
+    assert first["missing_ticket_fields"] == ["order_id"]
+    assert "订单号" in (first.get("final_answer") or "")
+
+    # 第二轮补充订单号："订单号是 A1001" 在 rule 路由下会命中 ORDER_KEYWORDS，
+    # 若没有 active-collection 检查会被误判为 order_query
+    second = graph.invoke(
+        {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["intent"] == "ticket_request"
+    assert second["missing_ticket_fields"] == []
+    assert second["ticket_creation_status"] == "created"
+    assert second["created_ticket"] is not None
+    assert second["created_ticket"]["related_order_id"] == "A1001"
+    # 第一轮提供的字段（description）必须保留并随工单创建
+    assert "商品破损" in (second["created_ticket"]["description"] or "")
+    assert "A1001" in (second["created_ticket"]["title"] or "")
+
+
+def test_supervisor_multi_turn_llm_merges_follow_up_fields() -> None:
+    """多 Agent 多轮（LLM 路由恒 ticket_request）：第二轮补充字段必须与第一轮
+    字段合并建单，previous_fields 不能因顶层缺持久化而丢失重新提取。"""
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-multi-turn-llm-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要申请退款，商品破损"},
+        config=config,
+    )
+    assert first["needs_ticket"] is True
+    assert first["missing_ticket_fields"] == ["order_id"]
+
+    second = graph.invoke(
+        {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["intent"] == "ticket_request"
+    assert second["missing_ticket_fields"] == []
+    assert second["ticket_creation_status"] == "created"
+    assert second["created_ticket"]["related_order_id"] == "A1001"
+    assert "商品破损" in (second["created_ticket"]["description"] or "")
+
+
+def test_supervisor_after_ticket_creation_next_policy_turn_not_leaked() -> None:
+    """建单成功后顶层 needs_ticket 残留 True 不应让下一轮知识问题被
+    after_knowledge_agent 误转工单（knowledge 子图会重新计算 needs_ticket）。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        knowledge_service=FakePolicyRagService(
+            make_policy_rag_answer(answer="退货政策是 30 天无理由。")
+        ),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-post-ticket-policy-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要申请退款，商品破损"},
+        config=config,
+    )
+    assert first["missing_ticket_fields"] == ["order_id"]
+
+    second = graph.invoke(
+        {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["ticket_creation_status"] == "created"
+
+    third = graph.invoke(
+        {"user_message": "退货政策是什么"},
+        config=config,
+    )
+    assert third["rag_answer_status"] == "answered"
+    assert "退货政策" in (third.get("final_answer") or "")
+    assert third["needs_ticket"] is False
+    # 未被误转工单：本轮没有再触发 create_ticket（created_ticket 保持上一轮值）
+    assert third.get("ticket_creation_status") in (None, "created")

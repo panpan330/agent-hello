@@ -19,6 +19,7 @@ class SupervisorState(TypedDict, total=False):
     ticket_need_source: str
     # ticket worker 子图字段（顶层传入确认/字段、读取创建结果，供监督层编排）
     ticket_fields: dict | None
+    missing_ticket_fields: list[str]
     ticket_confirmation_approved: bool | None
     ticket_creation_status: str | None
     created_ticket: dict | None
@@ -76,6 +77,7 @@ class TicketWorkerState(TypedDict, total=False):
     normalized_message: str
     agent_trace_id: str
     rag_answer_status: str
+    needs_ticket: bool
     ticket_fields: dict | None
     ticket_actor_id: str
     ticket_field_extraction_source: str
@@ -110,6 +112,7 @@ SUPERVISOR_OUTPUT_KEYS = frozenset(
         "rag_citations",
         "ticket_creation_status",
         "created_ticket",
+        "missing_ticket_fields",
         "agent_error_code",
         "agent_error_message",
         "order_query_order_id",
