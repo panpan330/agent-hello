@@ -181,13 +181,13 @@ def _has_pending_ticket_confirmation_next(snapshot: Any) -> bool:
 def _pending_confirmation_fields(snapshot: Any) -> dict | None:
     """Resolve the confirmed ticket draft from a state snapshot.
 
-    单 Agent 图：ticket_fields 直接位于顶层 state；
-    多 Agent 嵌套子图中断：ticket worker 子图尚未完成，草稿位于顶层
-    interrupt payload 的 pending_ticket_confirmation.ticket_fields。
+    优先级：活动中的确认中断（interrupt payload）优先，顶层 ticket_fields 兜底。
+    多 Agent 模式下 worker 子图完成会把 ticket_fields 写回顶层；同一会话第二张
+    待确认工单中断时顶层仍是上一轮旧草稿，若先读顶层会用旧字段算出错误
+    confirmation_id，导致确认流程误抛 TICKET_CONFIRMATION_MISMATCH。
+    单 Agent 图中断时 interrupts payload 与顶层 ticket_fields 指向同一份草稿，
+    调整优先级后行为不变。
     """
-    fields = snapshot.values.get("ticket_fields")
-    if isinstance(fields, dict):
-        return fields
     for interrupt in getattr(snapshot, "interrupts", ()) or ():
         value = getattr(interrupt, "value", None)
         if not isinstance(value, dict):
@@ -195,6 +195,9 @@ def _pending_confirmation_fields(snapshot: Any) -> dict | None:
         pending = value.get("pending_ticket_confirmation")
         if isinstance(pending, dict) and isinstance(pending.get("ticket_fields"), dict):
             return pending["ticket_fields"]
+    fields = snapshot.values.get("ticket_fields")
+    if isinstance(fields, dict):
+        return fields
     return None
 
 

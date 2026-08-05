@@ -201,3 +201,76 @@ def test_multi_agent_console_order_failure_offers_human_handoff(
     )
     assert response.human_handoff is not None
     assert response.human_handoff.related_order_id == "A1001"
+
+
+def test_multi_agent_console_second_confirmation_uses_fresh_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同一会话第二张待确认工单不能复用上一轮顶层旧 ticket_fields。
+
+    修复前 _pending_confirmation_fields 优先读顶层 values.ticket_fields（第一张
+    工单完成后写回顶层），第二张工单中断时算出旧 confirmation_id，与活动中断
+    不符，decide 误抛 TICKET_CONFIRMATION_MISMATCH 409。
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from app.agents.supervisor.supervisor_router import (
+        FakeLLMSupervisorRouter,
+        SupervisorRoute,
+    )
+
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=True,
+    )
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        agent_mcp_tools_enabled=False,
+    )
+    service = ConsoleAgentService(
+        settings,
+        graph=graph,
+        conversation_store=_FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-ma-003"
+
+    first = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+    assert first.pending_ticket_confirmation is not None
+    first_response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=first.pending_ticket_confirmation.confirmation_id,
+        approved=True,
+    )
+    assert first_response.created_ticket is not None
+
+    second = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="另一笔订单 B2002 也要申请售后",
+    )
+    assert second.pending_ticket_confirmation is not None
+    # 两轮草稿必须不同（不同订单号），否则测试无法区分新旧草稿
+    assert (
+        second.pending_ticket_confirmation.confirmation_id
+        != first.pending_ticket_confirmation.confirmation_id
+    )
+    second_response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=second.pending_ticket_confirmation.confirmation_id,
+        approved=True,
+    )
+    assert second_response.created_ticket is not None
+    assert second_response.created_ticket.related_order_id == "B2002"
