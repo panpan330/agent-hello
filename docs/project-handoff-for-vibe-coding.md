@@ -361,7 +361,7 @@ npm run build
 | --- | --- |
 | Milvus | 已安装、已学习、代码有适配配置；当前真实 RAG 使用 Qdrant。 |
 | `java-mock-service` | 早期工具调用和接口联调模拟服务；当前真实业务使用 Java business service。 |
-| MCP | 学习型 minimal server 保留；产品主链路新增 product MCP server（streamable HTTP :9100）+ product MCP client，Agent 的 query_order/create_ticket 经 MCP 调用，确认凭证经共享存储校验。 |
+| MCP | 学习型 minimal server 保留；产品主链路新增 product MCP server（streamable HTTP :9100）+ product MCP client，Agent 的 query_order/create_ticket 经 MCP 调用，确认凭证经共享存储校验（默认关闭，需设 `AGENT_MCP_TOOLS_ENABLED=true` 启用）。 |
 | LangSmith / OpenTelemetry | 有学习型适配和本地 trace 设计；未接入真实 LangSmith 或 OTEL Collector。 |
 | Docker Compose 整体部署 | Redis/Qdrant/Milvus 使用 Docker；前后端项目尚未统一 Compose 化。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 尚未实现。 |
@@ -636,7 +636,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | PowerShell `curl` JSON 转义失败 | 使用 `curl.exe` 或 `Invoke-RestMethod`；不要把 Bash 单引号 JSON 直接照搬到 PowerShell。 |
 | Qdrant 中中文显示异常 | 先按 PowerShell UTF-8 显示问题排查，不要先修改原始文档编码。 |
 | Java 启动时反馈表字段缺失 | 检查 `AiFeedbackSchemaMigration` 日志和 MySQL 表权限；它负责已有表的审核字段迁移。 |
-| MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致。 |
+| MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致；或确认 `.env` 已设 `AGENT_MCP_TOOLS_ENABLED=true`。 |
 
 ## 17. 已实现但未接入产品主流程的模块
 
