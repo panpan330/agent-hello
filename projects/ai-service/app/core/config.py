@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     mcp_product_port: int = Field(default=9100, ge=1, le=65535)
     tool_confirmation_backend: str = Field(default="memory")
     agent_mcp_tools_enabled: bool = Field(default=False)
+    agent_multi_agent_enabled: bool = Field(default=False)
+    supervisor_router_mode: str = Field(default="rule")
     log_level: str = Field(default="INFO")
     cors_allowed_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173"
@@ -312,6 +314,10 @@ class Settings(BaseSettings):
     def resolved_tool_confirmation_backend(self) -> str:
         value = self.tool_confirmation_backend.strip()
         return value if value == "redis" else "memory"
+
+    @property
+    def resolved_supervisor_router_mode(self) -> str:
+        return self.supervisor_router_mode if self.supervisor_router_mode == "llm" else "rule"
 
 
 @lru_cache

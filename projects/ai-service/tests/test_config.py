@@ -811,3 +811,25 @@ def test_mcp_product_settings_env_overrides() -> None:
 def test_mcp_product_settings_invalid_backend_falls_back_to_memory() -> None:
     settings = Settings(_env_file=None, tool_confirmation_backend="invalid")
     assert settings.resolved_tool_confirmation_backend == "memory"
+
+
+def test_multi_agent_settings_defaults() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.agent_multi_agent_enabled is False
+    assert settings.supervisor_router_mode == "rule"
+    assert settings.resolved_supervisor_router_mode == "rule"
+
+
+def test_multi_agent_settings_env_overrides() -> None:
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        supervisor_router_mode="llm",
+    )
+    assert settings.agent_multi_agent_enabled is True
+    assert settings.resolved_supervisor_router_mode == "llm"
+
+
+def test_supervisor_router_mode_invalid_falls_back_to_rule() -> None:
+    settings = Settings(_env_file=None, supervisor_router_mode="invalid")
+    assert settings.resolved_supervisor_router_mode == "rule"
