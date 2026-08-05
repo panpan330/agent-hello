@@ -4,7 +4,7 @@
 
 这是一份交给新的 AI 编程助手的项目交接文档。目标是让新的助手在不丢失现有成果、不泄露密钥、不破坏多服务边界的前提下，继续补充、优化和开发项目。
 
-## 1. 先读这一节
+## 1. 项目基础信息与协作约束
 
 ### 工作区与项目位置
 
@@ -361,58 +361,291 @@ npm run build
 | --- | --- |
 | Milvus | 已安装、已学习、代码有适配配置；当前真实 RAG 使用 Qdrant。 |
 | `java-mock-service` | 早期工具调用和接口联调模拟服务；当前真实业务使用 Java business service。 |
-| MCP | 有 MCP Server 与资源能力；当前 Vue 客服 Agent 未通过 MCP 调外部业务系统。 |
+| MCP | 学习型 minimal server 保留；产品主链路新增 product MCP server（streamable HTTP :9100）+ product MCP client，Agent 的 query_order/create_ticket 经 MCP 调用，确认凭证经共享存储校验。 |
 | LangSmith / OpenTelemetry | 有学习型适配和本地 trace 设计；未接入真实 LangSmith 或 OTEL Collector。 |
 | Docker Compose 整体部署 | Redis/Qdrant/Milvus 使用 Docker；前后端项目尚未统一 Compose 化。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 尚未实现。 |
 | 多 Agent 协作 | 当前是单个 LangGraph 工单 Agent，不是 Multi-Agent 系统。 |
 
-## 10. 推荐的后续开发原则
+## 10. Java API 与内部接口清单
 
-每次新需求先判断属于哪一层：
+Java 服务端口为 `18004`。统一响应采用 `success`、`code`、`message`、`data`、`trace_id` 结构，并将 Java 字段序列化为 snake_case。
+
+### 对浏览器开放的主要接口
+
+| 模块 | 接口前缀 | 说明 |
+| --- | --- | --- |
+| 认证 | `/api/auth/login`、`/api/auth/me` | 登录与当前用户身份解析。 |
+| 订单 | `/api/orders` | 当前用户可见订单列表。 |
+| 工单 | `/api/tickets` | 列表、详情、状态修改、认领/分配、消息、解决、重新打开。 |
+| 知识库元数据 | `/api/knowledge-documents` | Java 侧知识库文档业务元数据。 |
+| 员工目录 | `/api/users/staff` | 可分配的客服/主管人员。 |
+| AI 反馈概览 | `/api/ai-response-feedback/overview` | 主管查看本租户 AI 反馈统计与负反馈候选。 |
+| 健康检查 | `/health`、`/ready` | 服务进程和就绪状态。 |
+
+工单详情和列表均由 Java 按当前用户、租户和角色过滤。浏览器不应使用 internal API。
+
+### 仅供 Python AI 服务调用的接口
+
+| 接口 | 用途 | 必要上下文 |
+| --- | --- | --- |
+| `GET /internal/orders/{orderId}` | 查询订单和物流状态 | internal token、caller、trace_id、user_id、tenant_id。 |
+| `POST /internal/tickets` | 从已确认 Agent 流程创建工单 | 同上，另有 `Idempotency-Key`。 |
+| `POST /internal/ai-response-feedback` | 写入或更新某条 AI 回答反馈 | 同上。 |
+| `GET /internal/ai-response-feedback/{id}` | 读取反馈的可信审核上下文 | 同上。 |
+| `POST /internal/ai-response-feedback/{id}/review` | 更新为 `triaged` 或 `closed` | 同上。 |
+| `POST /internal/ai-response-feedback/{id}/promote` | 回写正式 Bad Case ID 与 `regression_added` 状态 | 同上。 |
+
+internal API 的调用方标识当前是 `ai-service`。内部 token 通过环境变量管理，不能放进前端或提交到 Git。
+
+## 11. Python API 与前端路由清单
+
+Python 服务端口为 `8000`。产品主入口位于 `projects/ai-service/app/routers/`。
+
+### Python 产品接口
+
+| 模块 | 入口或前缀 | 说明 |
+| --- | --- | --- |
+| AI 对话 | `/api/ai/chat` | 简化 AI 对话入口。 |
+| Agent 会话 | `/api/ai/agent/conversations`、`/stream` | 多轮 Agent 对话和 SSE 流。 |
+| Agent 会话管理 | `chat.py` 内 conversation 子路由 | 会话列表、会话详情、工单确认、修改、人工转接、回答反馈。 |
+| RAG | `rag.py` 的 `/ask` | 检索、重排、带引用回答。 |
+| 知识库 | `knowledge_base.py` 的 `/status`、`/ingest` | 知识库状态和文档入库。 |
+| 评测 | `/api/ai/evaluation/overview` | 本地评测概览、Bad Case 汇总、最近正式回归运行。 |
+| 反馈审核 | `/api/ai/evaluation/feedback-candidates/{id}` | 主管读取可信上下文、审核和正式登记。 |
+| 正式回归 | `/api/ai/evaluation/runs/production-regression` | 运行并持久化正式 Bad Case 回归。 |
+| 工具 | `tools.py` | 订单查询、工具确认、LangChain 学习型工具接口。 |
+| 健康检查 | `/health`、`/ready` | 服务存活与依赖就绪状态。 |
+
+`chat.py` 还保留了 `/chat`、`/stream-chat`、`/tool-chat`、`/extract-ticket` 等阶段学习接口。它们可用于学习和调试，但前端产品主链路优先使用 `/api/ai/agent/conversations`。
+
+### Vue 路由与角色
+
+| 页面 | 路径 | 可访问角色 |
+| --- | --- | --- |
+| 登录 | `/login` | 未登录用户。 |
+| AI 客服 | `/ai-chat` | customer、agent、supervisor、admin。 |
+| 订单 | `/orders` | customer、agent、supervisor、admin。 |
+| 工单 | `/tickets` | customer、agent、supervisor、admin。 |
+| 工单工作台 | `/workbench` | agent、supervisor、admin。 |
+| 知识库 | `/knowledge` | supervisor、admin。 |
+| AI 评测 | `/evaluation` | supervisor、admin。 |
+| 设置 | `/settings` | admin。 |
+
+路由守卫只负责前端体验，不能替代 Java/Python 服务端鉴权。
+
+## 12. MySQL 表、业务状态与迁移
+
+### 主要表
+
+| 表 | 所属事实 | 关键约束/用途 |
+| --- | --- | --- |
+| `app_users`、`app_roles`、`app_user_roles` | 用户、角色、租户 | 用户名和 user_id 均按租户唯一。 |
+| `orders` | 订单事实 | `(tenant_id, order_id)` 唯一，订单归属 user_id。 |
+| `tickets` | 工单主记录 | 租户+幂等键唯一，保存确认 ID、请求指纹和创建 trace。 |
+| `ticket_events` | 工单事件审计 | 每条事件具备 event_id、操作人和 trace。 |
+| `ticket_assignments` | 当前工单负责人 | 租户+工单唯一。 |
+| `ticket_messages` | 工单消息 | 有 public/internal 可见性。 |
+| `knowledge_documents` | Java 侧知识库文档元数据 | 不存向量，只存业务元信息。 |
+| `ai_conversations`、`ai_messages` | AI 会话元数据与消息 | 与 Redis Checkpoint 不同，前者属于业务记录。 |
+| `ai_response_feedback` | AI 回答反馈和审核状态 | 同一租户、用户、会话、trace 只能有一条反馈。 |
+
+### 工单状态机
 
 ```text
-业务事实、权限、状态机、写操作       -> Java 优先
-模型、RAG、Agent、评测、提示词        -> Python 优先
-展示、交互、输入、用户体验             -> Vue 优先
-跨层能力                              -> 先定义 API 契约，再逐层实现
+created -> in_progress -> waiting_user -> in_progress -> resolved -> closed
+created -> waiting_user
+in_progress -> resolved
+waiting_user -> resolved
+resolved -> in_progress       通过 reopen
 ```
 
-优先补 AI 应用能力，不要长期只做传统 CRUD。合理的后续方向包括：
+`closed` 不允许再直接流转；重新打开仅允许从 `resolved` 执行。客户公开回复只允许在 `created`、`in_progress`、`waiting_user` 状态下进行；客户回复 `waiting_user` 工单会将其恢复为 `in_progress`。
 
-1. Bad Case 运行历史比较、趋势指标和发布门禁。
-2. 真实线上数据脱敏采样与评测集治理。
-3. RAG 检索质量、引用质量、权限过滤和 rerank 策略增强。
-4. AI 人工转接后的处理闭环与知识库反馈闭环。
-5. 前后端 Docker Compose、本地一键启动、环境分层。
-6. 日志、指标、告警与外部追踪平台接入。
-
-不要为了“看起来高级”直接引入 Multi-Agent、Kubernetes、微调或复杂框架。每项能力必须有明确业务收益、边界和测试策略。
-
-## 11. 新助手首次接手清单
-
-1. 阅读本文件。
-2. 阅读 `docs/local-run-and-demo.md`、`docs/java-ai-api-contract.md`、`docs/stage11-product-scope-and-realization-standards.md`。
-3. 执行 `git status --short`，确认并保留未提交改动。
-4. 仅按当前任务读取必要模块，不进行无关重构。
-5. 涉及 Redis/Qdrant/真实模型前，确认 VMware Ubuntu 和对应容器状态。
-6. 修改后运行受影响服务的测试与构建；不要用真实模型做自动化测试。
-7. 在最终回复中说明：改了什么、验证了什么、服务是否重启、是否提交/推送。
-
-## 12. 给新 Vibe Coding 助手的开场提示
-
-将下面内容连同本交接文档一起提供给新助手即可：
+### AI 反馈状态
 
 ```text
-你正在接手 D:\wendang\java+python+ai 中的“AI 客服与智能工单系统”。
-先阅读 docs/project-handoff-for-vibe-coding.md，并严格遵守其中的架构边界、安全规则、Git 规则和用户协作偏好。
-
-这是一个已有大量未提交真实实现的多服务项目：
-- projects/java-business-service：Java 业务事实与写操作边界；
-- projects/ai-service：FastAPI、LangGraph、RAG、Qdrant、模型、评测；
-- projects/customer-service-console：Vue 3 前端。
-
-不要重建项目、不要清理未提交改动、不要自动提交或推送 GitHub、不要泄露 .env 和任何密钥。
-新增 AI 能力时坚持“模型提出建议，后端校验、授权、执行和兜底”的边界。
-先理解现有链路，再针对当前需求做最小但完整的实现；补关键测试并实际运行受影响测试。涉及真实模型或 VMware Docker 服务时，先说明依赖、费用和启动要求。
+candidate -> triaged
+candidate -> closed
+candidate/triaged -> regression_added
 ```
+
+`ai_response_feedback` 中保存的 `user_message_excerpt`、`assistant_answer_excerpt`、`citation_summary_json` 是审核时使用的服务端可信快照。`bad_case_id` 只在正式登记后写入。
+
+### 反馈表迁移说明
+
+`AiFeedbackSchemaMigration` 会在 Java 服务启动时检查 `ai_response_feedback` 是否缺少审核字段，然后使用标准 `ALTER TABLE ADD COLUMN` 补齐。原因是本地 MySQL 不支持之前使用的 `ADD COLUMN IF NOT EXISTS` 方言写法。新数据库由 `schema.sql` 一次性创建完整列；已有数据库由该迁移兼容。
+
+## 13. Agent、结构化输出、工具与写操作边界
+
+### Agent 图
+
+核心实现位于 `projects/ai-service/app/agents/ticket_agent.py`。它是单 Agent LangGraph，而不是 Multi-Agent。
+
+主要节点和分支：
+
+```text
+normalize_user_input
+  -> classify_intent
+     -> retrieve_policy -> decide_ticket_need -> ticket field / confirmation
+     -> query_order -> final answer
+     -> build_direct_answer
+     -> build_unsupported_answer
+     -> ask_clarifying_question
+```
+
+支持的意图：`policy_question`、`order_query`、`ticket_request`、`smalltalk`、`unsupported`、`unclear`。
+
+### 模型运行模式
+
+`TICKET_AGENT_MODEL_MODE` 决定 Agent 的结构化输出方式：
+
+| 模式 | 行为 | 是否产生模型费用 |
+| --- | --- | --- |
+| `rule_based` | 本地规则，适合稳定调试和测试。 | 否。 |
+| `fake_llm` | 模拟 LLM JSON，再经过同一 Pydantic 校验链路。 | 否。 |
+| `real_llm` | 调用配置的 OpenAI 兼容模型。 | 是。 |
+
+真实模式下，意图分类和工单字段提取都要求结构化 JSON，并经 Pydantic/业务字段校验后再进入后续节点。模型返回合法 JSON 不代表允许执行业务操作。
+
+### 受控工具
+
+当前业务主工具包括：
+
+| 工具 | 读写属性 | 最终执行者 |
+| --- | --- | --- |
+| `query_order` | 只读 | Python 校验参数和权限后调用 Java internal order API。 |
+| 创建工单 | 写 | Agent 只生成草稿；用户确认后 Python 调用 Java internal ticket API。 |
+
+工具名、参数、订单归属、用户/租户、状态、确认和幂等均由后端校验。模型只负责提出结构化建议，不能直接访问数据库或决定授权。
+
+## 14. RAG、知识库和向量数据细节
+
+### 资料来源与处理
+
+知识库原始文件在：
+
+```text
+projects/ai-service/data/knowledge_base/
+├── account-security-faq.md
+├── logistics-tracking-faq.txt
+├── order-shipping-policy.md
+└── refund-return-policy.md
+```
+
+入库和检索实现位于 `app/rag/`。链路为：文档读取 -> 切块 -> 元数据提取 -> Embedding -> Qdrant upsert -> 向量检索 -> Rerank -> 回答生成 -> 引用返回。
+
+Qdrant payload 中的常用字段包含文档名、标题、业务域、权限组、chunk_id、chunk_index、section、content。权限过滤和引用来源不能依赖模型自己判断。
+
+### 当前真实配置关系
+
+```text
+Embedding model output dimension
+       == EMBEDDING_DIMENSION
+       == QDRANT_VECTOR_SIZE
+       == Qdrant collection vector size
+```
+
+当前真实 RAG collection 按 1024 维向量配置，适配 `text-embedding-v4`。若切换 embedding 模型或维度，必须新建/重建对应 collection，不能把不同维度写进原 collection。
+
+Rerank 负责对向量检索候选重新排序；它不是向量库替代品，也不能弥补没有检索到的文档。无上下文时系统应拒绝编造，并根据业务流程进入追问、工单或人工处理路径。
+
+### 与 Milvus 的关系
+
+Milvus 容器、脚本和 `pymilvus` 依赖仍保留用于学习和对比；当前产品 RAG 运行路径不读取 Milvus。任何将 Milvus 接入主链路的改动都需要同时处理 collection schema、迁移、检索适配和回滚方案。
+
+## 15. 评测、Bad Case 与运行历史的数据格式
+
+### 固定评测数据
+
+```text
+data/agent_eval/agent_cases.json
+data/rag_eval/retrieval_cases.json
+data/rag_eval/rag_cases.json
+data/evaluation/datasets.json
+```
+
+这些是确定性学习/回归样例，覆盖意图、字段、路由、RAG 回答、引用、无上下文、权限与工具行为。评测实现分别位于 `app/agents/*_evaluation.py` 与 `app/agents/eval_suite.py`。
+
+### 正式 Bad Case
+
+文件：`data/evaluation/bad_cases.json`
+
+记录的核心字段：
+
+```text
+id, source, task_type, severity, status,
+failure_layer, failure_category,
+expected_behavior, actual_behavior,
+recommended_action, regression_action,
+evidence_summary, tags,
+production_regression
+```
+
+`source=production` 且 `status=regression_added` 的记录才会被正式回归运行选中。`production_regression` 是主管定义的可执行规格，包含：
+
+```text
+message
+assertion: intent | citation_present | ticket_confirmation_required
+expected_intent: 仅 assertion=intent 时存在
+```
+
+当前正式 Bad Case 文件在提交时为空；它不应预置测试用线上反馈。第一次真实登记后才会写入记录。
+
+### 正式回归历史
+
+文件：`data/evaluation/production_regression_runs.json`，首次运行才生成。
+
+每次运行保存 run_id、开始/结束时间、总数、通过/失败/待补充/异常计数和逐条结果。最多保留最近 30 次。写入使用临时文件替换，避免中断时留下半截 JSON。
+
+结果含义：
+
+| outcome | 含义 |
+| --- | --- |
+| `passed` | 当前 Agent 结果满足主管配置的断言。 |
+| `failed` | Agent 正常运行但不满足断言。 |
+| `not_ready` | 正式 Bad Case 没有可自动执行的规格。 |
+| `error` | 运行该案例时 Agent 或依赖发生异常。 |
+
+如果结果为 `not_ready` 或 `error`，整体运行不会标记为通过。
+
+## 16. 运行时配置、服务状态与已知现象
+
+### 关键配置文件
+
+| 位置 | 内容 |
+| --- | --- |
+| `projects/ai-service/.env` | 本机真实模型、Qdrant、Redis、Java 地址与密钥；Git 忽略。 |
+| `projects/ai-service/.env.example` | 无密钥配置模板。 |
+| `projects/java-business-service/src/main/resources/application.yml` | Java 端口、MySQL、Redis、内部调用、MyBatis。 |
+| `projects/customer-service-console/.env*` | 若存在，覆盖前端 Java/AI API 地址。 |
+
+### 服务与容器
+
+Java 依赖 Windows MySQL；Redis 和 Qdrant 当前位于 VMware Ubuntu 的 Docker 中。虚拟机关闭时，涉及会话、限流、RAG 和部分健康检查的功能会失败或降级。
+
+Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker 和该容器的重启策略。Redis、Qdrant、Milvus 的容器状态应在 Ubuntu 中使用 `docker ps -a` 查看。
+
+### 已知运行问题与定位方式
+
+| 现象 | 已知原因或检查点 |
+| --- | --- |
+| Java 启动提示 `Port 18004 was already in use` | 上一次 Java 进程仍在监听端口。使用 `Get-NetTCPConnection -LocalPort 18004 -State Listen` 找到 PID 后停止。 |
+| Vue 从 5174/5175 调用接口出现 CORS 403 | 确认运行的是最新 Java/Python 服务；Java `WebCorsConfig` 和 Python CORS 正则已允许 localhost/127.0.0.1 本地端口。 |
+| Python 脚本报 `ModuleNotFoundError: app` | 在 `projects/ai-service` 根目录运行，优先使用 `uv run python -m ...` 或模块方式运行。 |
+| PowerShell `curl` JSON 转义失败 | 使用 `curl.exe` 或 `Invoke-RestMethod`；不要把 Bash 单引号 JSON 直接照搬到 PowerShell。 |
+| Qdrant 中中文显示异常 | 先按 PowerShell UTF-8 显示问题排查，不要先修改原始文档编码。 |
+| Java 启动时反馈表字段缺失 | 检查 `AiFeedbackSchemaMigration` 日志和 MySQL 表权限；它负责已有表的审核字段迁移。 |
+| MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致。 |
+
+## 17. 已实现但未接入产品主流程的模块
+
+| 模块 | 代码/环境位置 | 当前实际状态 |
+| --- | --- | --- |
+| `java-mock-service` | `projects/java-mock-service` | 早期学习与模拟；当前不承载真实业务。 |
+| Milvus | VMware Ubuntu、`app/rag` 的 Milvus 脚本 | 已安装和学习；当前 RAG 主链路为 Qdrant。 |
+| MCP | `app/mcp_servers`（minimal + product）、`app/mcp_clients`（minimal + product） | 学习型 minimal server 保留；产品级 product server（独立进程，streamable HTTP :9100，Bearer token 认证）与 product client 已接入客服 Agent 主链路。启动：`cd projects/ai-service && uv run python -m app.mcp_servers.product_server`。配置：`MCP_PRODUCT_BASE_URL` / `MCP_PRODUCT_AUTH_TOKEN` / `TOOL_CONFIRMATION_BACKEND` / `AGENT_MCP_TOOLS_ENABLED`。 |
+| LangSmith/OTEL | `app/agents/langsmith_tracing.py`、`otel_tracing.py` | 有适配/学习实现；未配置外部平台。 |
+| LangChain 学习接口 | `langchain_chat` 等服务和路由 | 仍可学习/验证；产品主 Agent 使用 LangGraph 和直接 OpenAI-compatible 调用。 |
+| Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
+| CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |
