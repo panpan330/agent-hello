@@ -26,6 +26,16 @@ def reset_business_context(
     _current_tenant_id.reset(tenant_token)
 
 
+def get_business_context() -> tuple[str | None, str | None]:
+    """Return the currently set (user_id, tenant_id), or (None, None).
+
+    Used by MCP tool adapters running in the AI-service process to forward
+    the authenticated actor identity to the standalone product MCP server,
+    which has no contextvar of its own.
+    """
+    return _current_user_id.get(), _current_tenant_id.get()
+
+
 def build_java_internal_headers(settings: Settings) -> dict[str, str]:
     return {
         "X-Caller": settings.java_business_internal_caller.strip() or "ai-service",
