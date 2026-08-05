@@ -16,6 +16,7 @@ class SupervisorState(TypedDict, total=False):
     rag_answer_status: str
     rag_citations: list[dict]
     needs_ticket: bool
+    ticket_need_source: str
     final_answer: str | None
     node_history: Annotated[list[str], add]
     agent_error_code: str | None
@@ -59,9 +60,14 @@ class TicketWorkerState(TypedDict, total=False):
     agent_trace_id: str
     rag_answer_status: str
     ticket_fields: dict | None
+    ticket_actor_id: str
+    ticket_field_extraction_source: str
     missing_ticket_fields: list[str]
+    missing_ticket_field_question: str
+    missing_ticket_field_question_fields: list[str]
     ticket_fields_complete: bool | None
     ticket_need_source: str | None
+    ticket_tool_name: str
     ticket_confirmation_required: bool | None
     ticket_confirmation_approved: bool | None
     ticket_confirmation_correction_requested: bool | None
