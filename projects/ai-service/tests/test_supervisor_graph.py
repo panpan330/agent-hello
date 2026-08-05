@@ -1,5 +1,8 @@
 import pytest
 
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command
+
 from app.agents.supervisor.supervisor_graph import (
     SUPERVISOR_ROUTE_TABLE,
     build_supervisor_graph,
@@ -10,6 +13,7 @@ from app.agents.supervisor.supervisor_router import (
 )
 from tests.rag_fakes import make_retrieved_chunk
 from tests.tool_fakes import (
+    FakeNoContextPolicyRagService,
     FakePolicyRagService,
     FakeTicketCreator,
     make_created_ticket,
@@ -87,3 +91,55 @@ def test_supervisor_smalltalk_builds_direct_answer() -> None:
     )
     result = graph.invoke({"user_message": "你好"})
     assert result["final_answer"] is not None
+
+
+def test_knowledge_no_context_transfers_to_ticket() -> None:
+    """Knowledge 子图 RAG no_context 时，监督层应把流程转给 ticket worker 建工单。"""
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.KNOWLEDGE_QUESTION),
+        knowledge_service=FakeNoContextPolicyRagService(),
+        ticket_creator=FakeTicketCreator(),
+        interrupt_confirmation=False,
+    )
+    result = graph.invoke(
+        {
+            "user_message": "一个知识库没有的问题",
+            "ticket_confirmation_approved": True,
+            "ticket_fields": {
+                "issue_type": "policy_gap",
+                "order_id": None,
+                "description": "一个知识库没有的问题",
+                "user_request": "一个知识库没有的问题",
+                "urgency": "medium",
+                "need_human_review": True,
+            },
+        }
+    )
+    assert result["needs_ticket"] is True
+    assert result["rag_answer_status"] == "no_context"
+    assert result["ticket_need_source"] == "rag_no_context"
+    # 转单语义完整验证：ticket worker 实际创建了 policy_gap 工单
+    assert result["created_ticket"] is not None
+    assert result["created_ticket"]["category"] == "policy_gap"
+
+
+def test_ticket_interrupt_pause_and_resume() -> None:
+    """interrupt_confirmation=True 时 ticket worker 应暂停并等待确认，resume 后完成建单。"""
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        interrupt_confirmation=True,
+        checkpointer=MemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "supervisor-interrupt-test"}}
+    initial = graph.invoke(
+        {"user_message": "申请退款，订单 A1001 破损"},
+        config=config,
+    )
+    assert initial.get("__interrupt__")
+    resumed = graph.invoke(
+        Command(resume={"approved": True}),
+        config=config,
+    )
+    assert resumed.get("ticket_creation_status") == "created"
+    assert resumed.get("created_ticket") is not None

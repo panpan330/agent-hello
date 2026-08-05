@@ -94,7 +94,7 @@ def build_supervisor_graph(
             "smalltalk": SupervisorRoute.SMALLTALK,
             "unsupported": SupervisorRoute.UNSUPPORTED,
             "unclear": SupervisorRoute.UNCLEAR,
-        }[intent] if intent else SupervisorRoute.UNCLEAR
+        }.get(intent, SupervisorRoute.UNCLEAR)
         return SUPERVISOR_ROUTE_TABLE[route]
 
     builder.add_conditional_edges(

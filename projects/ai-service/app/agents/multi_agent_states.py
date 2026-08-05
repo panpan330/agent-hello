@@ -3,14 +3,14 @@
 from operator import add
 from typing import Annotated, TypedDict
 
-from app.schemas.structured import TicketIntent
-
 
 class SupervisorState(TypedDict, total=False):
     user_message: str
     normalized_message: str
     agent_trace_id: str
-    intent: TicketIntent
+    # 监督层写入 6 值意图（policy_question/order_query/ticket_request/smalltalk/
+    # unsupported/unclear），与 TicketIntent 枚举（退款类）值域不同，故标注为 str
+    intent: str
     intent_reason: str
     # 跨 Agent 协作字段（knowledge 子图输出，监督层读取）
     rag_answer_status: str
@@ -31,7 +31,8 @@ class SupervisorState(TypedDict, total=False):
 class KnowledgeWorkerState(TypedDict, total=False):
     normalized_message: str
     agent_trace_id: str
-    intent: TicketIntent
+    # 子图读取监督层传入的意图（str，见 SupervisorState.intent 说明）
+    intent: str
     rag_query: str
     rag_answer_status: str
     rag_citations: list[dict]
