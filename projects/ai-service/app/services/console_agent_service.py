@@ -11,6 +11,7 @@ from redis.exceptions import RedisError
 
 from app.agents.ticket_agent import (
     LLMTicketFields,
+    TICKET_CONFIRMATION_INTERRUPT_KIND,
     TicketFields,
     build_ticket_agent_input,
     build_pending_ticket_confirmation,
@@ -534,6 +535,14 @@ class ConsoleAgentService:
                 status_code=409,
             )
 
+        # The reliable discriminator lives in the confirmation interrupt
+        # payload (written by the worker graph where refund_request_active is
+        # visible): the top-level supervisor snapshot.values never receives the
+        # worker flag, and the draft fields alone are identical for both paths.
+        is_refund_execution = self._snapshot_confirmation_is_refund_execution(
+            snapshot
+        )
+
         tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
         try:
             if approved and self.settings.agent_mcp_tools_enabled:
@@ -543,14 +552,6 @@ class ConsoleAgentService:
                 # Java service instead, so registering here would be a dead write.
                 from app.agents.mcp_tool_adapters import register_ticket_confirmation
 
-                # A refund *execution* draft (refund_request intent) sets
-                # refund_request_active on the graph state; refund-typed tickets
-                # created through the ordinary ticket flow do not. The snapshot
-                # flag is the reliable discriminator (the draft fields alone are
-                # identical for both paths).
-                is_refund_execution = (
-                    snapshot.values.get("refund_request_active") is True
-                )
                 register_ticket_confirmation(
                     actor_id=actor.user_id,
                     fields=fields,
@@ -569,7 +570,11 @@ class ConsoleAgentService:
         self._record_exchange(
             actor=actor,
             conversation_id=conversation_id,
-            user_message="确认创建工单" if approved else "取消创建工单",
+            user_message=(
+                ("确认退款" if is_refund_execution else "确认创建工单")
+                if approved
+                else ("取消退款" if is_refund_execution else "取消创建工单")
+            ),
             response=response,
         )
         return response
@@ -584,6 +589,10 @@ class ConsoleAgentService:
     ) -> ConsoleAgentResponse:
         thread_id = self._thread_id(actor, conversation_id)
         self._require_pending_confirmation(thread_id, confirmation_id)
+        snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
+        is_refund_execution = self._snapshot_confirmation_is_refund_execution(
+            snapshot
+        )
         corrected_fields = self._validate_corrected_ticket_fields(ticket_fields)
         tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
         try:
@@ -600,7 +609,11 @@ class ConsoleAgentService:
         self._record_exchange(
             actor=actor,
             conversation_id=conversation_id,
-            user_message="修改工单草稿并重新确认",
+            user_message=(
+                "修改退款信息并重新确认"
+                if is_refund_execution
+                else "修改工单草稿并重新确认"
+            ),
             response=response,
         )
         return response
@@ -891,6 +904,23 @@ class ConsoleAgentService:
                 actor.user_id,
             )
 
+    def _snapshot_confirmation_is_refund_execution(self, snapshot: Any) -> bool:
+        """Whether the pending confirmation interrupt is a refund execution.
+
+        The flag is written into the interrupt payload by the worker graph
+        (where refund_request_active is visible).  The top-level supervisor
+        snapshot.values never carries the worker flag, so the interrupt payload
+        is the only reliable source for both single- and multi-agent graphs.
+        """
+        for interrupt in getattr(snapshot, "interrupts", ()) or ():
+            value = getattr(interrupt, "value", None)
+            if (
+                isinstance(value, dict)
+                and value.get("kind") == TICKET_CONFIRMATION_INTERRUPT_KIND
+            ):
+                return value.get("is_refund_execution") is True
+        return False
+
     def _pending_confirmation_from_state(
         self,
         state: dict[str, Any],
@@ -901,9 +931,8 @@ class ConsoleAgentService:
         if not state.get("__interrupt__"):
             return None
 
-        pending = get_ticket_confirmation_interrupt_payload(state).get(
-            "pending_ticket_confirmation"
-        )
+        interrupt_payload = get_ticket_confirmation_interrupt_payload(state)
+        pending = interrupt_payload.get("pending_ticket_confirmation")
         if not isinstance(pending, dict):
             return None
         return ConsoleAgentTicketConfirmation.model_validate(
@@ -911,6 +940,9 @@ class ConsoleAgentService:
                 "confirmation_id": pending.get("confirmation_id"),
                 "title": pending.get("title"),
                 "summary": pending.get("summary"),
+                "is_refund_execution": (
+                    interrupt_payload.get("is_refund_execution") is True
+                ),
                 "ticket_fields": pending.get("ticket_fields"),
             }
         )

@@ -449,6 +449,75 @@ def test_console_agent_response_whitelists_pending_confirmation_fields() -> None
     assert response.reply == "Please confirm."
 
 
+def test_console_agent_pending_confirmation_exposes_refund_execution_flag() -> None:
+    """退款执行确认必须暴露 is_refund_execution，退款类型工单不得误标。
+
+    draft 字段（issue_type=refund）对退款执行和普通工单流程完全一致，只有
+    worker 中断 payload 的 is_refund_execution 能区分；前端依赖该标志选择
+    退款/工单文案，序列化必须原样透出。
+    """
+    service = ConsoleAgentService(Settings(_env_file=None), graph=object())
+    pending_draft = {
+        "confirmation_id": "confirmation-refund-001",
+        "status": "pending",
+        "title": "Pending refund",
+        "summary": "Refund for A1001",
+        "message": "Please confirm the refund.",
+        "ticket_fields": {
+            "issue_type": "refund",
+            "order_id": "A1001",
+            "description": "商品破损申请退款",
+            "user_request": "售后退款处理",
+            "urgency": "normal",
+            "need_human_review": True,
+        },
+    }
+
+    def make_interrupt(is_refund_execution: bool | None) -> list[SimpleNamespace]:
+        value: dict[str, object] = {
+            "kind": "ticket_confirmation",
+            "confirmation_id": "confirmation-refund-001",
+            "message": "Please confirm the refund.",
+            "pending_ticket_confirmation": pending_draft,
+        }
+        if is_refund_execution is not None:
+            value["is_refund_execution"] = is_refund_execution
+        return [SimpleNamespace(value=value)]
+
+    # 退款执行流程（payload 标志 True）→ is_refund_execution=True
+    refund_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(True)}
+    )
+    assert refund_pending is not None
+    assert refund_pending.is_refund_execution is True
+
+    # 普通工单流程 LLM 填 refund 类型（payload 标志 False）→ False
+    ticket_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(False)}
+    )
+    assert ticket_pending is not None
+    assert ticket_pending.is_refund_execution is False
+
+    # 旧版 payload 无标志 → 默认 False（向后兼容）
+    legacy_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(None)}
+    )
+    assert legacy_pending is not None
+    assert legacy_pending.is_refund_execution is False
+
+    # 响应序列化后字段必须存在（默认 False）
+    response = service._to_response(
+        {"__interrupt__": make_interrupt(None)},
+        conversation_id="conversation-001",
+    )
+    assert response.pending_ticket_confirmation is not None
+    assert response.pending_ticket_confirmation.is_refund_execution is False
+    assert (
+        response.pending_ticket_confirmation.model_dump()["is_refund_execution"]
+        is False
+    )
+
+
 def test_console_agent_response_hides_resolved_confirmation_draft() -> None:
     service = ConsoleAgentService(Settings(_env_file=None), graph=object())
     state = {

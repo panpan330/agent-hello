@@ -25,6 +25,11 @@ class ConsoleAgentTicketConfirmation(BaseModel):
     confirmation_id: str = Field(min_length=8, max_length=128)
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=1000)
+    # True only when this confirmation belongs to a refund *execution* flow
+    # (graph state refund_request_active).  A refund-typed ticket created
+    # through the ordinary ticket flow leaves this False; the browser uses the
+    # flag (not the draft fields alone) to pick refund-vs-ticket copy.
+    is_refund_execution: bool = False
     ticket_fields: ConsoleAgentTicketFields
 
 

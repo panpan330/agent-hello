@@ -28,6 +28,13 @@ export interface ConsoleAgentTicketConfirmation {
   confirmation_id: string
   title: string
   summary: string
+  /**
+   * True only for a refund *execution* confirmation (backend graph state
+   * `refund_request_active`).  Refund-typed tickets created through the
+   * ordinary ticket flow leave this absent/false.  The browser prefers this
+   * flag over `ticket_fields.issue_type` to pick refund-vs-ticket copy.
+   */
+  is_refund_execution?: boolean
   ticket_fields: ConsoleAgentTicketFields
 }
 

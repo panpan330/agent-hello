@@ -1786,11 +1786,14 @@ def build_pending_ticket_confirmation(fields: TicketFields) -> PendingTicketConf
 
 def build_ticket_confirmation_interrupt_payload(
     pending_confirmation: PendingTicketConfirmation,
+    *,
+    is_refund_execution: bool = False,
 ) -> dict[str, Any]:
     return {
         "kind": TICKET_CONFIRMATION_INTERRUPT_KIND,
         "confirmation_id": pending_confirmation["confirmation_id"],
         "message": pending_confirmation["message"],
+        "is_refund_execution": is_refund_execution,
         "pending_ticket_confirmation": pending_confirmation,
     }
 
@@ -2353,8 +2356,17 @@ def request_ticket_confirmation_interrupt_node(
         }
 
     pending_confirmation = build_pending_ticket_confirmation(fields)
+    # The refund *execution* draft sets refund_request_active on the worker
+    # state; refund-typed tickets through the ordinary ticket flow do not.  The
+    # draft fields alone are identical for both paths, so the flag is written
+    # into the interrupt payload here (worker scope) where it is always
+    # visible — even inside the multi-agent supervisor whose top-level state
+    # never receives the worker flag.
     resume_value = interrupt(
-        build_ticket_confirmation_interrupt_payload(pending_confirmation)
+        build_ticket_confirmation_interrupt_payload(
+            pending_confirmation,
+            is_refund_execution=state.get("refund_request_active") is True,
+        )
     )
     corrected_fields = get_ticket_confirmation_resume_corrected_fields(resume_value)
     if corrected_fields is not None:

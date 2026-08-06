@@ -14,6 +14,7 @@ from tests.tool_fakes import (
     make_policy_rag_answer,
 )
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
+from app.schemas.console_agent import ConsoleAgentTicketFields
 
 
 class _FakeConversationStore:
@@ -274,3 +275,130 @@ def test_multi_agent_console_second_confirmation_uses_fresh_fields(
     )
     assert second_response.created_ticket is not None
     assert second_response.created_ticket.related_order_id == "B2002"
+
+
+def test_multi_agent_console_refund_confirmation_flag_and_transcript_copy() -> None:
+    """退款执行确认必须暴露 is_refund_execution=True，且 transcript 文案按退款场景。
+
+    后端 _record_exchange 硬编码"确认创建工单"会与前端"确认退款"弹窗文案不一致，
+    刷新会话历史时文案打架；refund_request_active 是判别退款执行 vs 退款类型工单
+    的唯一可靠标志（draft 字段两者完全相同）。
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+    from app.agents.supervisor.supervisor_router import (
+        FakeLLMSupervisorRouter,
+        SupervisorRoute,
+    )
+    from tests.tool_fakes import FakeRefundExecutor
+
+    store = _FakeConversationStore()
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.REFUND_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        refund_executor=FakeRefundExecutor(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=True,
+    )
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        agent_mcp_tools_enabled=False,
+    )
+    service = ConsoleAgentService(
+        settings,
+        graph=graph,
+        conversation_store=store,
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-refund-flag-001"
+
+    reply = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我的订单 A1001 商品破损了，申请退款",
+    )
+    assert reply.pending_ticket_confirmation is not None
+    assert reply.pending_ticket_confirmation.is_refund_execution is True
+    confirmation_id = reply.pending_ticket_confirmation.confirmation_id
+
+    # 修改信息：transcript 文案为退款版，且重新确认仍是退款确认
+    corrected_response = service.correct_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        ticket_fields=ConsoleAgentTicketFields(
+            issue_type="refund",
+            order_id="A1001",
+            description="商品破损严重，申请全额退款",
+            user_request="售后退款处理",
+            urgency="normal",
+            need_human_review=True,
+        ),
+    )
+    assert store.exchanges[-1]["user_message"] == "修改退款信息并重新确认"
+    assert corrected_response.pending_ticket_confirmation is not None
+    assert corrected_response.pending_ticket_confirmation.is_refund_execution is True
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=corrected_response.pending_ticket_confirmation.confirmation_id,
+        approved=True,
+    )
+    assert store.exchanges[-1]["user_message"] == "确认退款"
+    assert response.pending_ticket_confirmation is None
+    assert "退款" in response.reply
+
+
+def test_multi_agent_console_ordinary_ticket_confirmation_not_refund() -> None:
+    """普通工单流程（LLM 填 refund 类型）不得暴露退款执行标志或退款文案。"""
+    from langgraph.checkpoint.memory import MemorySaver
+    from app.agents.supervisor.supervisor_router import (
+        FakeLLMSupervisorRouter,
+        SupervisorRoute,
+    )
+
+    store = _FakeConversationStore()
+    graph = build_supervisor_graph(
+        router=FakeLLMSupervisorRouter(SupervisorRoute.TICKET_REQUEST),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=True,
+    )
+    settings = Settings(
+        _env_file=None,
+        agent_multi_agent_enabled=True,
+        agent_mcp_tools_enabled=False,
+    )
+    service = ConsoleAgentService(
+        settings,
+        graph=graph,
+        conversation_store=store,
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-refund-flag-002"
+
+    reply = service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="订单 A1001 要退款，帮我建个工单投诉",
+    )
+    assert reply.pending_ticket_confirmation is not None
+    assert reply.pending_ticket_confirmation.is_refund_execution is False
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=reply.pending_ticket_confirmation.confirmation_id,
+        approved=True,
+    )
+    assert store.exchanges[-1]["user_message"] == "确认创建工单"
+    assert response.created_ticket is not None
