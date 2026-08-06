@@ -12,6 +12,9 @@ from app.routers import evaluation as evaluation_router
 from app.routers.evaluation import get_evaluation_actor, get_evaluation_registry_path
 from app.routers.evaluation import get_bad_case_registry_path, get_production_regression_history_path
 from app.routers.evaluation import get_eval_snapshot_store_path
+from app.routers.evaluation import get_agent_cases_path
+from app.agents.intent_evaluation import AgentEvalDataset
+from app.services.java_feedback_client import JavaFeedbackContext
 from app.routers.evaluation import _load_or_generate_bad_cases
 from app.evaluation.eval_platform import (
     EvalDatasetManifest,
@@ -363,3 +366,153 @@ def test_overview_degrades_gracefully_when_snapshot_load_fails(
     assert response.json()["baseline_comparison"] is None
     assert response.json()["latest_run"]["run_id"] == "local-agent-eval-latest"
     assert "snapshot_load_failed" in caplog.text
+
+
+PROMOTE_INTENT_PAYLOAD = {
+    "failure_layer": "intent",
+    "severity": "high",
+    "failure_category": "退款请求被误判为 unsupported",
+    "expected_behavior": "退款请求必须路由到退款处理，不能拒绝。",
+    "recommended_action": "修正意图分类器的退款识别规则。",
+    "regression_action": "新增 intent 回归用例。",
+    "review_note": "confirmed by supervisor",
+    "regression_message": "我要申请退款，订单 A1001",
+    "regression_assertion": "intent",
+    "regression_expected_intent": "refund_request",
+}
+
+
+def _write_bad_case_registry_fixture(path: Path) -> None:
+    path.write_text(
+        '{"schema_version": "stage10.bad_case_registry.v1", "records": []}',
+        encoding="utf-8",
+    )
+
+
+def _write_agent_cases_fixture(path: Path) -> None:
+    path.write_text(
+        '{"schema_version": "stage6.agent_eval.v1", "description": "test", "cases": []}',
+        encoding="utf-8",
+    )
+
+
+def _intent_feedback_context() -> JavaFeedbackContext:
+    return JavaFeedbackContext(
+        feedback_id=1,
+        conversation_id="conversation-refund-1",
+        trace_id="trace-refund-1",
+        reason="misclassified refund request as unsupported",
+        agent_route="build_unsupported_answer",
+        citation_count=0,
+        human_handoff_suggested=False,
+        user_message_excerpt="我要申请退款，订单 A1001",
+        assistant_answer_excerpt="I am sorry, I cannot help with refunds.",
+        citation_summary_json=None,
+        review_status="pending",
+        bad_case_id=None,
+        review_note=None,
+    )
+
+
+def _fake_feedback_client_class(context: JavaFeedbackContext):
+    class FakeJavaFeedbackClient:
+        def __init__(self, *, context: JavaFeedbackContext) -> None:
+            self._context = context
+
+        @classmethod
+        def from_settings(cls, settings):  # noqa: ANN001
+            return cls(context=context)
+
+        def get_context(self, feedback_id: int) -> JavaFeedbackContext:
+            return self._context
+
+        def mark_promoted(self, feedback_id: int, *, bad_case_id: str) -> JavaFeedbackContext:
+            return self._context
+
+    return FakeJavaFeedbackClient
+
+
+def _promote_test_app(
+    app: FastAPI,
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    registry_path: Path | None = None,
+    cases_path: Path | None = None,
+) -> None:
+    registry_path = registry_path or (tmp_path / "bad_cases.json")
+    cases_path = cases_path or (tmp_path / "agent_cases.json")
+    _write_bad_case_registry_fixture(registry_path)
+    _write_agent_cases_fixture(cases_path)
+    app.dependency_overrides[get_evaluation_actor] = lambda: ConsoleAgentActor(
+        user_id="SUP1001", tenant_id="default", roles=("supervisor",)
+    )
+    app.dependency_overrides[get_bad_case_registry_path] = lambda: registry_path
+    app.dependency_overrides[get_agent_cases_path] = lambda: cases_path
+    monkeypatch.setattr(
+        evaluation_router,
+        "JavaFeedbackClient",
+        _fake_feedback_client_class(_intent_feedback_context()),
+    )
+    return registry_path, cases_path
+
+
+def test_promote_writes_bad_case_to_agent_cases(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, cases_path = _promote_test_app(app, tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/ai/evaluation/feedback-candidates/1/promote",
+        json=PROMOTE_INTENT_PAYLOAD,
+        headers={TRACE_ID_HEADER: "trace-promote-1"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["written_case_id"]
+
+    written = AgentEvalDataset.model_validate_json(cases_path.read_text(encoding="utf-8"))
+    assert [case.id for case in written.cases] == [data["written_case_id"]]
+    case = written.cases[0]
+    assert case.inputs.message == "我要申请退款，订单 A1001"
+    assert case.expected.intent == "refund_request"
+    assert case.expected.intent_route == "handle_refund_request"
+    assert case.metadata.task_type == "agent"
+    assert case.metadata.business_domain == "production"
+    assert case.metadata.case_type == "production_regression"
+    assert case.metadata.difficulty == "hard"
+    assert case.metadata.priority == "p0"
+    assert "from_bad_case" in case.metadata.tags
+    assert f"source_bad_case_id:{data['bad_case']['id']}" in case.metadata.tags
+
+
+def test_promote_is_idempotent_for_same_bad_case(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, cases_path = _promote_test_app(app, tmp_path, monkeypatch)
+
+    first = client.post(
+        "/api/ai/evaluation/feedback-candidates/1/promote",
+        json=PROMOTE_INTENT_PAYLOAD,
+        headers={TRACE_ID_HEADER: "trace-promote-dup-1"},
+    )
+    assert first.status_code == 200
+    assert first.json()["written_case_id"]
+
+    second = client.post(
+        "/api/ai/evaluation/feedback-candidates/1/promote",
+        json=PROMOTE_INTENT_PAYLOAD,
+        headers={TRACE_ID_HEADER: "trace-promote-dup-2"},
+    )
+    assert second.status_code == 200
+    assert second.json()["written_case_id"] is None
+
+    written = AgentEvalDataset.model_validate_json(cases_path.read_text(encoding="utf-8"))
+    assert len(written.cases) == 1

@@ -20,6 +20,7 @@ from app.evaluation.bad_case_registry import (
     build_bad_case_registry_summary,
 )
 from app.evaluation.production_bad_case_registry import append_production_bad_case
+from app.evaluation.case_writer import write_bad_case_to_agent_cases
 from app.evaluation.production_regression import (
     ProductionRegressionRun,
     run_production_bad_case_regression,
@@ -69,6 +70,8 @@ PRODUCTION_REGRESSION_HISTORY_PATH = (
     PROJECT_ROOT / "data" / "evaluation" / "production_regression_runs.json"
 )
 EVAL_SNAPSHOT_STORE_PATH = PROJECT_ROOT / "data" / "evaluation" / "agent_eval_snapshots.json"
+# agent_eval 数据集路径与 datasets.json manifest 中 cases_path="data/agent_eval/agent_cases.json" 一致
+AGENT_CASES_PATH = PROJECT_ROOT / "data" / "agent_eval" / "agent_cases.json"
 
 
 def get_evaluation_registry_path() -> Path:
@@ -85,6 +88,10 @@ def get_production_regression_history_path() -> Path:
 
 def get_eval_snapshot_store_path() -> Path:
     return EVAL_SNAPSHOT_STORE_PATH
+
+
+def get_agent_cases_path() -> Path:
+    return AGENT_CASES_PATH
 
 
 def get_evaluation_actor(
@@ -139,6 +146,7 @@ def promote_production_feedback(
     actor: ConsoleAgentActor = Depends(get_evaluation_actor),
     settings: Settings = Depends(get_settings),
     bad_case_registry_path: Path = Depends(get_bad_case_registry_path),
+    agent_cases_path: Path = Depends(get_agent_cases_path),
 ) -> PromoteProductionFeedbackResponse:
     require_evaluation_supervisor(actor)
     context = _load_feedback_context(feedback_id=feedback_id, actor=actor, settings=settings)
@@ -157,7 +165,25 @@ def promote_production_feedback(
         )
     finally:
         reset_business_context(tokens)
-    return _promotion_response(stored_record)
+    # 反馈→用例闭环：把 bad case 写回 agent_cases.json 生成正式评测用例。
+    # 写回是附属数据：失败只降级为告警日志，不阻断 promote 主流程（registry + Java 已写入）。
+    try:
+        written_case = write_bad_case_to_agent_cases(
+            stored_record,
+            cases_path=agent_cases_path,
+        )
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "agent_case_writeback_failed path=%s bad_case_id=%s error=%s",
+            agent_cases_path,
+            stored_record.id,
+            exc,
+        )
+        written_case = None
+    return _promotion_response(
+        stored_record,
+        written_case_id=written_case.id if written_case is not None else None,
+    )
 
 
 @router.post(
@@ -474,10 +500,15 @@ def _build_production_bad_case(
     )
 
 
-def _promotion_response(record: BadCaseRecord) -> PromoteProductionFeedbackResponse:
+def _promotion_response(
+    record: BadCaseRecord,
+    *,
+    written_case_id: str | None = None,
+) -> PromoteProductionFeedbackResponse:
     return PromoteProductionFeedbackResponse(
         bad_case=_bad_case_view(record),
         regression_draft=build_regression_case_draft(record).model_dump(mode="json"),
+        written_case_id=written_case_id,
     )
 
 

@@ -181,6 +181,10 @@ class PromoteProductionFeedbackRequest(BaseModel):
 class PromoteProductionFeedbackResponse(BaseModel):
     bad_case: BadCaseItemView
     regression_draft: dict[str, object]
+    written_case_id: str | None = Field(
+        default=None,
+        description="写回 agent_cases.json 的正式评测用例 id；幂等或写回失败时为 None",
+    )
 
 
 class ReviewProductionFeedbackRequest(BaseModel):
