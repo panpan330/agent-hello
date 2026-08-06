@@ -547,6 +547,52 @@ class PublicOrderTicketControllerTest {
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_REFUNDABLE"));
     }
 
+    @Test
+    void customerCannotRefundWithoutToken() throws Exception {
+        mockMvc.perform(
+                        post("/api/orders/A1002/refund")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-refund-no-token")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"七天无理由退货\"}")
+                )
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+    }
+
+    @Test
+    void customerCannotRefundWithoutReason() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1002/refund")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-refund-no-reason")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("REFUND_REASON_REQUIRED"));
+    }
+
+    @Test
+    @Transactional
+    void customerCannotRefundOthersOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A2001/refund")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-refund-other-order")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"想退款\"}")
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_ACCESS_DENIED"));
+    }
+
     private String loginAndExtractToken(String username) throws Exception {
         MvcResult result = mockMvc.perform(
                         post("/api/auth/login")
