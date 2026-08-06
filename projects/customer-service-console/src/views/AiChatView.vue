@@ -346,12 +346,15 @@ function priorityLabel(priority: string) {
 
 function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): boolean {
   // The backend's is_refund_execution flag is the reliable discriminator (the
-  // refund *execution* flow vs a refund-typed ticket draft). Fall back to the
-  // draft issue_type only for legacy confirmations recorded before the flag.
-  return (
-    confirmation?.is_refund_execution === true ||
-    confirmation?.ticket_fields.issue_type === 'refund'
-  )
+  // refund *execution* flow vs a refund-typed ticket draft). Whenever the flag
+  // is present — the backend always writes it explicitly — it wins; the draft
+  // issue_type is only a fallback for legacy confirmations recorded before the
+  // flag existed (where a refund-typed *ticket* would otherwise be mistaken
+  // for a refund execution).
+  if (confirmation?.is_refund_execution !== undefined) {
+    return confirmation.is_refund_execution === true
+  }
+  return confirmation?.ticket_fields?.issue_type === 'refund'
 }
 </script>
 
