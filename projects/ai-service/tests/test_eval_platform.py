@@ -13,6 +13,7 @@ from app.evaluation.eval_platform import (
     build_agent_eval_run_snapshot,
     load_eval_dataset_registry,
 )
+from app.evaluation.snapshot_store import SnapshotStore
 
 
 REGISTRY_PATH = (
@@ -150,6 +151,89 @@ def test_compare_eval_run_snapshots_rejects_different_dataset_versions() -> None
 
     with pytest.raises(ValueError, match="different dataset versions"):
         compare_eval_run_snapshots(baseline, candidate)
+
+
+def test_snapshot_store_saves_and_loads_latest(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.json")
+    first = build_agent_eval_run_snapshot(
+        _agent_report(passed=True, intent_failed=0, route_failed=0),
+        context=_context(run_id="run-001", candidate_version="prompt-v1"),
+    )
+    second = build_agent_eval_run_snapshot(
+        _agent_report(passed=False, intent_failed=2, route_failed=0),
+        context=_context(run_id="run-002", candidate_version="prompt-v2"),
+    )
+
+    store.save(first)
+    store.save(second)
+
+    latest = store.load_latest()
+    assert latest is not None
+    assert latest.context.run_id == "run-002"
+    assert latest.context.candidate_version == "prompt-v2"
+    assert latest.passed is False
+    assert latest.failed_check_count == 2
+    assert latest.metric_map()["failed_checks"].value == 2.0
+
+
+def test_snapshot_store_load_latest_returns_none_without_existing_file(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "missing.json")
+
+    assert store.load_latest() is None
+
+
+def test_snapshot_store_save_is_atomic_and_preserves_existing_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "snapshots.json"
+    store = SnapshotStore(path)
+    first = build_agent_eval_run_snapshot(
+        _agent_report(passed=True, intent_failed=0, route_failed=0),
+        context=_context(run_id="run-001", candidate_version="prompt-v1"),
+    )
+    store.save(first)
+    original_content = path.read_text(encoding="utf-8")
+
+    real_write_text = Path.write_text
+
+    def failing_write_text(self, *args, **kwargs):  # noqa: ANN001
+        if self.suffix == ".tmp":
+            raise OSError("simulated write failure")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+    second = build_agent_eval_run_snapshot(
+        _agent_report(passed=True, intent_failed=0, route_failed=0),
+        context=_context(run_id="run-002", candidate_version="prompt-v2"),
+    )
+    with pytest.raises(OSError, match="simulated write failure"):
+        store.save(second)
+    monkeypatch.undo()
+
+    assert path.read_text(encoding="utf-8") == original_content
+    assert store.load_latest() is not None
+    assert store.load_latest().context.run_id == "run-001"
+
+
+def test_snapshot_store_keeps_only_latest_max_snapshots(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.json", max_snapshots=2)
+    for index in range(4):
+        snapshot = build_agent_eval_run_snapshot(
+            _agent_report(passed=True, intent_failed=0, route_failed=0),
+            context=_context(run_id=f"run-{index:03d}", candidate_version=f"prompt-v{index}"),
+        )
+        store.save(snapshot)
+
+    assert store.load_latest().context.run_id == "run-003"
+    store.save(
+        build_agent_eval_run_snapshot(
+            _agent_report(passed=True, intent_failed=0, route_failed=0),
+            context=_context(run_id="run-004", candidate_version="prompt-v4"),
+        )
+    )
+    assert store.load_latest().context.run_id == "run-004"
 
 
 def _context(

@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.evaluation.eval_platform import EvalRegressionReport
+
 
 class EvaluationDatasetView(BaseModel):
     name: str
@@ -101,6 +103,7 @@ class EvaluationOverviewResponse(BaseModel):
     bad_cases: list[BadCaseItemView] = Field(default_factory=list)
     generated_from_latest_run: bool
     latest_production_regression_run: ProductionRegressionRunView | None = None
+    baseline_comparison: EvalRegressionReport | None = None
     trace_id: str
 
 

@@ -32,9 +32,11 @@ from app.evaluation.eval_platform import (
     EvalRunContext,
     EvalRunSnapshot,
     build_agent_eval_run_snapshot,
+    compare_eval_run_snapshots,
     find_eval_dataset_manifest,
     load_eval_dataset_registry,
 )
+from app.evaluation.snapshot_store import SnapshotStore
 from app.schemas.evaluation import (
     BadCaseItemView,
     BadCaseSummaryView,
@@ -62,6 +64,7 @@ BAD_CASE_REGISTRY_PATH = PROJECT_ROOT / "data" / "evaluation" / "bad_cases.json"
 PRODUCTION_REGRESSION_HISTORY_PATH = (
     PROJECT_ROOT / "data" / "evaluation" / "production_regression_runs.json"
 )
+EVAL_SNAPSHOT_STORE_PATH = PROJECT_ROOT / "data" / "evaluation" / "agent_eval_snapshots.json"
 
 
 def get_evaluation_registry_path() -> Path:
@@ -74,6 +77,10 @@ def get_bad_case_registry_path() -> Path:
 
 def get_production_regression_history_path() -> Path:
     return PRODUCTION_REGRESSION_HISTORY_PATH
+
+
+def get_eval_snapshot_store_path() -> Path:
+    return EVAL_SNAPSHOT_STORE_PATH
 
 
 def get_evaluation_actor(
@@ -195,6 +202,7 @@ def evaluation_overview(
     registry_path: Path = Depends(get_evaluation_registry_path),
     bad_case_registry_path: Path = Depends(get_bad_case_registry_path),
     production_regression_history_path: Path = Depends(get_production_regression_history_path),
+    snapshot_store_path: Path = Depends(get_eval_snapshot_store_path),
 ) -> EvaluationOverviewResponse:
     try:
         registry = load_eval_dataset_registry(registry_path)
@@ -235,6 +243,19 @@ def evaluation_overview(
             status_code=500,
         ) from exc
 
+    # 基线语义：自动取最近一次保存的快照（先 load_latest 得 baseline，再保存本次）。
+    # 只有 dataset/version 一致才做回归对比，否则跳过对比，避免陈旧快照让看板 500。
+    snapshot_store = SnapshotStore(snapshot_store_path)
+    baseline = snapshot_store.load_latest()
+    baseline_comparison = (
+        compare_eval_run_snapshots(baseline, snapshot)
+        if baseline is not None
+        and baseline.context.dataset_name == snapshot.context.dataset_name
+        and baseline.context.dataset_version == snapshot.context.dataset_version
+        else None
+    )
+    snapshot_store.save(snapshot)
+
     bad_case_registry = BadCaseRegistry(
         schema_version="stage11.bad_case_registry.view",
         records=bad_cases,
@@ -253,6 +274,7 @@ def evaluation_overview(
         latest_production_regression_run=_optional_production_regression_run_view(
             load_latest_production_regression_run(production_regression_history_path)
         ),
+        baseline_comparison=baseline_comparison,
         trace_id=get_trace_id(),
     )
 
