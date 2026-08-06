@@ -1,6 +1,7 @@
 package com.panpan.aibusinessservice;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.closeTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -505,6 +507,44 @@ class PublicOrderTicketControllerTest {
                 )
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TICKET_REOPEN_NOT_ALLOWED"));
+    }
+
+    @Test
+    @Transactional
+    void customerCanRefundOwnUnshippedOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1002/refund")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-refund-own")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"七天无理由退货\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.order_id").value("A1002"))
+                .andExpect(jsonPath("$.data.order_status").value("waiting_shipment"))
+                .andExpect(jsonPath("$.data.payment_status").value("refunded"))
+                .andExpect(jsonPath("$.data.refund_amount").value(closeTo(159.00, 0.001)))
+                .andExpect(jsonPath("$.data.refund_reason").value("七天无理由退货"))
+                .andExpect(jsonPath("$.data.latest_event").value("退款成功"));
+    }
+
+    @Test
+    @Transactional
+    void customerCannotRefundShippedOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1001/refund")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-refund-shipped")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"想退款\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_REFUNDABLE"));
     }
 
     private String loginAndExtractToken(String username) throws Exception {
