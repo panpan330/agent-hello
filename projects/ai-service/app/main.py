@@ -6,6 +6,7 @@ from app.core.config import Settings, get_settings
 from app.core.cors import register_cors_middleware
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.telemetry import setup_telemetry, shutdown_telemetry
 from app.middleware.rate_limit import register_rate_limit_middleware
 from app.middleware.tracing import register_trace_middleware
 from app.routers import chat, evaluation, health, knowledge_base, rag, tickets, tools
@@ -17,12 +18,14 @@ async def app_lifespan(app: FastAPI):
     try:
         yield
     finally:
+        shutdown_telemetry()
         app.state.console_agent_service.close()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
+    setup_telemetry(settings)
     app = FastAPI(
         title=settings.app_name,
         description=settings.app_description,

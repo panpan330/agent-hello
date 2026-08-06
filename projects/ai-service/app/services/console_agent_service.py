@@ -363,16 +363,33 @@ class ConsoleAgentService:
     ) -> ConsoleAgentResponse:
         thread_id = self._thread_id(actor, conversation_id)
         self._reject_if_confirmation_is_pending(thread_id)
-        tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
-        try:
-            state = run_ticket_agent_in_thread(
-                self.graph,
-                message,
-                thread_id=thread_id,
-                actor_id=actor.user_id,
-            )
-        finally:
-            reset_business_context(tokens)
+        from app.agents.langsmith_tracing import build_ticket_agent_langsmith_trace_context
+        from app.agents.tracing_spans import start_agent_span
+
+        trace_context = build_ticket_agent_langsmith_trace_context(
+            {"user_message": message},
+            operation="console_agent_reply",
+            thread_id=thread_id,
+            actor_id=actor.user_id,
+            extra_tags=["console-agent"],
+        )
+        graph_config = trace_context.to_langgraph_config()
+        with start_agent_span(
+            intent=None,
+            thread_id=thread_id,
+            conversation_id=conversation_id,
+        ):
+            tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
+            try:
+                state = run_ticket_agent_in_thread(
+                    self.graph,
+                    message,
+                    thread_id=thread_id,
+                    actor_id=actor.user_id,
+                    config=graph_config,
+                )
+            finally:
+                reset_business_context(tokens)
         response = self._to_response(state, conversation_id=conversation_id)
         self._record_exchange(
             actor=actor,
@@ -395,58 +412,76 @@ class ConsoleAgentService:
             "data": {"trace_id": trace_id, "conversation_id": conversation_id},
         }
         thread_id = self._thread_id(actor, conversation_id)
+        from app.agents.langsmith_tracing import build_ticket_agent_langsmith_trace_context
+        from app.agents.tracing_spans import set_span_status_error, start_agent_span
+
+        trace_context = build_ticket_agent_langsmith_trace_context(
+            {"user_message": message},
+            operation="console_agent_stream",
+            thread_id=thread_id,
+            actor_id=actor.user_id,
+            extra_tags=["console-agent"],
+        )
+        graph_config = trace_context.to_langgraph_config()
         context_tokens = None
         interrupt_payload: Any | None = None
-        try:
-            self._reject_if_confirmation_is_pending(thread_id)
-            context_tokens = set_business_context(
-                user_id=actor.user_id,
-                tenant_id=actor.tenant_id,
-            )
-            for update in self.graph.stream(
-                build_ticket_agent_input(message) | {"ticket_actor_id": actor.user_id},
-                config=build_ticket_agent_thread_config(thread_id),
-                stream_mode="updates",
-            ):
-                for node_name, node_update in update.items():
-                    if node_name == "__interrupt__":
-                        interrupt_payload = node_update
-                    progress_event = build_agent_progress_event(node_name)
-                    if progress_event is not None:
-                        yield {"event": "stage", "data": progress_event}
+        with start_agent_span(
+            intent=None,
+            thread_id=thread_id,
+            conversation_id=conversation_id,
+        ):
+            try:
+                self._reject_if_confirmation_is_pending(thread_id)
+                context_tokens = set_business_context(
+                    user_id=actor.user_id,
+                    tenant_id=actor.tenant_id,
+                )
+                for update in self.graph.stream(
+                    build_ticket_agent_input(message) | {"ticket_actor_id": actor.user_id},
+                    config={**build_ticket_agent_thread_config(thread_id), **graph_config},
+                    stream_mode="updates",
+                ):
+                    for node_name, node_update in update.items():
+                        if node_name == "__interrupt__":
+                            interrupt_payload = node_update
+                        progress_event = build_agent_progress_event(node_name)
+                        if progress_event is not None:
+                            yield {"event": "stage", "data": progress_event}
 
-            snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
-            state = dict(snapshot.values)
-            if interrupt_payload is not None:
-                state["__interrupt__"] = interrupt_payload
-            response = self._to_response(
-                state,
-                conversation_id=conversation_id,
-                trace_id=trace_id,
-            )
-        except AppException as exc:
-            yield {
-                "event": "error",
-                "data": {
-                    "code": exc.code,
-                    "message": redact_sensitive_text(exc.message),
-                    "trace_id": trace_id,
-                },
-            }
-            return
-        except Exception:
-            yield {
-                "event": "error",
-                "data": {
-                    "code": "AGENT_STREAM_FAILED",
-                    "message": "The AI customer service request could not be completed.",
-                    "trace_id": trace_id,
-                },
-            }
-            return
-        finally:
-            if context_tokens is not None:
-                reset_business_context(context_tokens)
+                snapshot = self.graph.get_state(build_ticket_agent_thread_config(thread_id))
+                state = dict(snapshot.values)
+                if interrupt_payload is not None:
+                    state["__interrupt__"] = interrupt_payload
+                response = self._to_response(
+                    state,
+                    conversation_id=conversation_id,
+                    trace_id=trace_id,
+                )
+            except AppException as exc:
+                set_span_status_error()
+                yield {
+                    "event": "error",
+                    "data": {
+                        "code": exc.code,
+                        "message": redact_sensitive_text(exc.message),
+                        "trace_id": trace_id,
+                    },
+                }
+                return
+            except Exception:
+                set_span_status_error()
+                yield {
+                    "event": "error",
+                    "data": {
+                        "code": "AGENT_STREAM_FAILED",
+                        "message": "The AI customer service request could not be completed.",
+                        "trace_id": trace_id,
+                    },
+                }
+                return
+            finally:
+                if context_tokens is not None:
+                    reset_business_context(context_tokens)
 
         self._record_exchange(
             actor=actor,

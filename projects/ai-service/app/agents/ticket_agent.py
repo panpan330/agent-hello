@@ -882,11 +882,28 @@ class LLMTicketIntentClassifier:
         )
         start_time = perf_counter()
         try:
-            completion = self._get_client().chat.completions.create(
+            from app.agents.tracing_spans import set_span_attributes, start_llm_span
+
+            with start_llm_span(
                 model=self.settings.llm_model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
+                provider=self.settings.llm_provider,
+                prompt_name=self.prompt_spec.name,
+            ):
+                completion = self._get_client().chat.completions.create(
+                    model=self.settings.llm_model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+                usage = extract_token_usage(completion)
+                token_attributes: dict[str, int] = {}
+                if usage.prompt_tokens is not None:
+                    token_attributes["prompt_tokens"] = usage.prompt_tokens
+                if usage.completion_tokens is not None:
+                    token_attributes["completion_tokens"] = usage.completion_tokens
+                if usage.total_tokens is not None:
+                    token_attributes["total_tokens"] = usage.total_tokens
+                if token_attributes:
+                    set_span_attributes(token_attributes)
             raw_reply = extract_first_reply(completion)
             classification = parse_ticket_intent_classification_json(raw_reply)
         except AppException as exc:
@@ -1099,11 +1116,28 @@ class LLMTicketFieldExtractor:
         )
         start_time = perf_counter()
         try:
-            completion = self._get_client().chat.completions.create(
+            from app.agents.tracing_spans import set_span_attributes, start_llm_span
+
+            with start_llm_span(
                 model=self.settings.llm_model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
+                provider=self.settings.llm_provider,
+                prompt_name=self.prompt_spec.name,
+            ):
+                completion = self._get_client().chat.completions.create(
+                    model=self.settings.llm_model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+                usage = extract_token_usage(completion)
+                token_attributes: dict[str, int] = {}
+                if usage.prompt_tokens is not None:
+                    token_attributes["prompt_tokens"] = usage.prompt_tokens
+                if usage.completion_tokens is not None:
+                    token_attributes["completion_tokens"] = usage.completion_tokens
+                if usage.total_tokens is not None:
+                    token_attributes["total_tokens"] = usage.total_tokens
+                if token_attributes:
+                    set_span_attributes(token_attributes)
             raw_reply = extract_first_reply(completion)
             fields = parse_ticket_field_extraction_json(raw_reply)
         except AppException as exc:
@@ -2668,6 +2702,7 @@ def run_ticket_agent_in_thread(
     *,
     thread_id: str,
     actor_id: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> TicketAgentState:
     initial_state = build_ticket_agent_input(user_message)
     if actor_id is not None:
@@ -2681,9 +2716,14 @@ def run_ticket_agent_in_thread(
         actor_id=actor_id,
     )
     try:
+        thread_config = build_ticket_agent_thread_config(thread_id)
+        if config is not None:
+            # graph_config (LangSmith trace context) may override configurable
+            # keys; both carry the same thread_id so the merge is value-safe.
+            thread_config = {**thread_config, **config}
         result = graph.invoke(
             initial_state,
-            config=build_ticket_agent_thread_config(thread_id),
+            config=thread_config,
         )
     except Exception as exc:
         log_ticket_agent_run_failed(

@@ -77,10 +77,13 @@ class ProductMcpClient:
         )
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        return self._with_error_mapping(
-            operation=f"call_tool:{tool_name}",
-            fn=lambda: asyncio.run(self._call_tool_async(tool_name, arguments)),
-        )
+        from app.agents.tracing_spans import start_tool_span
+
+        with start_tool_span(tool_name=tool_name):
+            return self._with_error_mapping(
+                operation=f"call_tool:{tool_name}",
+                fn=lambda: asyncio.run(self._call_tool_async(tool_name, arguments)),
+            )
 
     def _with_error_mapping(
         self,

@@ -38,6 +38,12 @@ class JavaOrderClient:
         )
 
     def get_order(self, order_id: str) -> Mapping[str, Any]:
+        from app.agents.tracing_spans import start_java_span
+
+        with start_java_span(path=f"/internal/orders/{order_id}", method="GET"):
+            return self._get_order_inner(order_id)
+
+    def _get_order_inner(self, order_id: str) -> Mapping[str, Any]:
         path = f"/internal/orders/{order_id}"
         start_time = perf_counter()
         logger.info(

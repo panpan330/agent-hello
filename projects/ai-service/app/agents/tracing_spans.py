@@ -39,6 +39,19 @@ def set_span_attributes(attributes: dict[str, Any]) -> None:
     span.set_attributes(attributes)
 
 
+def set_span_status_error() -> None:
+    """Mark the current span as errored (used on handled-failure paths).
+
+    Pure instrumentation: does not alter control flow.  Used where a failure is
+    caught and converted into a structured error (e.g. SSE error events) so the
+    span still surfaces the failure on the trace tree.
+    """
+    span = _current_span()
+    if span is None or not span.is_recording():
+        return
+    span.set_status(trace.Status(trace.StatusCode.ERROR))
+
+
 @contextmanager
 def start_agent_span(
     *,
@@ -103,5 +116,17 @@ def start_java_span(*, path: str, method: str = "GET") -> Iterator[None]:
     tracer = get_tracer()
     with tracer.start_as_current_span("java.call") as span:
         span.set_attributes({"path": path, "method": method})
+        _set_common_attributes()
+        yield
+
+
+@contextmanager
+def start_http_span(*, method: str, path: str) -> Iterator[None]:
+    if not is_telemetry_enabled():
+        yield
+        return
+    tracer = get_tracer()
+    with tracer.start_as_current_span("http.request") as span:
+        span.set_attributes({"method": method, "path": path})
         _set_common_attributes()
         yield

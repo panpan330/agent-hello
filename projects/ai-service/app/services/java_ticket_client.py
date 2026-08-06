@@ -47,6 +47,20 @@ class JavaTicketClient:
         *,
         idempotency_key: str,
     ) -> CreatedTicket:
+        from app.agents.tracing_spans import start_java_span
+
+        with start_java_span(path="/internal/tickets", method="POST"):
+            return self._create_ticket_inner(
+                arguments,
+                idempotency_key=idempotency_key,
+            )
+
+    def _create_ticket_inner(
+        self,
+        arguments: CreateTicketArgs,
+        *,
+        idempotency_key: str,
+    ) -> CreatedTicket:
         path = "/internal/tickets"
         start_time = perf_counter()
         logger.info(
