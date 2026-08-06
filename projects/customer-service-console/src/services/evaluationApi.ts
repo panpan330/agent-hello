@@ -90,6 +90,27 @@ export interface BadCaseItem {
   tags: string[]
 }
 
+export interface BaselineMetricComparison {
+  name: string
+  baseline_value: number
+  candidate_value: number
+  delta: number
+  direction: 'higher_is_better' | 'lower_is_better'
+  regressed: boolean
+}
+
+export interface BaselineComparison {
+  dataset_name: string
+  dataset_version: string
+  baseline_run_id: string
+  candidate_run_id: string
+  baseline_candidate_version: string
+  candidate_version: string
+  regressed: boolean
+  blocking_reasons: string[]
+  metric_comparisons: BaselineMetricComparison[]
+}
+
 export interface EvaluationOverview {
   registry_version: string
   datasets: EvaluationDataset[]
@@ -98,6 +119,7 @@ export interface EvaluationOverview {
   bad_cases: BadCaseItem[]
   generated_from_latest_run: boolean
   latest_production_regression_run: ProductionRegressionRun | null
+  baseline_comparison: BaselineComparison | null
   trace_id: string
 }
 

@@ -26,6 +26,23 @@ export interface ProductionFeedbackContext extends AiFeedbackRegressionCandidate
   citation_summary: Array<{ source: string | null; title: string | null; chunk_id: string | null }>
 }
 
+export type RegressionAssertion =
+  | 'intent'
+  | 'citation_present'
+  | 'ticket_confirmation_required'
+  | 'tool_called'
+  | 'must_ask_for'
+  | 'must_not_reveal'
+
+export type RegressionExpectedIntent =
+  | 'policy_question'
+  | 'order_query'
+  | 'ticket_request'
+  | 'refund_request'
+  | 'smalltalk'
+  | 'unsupported'
+  | 'unclear'
+
 export interface PromoteProductionFeedbackPayload {
   failure_layer: string
   severity: string
@@ -35,8 +52,11 @@ export interface PromoteProductionFeedbackPayload {
   regression_action: string
   review_note: string
   regression_message: string
-  regression_assertion: 'intent' | 'citation_present' | 'ticket_confirmation_required'
-  regression_expected_intent: 'policy_question' | 'order_query' | 'ticket_request' | 'smalltalk' | 'unsupported' | 'unclear' | null
+  regression_assertion: RegressionAssertion
+  regression_expected_intent: RegressionExpectedIntent | null
+  regression_expected_tool?: string
+  regression_must_ask_fields?: string[]
+  regression_must_not_reveal_terms?: string[]
 }
 
 export interface PromoteProductionFeedbackResponse {

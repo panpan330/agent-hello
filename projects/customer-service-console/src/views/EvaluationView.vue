@@ -8,11 +8,19 @@ import {
   promoteProductionFeedback,
   reviewProductionFeedback,
 } from '../services/aiFeedbackApi'
-import type { BadCaseItem, EvaluationOverview } from '../services/evaluationApi'
+import type {
+  BadCaseItem,
+  BaselineComparison,
+  BaselineMetricComparison,
+  EvaluationOverview,
+} from '../services/evaluationApi'
 import type {
   AiFeedbackRegressionCandidate,
   AiResponseFeedbackOverview,
   ProductionFeedbackContext,
+  PromoteProductionFeedbackPayload,
+  RegressionAssertion,
+  RegressionExpectedIntent,
 } from '../services/aiFeedbackApi'
 
 const overview = ref<EvaluationOverview | null>(null)
@@ -33,8 +41,11 @@ const feedbackPromotionForm = reactive({
   regression_action: '',
   review_note: '',
   regression_message: '',
-  regression_assertion: 'intent' as 'intent' | 'citation_present' | 'ticket_confirmation_required',
-  regression_expected_intent: null as 'policy_question' | 'order_query' | 'ticket_request' | 'smalltalk' | 'unsupported' | 'unclear' | null,
+  regression_assertion: 'intent' as RegressionAssertion,
+  regression_expected_intent: null as RegressionExpectedIntent | null,
+  regression_expected_tool: '',
+  regression_must_ask_fields: '',
+  regression_must_not_reveal_terms: '',
 })
 
 const selectedBadCase = computed(() => {
@@ -45,6 +56,33 @@ const metricMap = computed(() => {
   const metrics = overview.value?.latest_run.metrics || []
   return Object.fromEntries(metrics.map((metric) => [metric.name, metric.display_value]))
 })
+
+const baselineComparison = computed<BaselineComparison | null>(() => overview.value?.baseline_comparison || null)
+
+const baselineCheckPassRate = computed<BaselineMetricComparison | null>(() => {
+  return baselineComparison.value?.metric_comparisons.find((metric) => metric.name === 'check_pass_rate') || null
+})
+
+const regressedMetrics = computed<BaselineMetricComparison[]>(() => {
+  return (baselineComparison.value?.metric_comparisons || []).filter((metric) => metric.regressed)
+})
+
+function formatRate(value: number | undefined): string {
+  return typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : '-'
+}
+
+function formatMetricValue(metric: BaselineMetricComparison): string {
+  const baseline = formatRate(metric.baseline_value)
+  const candidate = formatRate(metric.candidate_value)
+  return `${metric.name}: ${baseline} → ${candidate}`
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
 
 const sortedLayerCounts = computed(() => {
   const counts = overview.value?.bad_case_summary.layer_counts || {}
@@ -101,6 +139,9 @@ async function openFeedbackReview(candidate: AiFeedbackRegressionCandidate) {
   feedbackPromotionForm.regression_message = ''
   feedbackPromotionForm.regression_assertion = 'intent'
   feedbackPromotionForm.regression_expected_intent = null
+  feedbackPromotionForm.regression_expected_tool = ''
+  feedbackPromotionForm.regression_must_ask_fields = ''
+  feedbackPromotionForm.regression_must_not_reveal_terms = ''
   try {
     selectedFeedbackContext.value = await getProductionFeedbackContext(candidate.feedback_id)
     feedbackPromotionForm.regression_message = selectedFeedbackContext.value.user_message_excerpt || ''
@@ -124,15 +165,24 @@ async function promoteSelectedFeedback() {
     feedbackPromotionForm.regression_action,
     feedbackPromotionForm.regression_message,
   ]
-  if (requiredValues.some((value) => !value.trim()) || (
-    feedbackPromotionForm.regression_assertion === 'intent' && !feedbackPromotionForm.regression_expected_intent
-  )) {
+  const assertion = feedbackPromotionForm.regression_assertion
+  const assertionConditionalInvalid =
+    (assertion === 'intent' && !feedbackPromotionForm.regression_expected_intent) ||
+    (assertion === 'tool_called' && !feedbackPromotionForm.regression_expected_tool.trim()) ||
+    (assertion === 'must_ask_for' && splitList(feedbackPromotionForm.regression_must_ask_fields).length === 0) ||
+    (assertion === 'must_not_reveal' && splitList(feedbackPromotionForm.regression_must_not_reveal_terms).length === 0)
+  if (requiredValues.some((value) => !value.trim()) || assertionConditionalInvalid) {
     ElMessage.warning('请完成坏案例审核字段')
     return
   }
   feedbackPromotionSubmitting.value = true
   try {
-    const response = await promoteProductionFeedback(context.feedback_id, { ...feedbackPromotionForm })
+    const payload: PromoteProductionFeedbackPayload = {
+      ...feedbackPromotionForm,
+      regression_must_ask_fields: splitList(feedbackPromotionForm.regression_must_ask_fields),
+      regression_must_not_reveal_terms: splitList(feedbackPromotionForm.regression_must_not_reveal_terms),
+    }
+    const response = await promoteProductionFeedback(context.feedback_id, payload)
     ElMessage.success(`已登记 ${response.bad_case.id}`)
     feedbackReviewVisible.value = false
     await loadOverview()
@@ -235,6 +285,58 @@ onMounted(() => {
         </div>
       </el-card>
     </div>
+
+    <el-card v-if="overview" shadow="never" class="baseline-comparison-card">
+      <template #header>
+        <div class="card-header">
+          <span>基线对比</span>
+          <el-tag v-if="baselineComparison" :type="baselineComparison.regressed ? 'danger' : 'success'">
+            {{ baselineComparison.regressed ? '有回归' : '无回归' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-empty v-if="!baselineComparison" :image-size="52" description="暂无基线，运行一次后建立" />
+      <template v-else>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="数据集">{{ baselineComparison.dataset_name }}</el-descriptions-item>
+          <el-descriptions-item label="数据集版本">{{ baselineComparison.dataset_version }}</el-descriptions-item>
+          <el-descriptions-item label="基线 run_id">{{ baselineComparison.baseline_run_id }}</el-descriptions-item>
+          <el-descriptions-item label="本次 run_id">{{ baselineComparison.candidate_run_id }}</el-descriptions-item>
+          <el-descriptions-item label="基线版本">{{ baselineComparison.baseline_candidate_version }}</el-descriptions-item>
+          <el-descriptions-item label="本次版本">{{ baselineComparison.candidate_version }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="baseline-rate-grid">
+          <div class="baseline-rate-item">
+            <p>基线通过率</p>
+            <strong>{{ baselineCheckPassRate ? formatRate(baselineCheckPassRate.baseline_value) : '-' }}</strong>
+            <div class="baseline-rate-meta"><el-tag type="info" effect="plain">baseline</el-tag></div>
+          </div>
+          <div class="baseline-rate-item" :class="{ 'rate-regressed': baselineCheckPassRate?.regressed }">
+            <p>本次通过率</p>
+            <strong>{{ baselineCheckPassRate ? formatRate(baselineCheckPassRate.candidate_value) : '-' }}</strong>
+            <div class="baseline-rate-meta">
+              <el-tag :type="baselineCheckPassRate?.regressed ? 'danger' : 'success'" effect="plain">
+                {{ baselineCheckPassRate ? (baselineCheckPassRate.regressed ? '较基线回归' : '未回归') : '-' }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
+        <div v-if="regressedMetrics.length" class="baseline-block">
+          <h3>回归指标</h3>
+          <div class="baseline-regressed-list">
+            <el-tag v-for="metric in regressedMetrics" :key="metric.name" type="danger" effect="plain">
+              {{ formatMetricValue(metric) }}
+            </el-tag>
+          </div>
+        </div>
+        <div v-if="baselineComparison.blocking_reasons.length" class="baseline-block">
+          <h3>阻断原因</h3>
+          <ul class="baseline-blocking-list">
+            <li v-for="reason in baselineComparison.blocking_reasons" :key="reason">{{ reason }}</li>
+          </ul>
+        </div>
+      </template>
+    </el-card>
 
     <section class="content-grid two-columns">
       <div class="content-grid">
@@ -511,6 +613,9 @@ onMounted(() => {
                 <el-option label="意图必须正确" value="intent" />
                 <el-option label="必须返回引用" value="citation_present" />
                 <el-option label="必须进入工单确认" value="ticket_confirmation_required" />
+                <el-option label="必须调用指定工具" value="tool_called" />
+                <el-option label="必须追问指定字段" value="must_ask_for" />
+                <el-option label="不得泄露指定内容" value="must_not_reveal" />
               </el-select>
             </el-form-item>
             <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'intent'" label="期望意图">
@@ -518,10 +623,28 @@ onMounted(() => {
                 <el-option label="政策问答" value="policy_question" />
                 <el-option label="订单查询" value="order_query" />
                 <el-option label="工单请求" value="ticket_request" />
+                <el-option label="退款申请" value="refund_request" />
                 <el-option label="闲聊" value="smalltalk" />
                 <el-option label="不支持" value="unsupported" />
                 <el-option label="不明确" value="unclear" />
               </el-select>
+            </el-form-item>
+            <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'tool_called'" label="期望工具">
+              <el-input v-model="feedbackPromotionForm.regression_expected_tool" maxlength="200" placeholder="如：create_order" />
+            </el-form-item>
+            <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'must_ask_for'" label="必须追问字段">
+              <el-input
+                v-model="feedbackPromotionForm.regression_must_ask_fields"
+                maxlength="500"
+                placeholder="逗号分隔，如：订单号, 联系电话"
+              />
+            </el-form-item>
+            <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'must_not_reveal'" label="不得泄露内容">
+              <el-input
+                v-model="feedbackPromotionForm.regression_must_not_reveal_terms"
+                maxlength="500"
+                placeholder="逗号分隔，如：优惠券码, 退款金额"
+              />
             </el-form-item>
           </el-form>
         </template>
@@ -587,6 +710,68 @@ onMounted(() => {
 
 .feedback-candidate-table {
   margin-top: 16px;
+}
+
+.baseline-comparison-card {
+  margin-bottom: 16px;
+}
+
+.baseline-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.baseline-rate-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.baseline-rate-item p {
+  margin: 0 0 8px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.baseline-rate-item strong {
+  font-size: 24px;
+  color: #101828;
+  line-height: 30px;
+}
+
+.baseline-rate-item.rate-regressed strong {
+  color: #f56c6c;
+}
+
+.baseline-rate-meta {
+  margin-top: 8px;
+}
+
+.baseline-block {
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+.baseline-block h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #344054;
+}
+
+.baseline-regressed-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.baseline-blocking-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #f56c6c;
+  line-height: 1.8;
 }
 
 .feedback-review-dialog {
