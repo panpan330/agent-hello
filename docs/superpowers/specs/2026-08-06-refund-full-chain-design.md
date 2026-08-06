@@ -42,11 +42,12 @@
 ### 3.1 表结构（schema.sql）
 orders 表追加 3 列（ALTER TABLE，对已有库需手动执行迁移 SQL）：
 ```sql
+ALTER TABLE orders ADD COLUMN amount DECIMAL(10,2) NOT NULL DEFAULT 0;
 ALTER TABLE orders ADD COLUMN refund_amount DECIMAL(10,2) NULL;
 ALTER TABLE orders ADD COLUMN refunded_at DATETIME(6) NULL;
 ALTER TABLE orders ADD COLUMN refund_reason VARCHAR(255) NULL;
 ```
-- `refund_amount` = 实付金额（全额退款，取自订单金额；当前 orders 无金额列则取 0？——需在实现时确认订单金额来源，若无则存退款时的商品总额或由前端传入；**设计约定：若无金额字段，refund_amount 存 0 并文档注明**）
+- `refund_amount` = 实付金额（全额退款）。为支持真实金额展示，**同时新增 `amount DECIMAL(10,2) NOT NULL DEFAULT 0` 列**（订单金额，data.sql 现有订单补金额值）；refund_amount 等于 amount。
 - 不新建退款表；审计复用 `ticket_events` 表（event_type='refund'，payload 存金额/原因/操作者）。
 - `payment_status` 枚举已含 `refunded`，不改。
 
@@ -165,11 +166,10 @@ OrderToolView refundOrder(String orderId, String reason, InternalRequestContext 
 ## 7. 范围外（YAGNI）
 - 取消订单（cancel_order）——本次不做，unsupported 保留该场景
 - 部分退款 / 任意状态退款——按用户决策排除
-- 退款金额计算（订单无金额列时存 0 并注明）
 - LangSmith 真实上报、生产化部署——其他候选方向，不在本规格
 
 ## 8. 风险与开放点
-- **订单金额来源**：当前 orders 表无金额列，refund_amount 取 0 或需新增 amount 列——实现时确认；若需展示金额，建议补 `amount` 列（默认 0）
 - **公开退款接口鉴权**：/api/orders 现有鉴权模式需确认（token → user），退款接口仿之
 - **多 Agent 子图映射**：refund_request 在 supervisor 下映射到哪个 worker——实现时按子图结构决定
-- 迁移 SQL 对已有库手动执行
+- **迁移 SQL 对已有库手动执行**：本机 MySQL（127.0.0.1:3306，Java 服务连接）需手动跑 ALTER；schema.sql 同步更新供新建库用
+- **amount 列回填**：data.sql 现有订单需补金额值（否则显示 ¥0）
