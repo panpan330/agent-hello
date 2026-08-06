@@ -72,6 +72,7 @@
             updated_at = #{updatedAt}
         WHERE tenant_id = #{tenantId}
           AND order_id = #{orderId}
+          AND payment_status != 'refunded'
     </update>
 
     <resultMap id="OrderEventResultMap" type="com.panpan.aibusinessservice.entity.OrderEvent">

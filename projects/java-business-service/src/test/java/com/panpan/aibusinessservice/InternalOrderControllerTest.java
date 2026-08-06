@@ -11,11 +11,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.panpan.aibusinessservice.common.trace.TraceHeaders;
+import com.panpan.aibusinessservice.mapper.OrderMapper;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 class InternalOrderControllerTest {
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private OrderMapper orderMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void queryOrderReturnsToolFacingView() throws Exception {
@@ -183,6 +194,16 @@ class InternalOrderControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("REFUND_ALREADY_EXISTS"))
                 .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+
+        // 重复退款不产生第二条 refund 审计事件
+        Integer refundEventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM order_events WHERE tenant_id = ? AND order_id = ? AND event_type = ?",
+                Integer.class,
+                "default",
+                "A1002",
+                "refund"
+        );
+        assertThat(refundEventCount).isEqualTo(1);
     }
 
     @Test
@@ -224,5 +245,49 @@ class InternalOrderControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("ORDER_ACCESS_DENIED"))
                 .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
+    void refundOrderRejectsNullBody() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "refund-stage7-nullbody-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("null")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("REFUND_REASON_REQUIRED"));
+    }
+
+    @Test
+    void refundOrderRequiresReasonInBody() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "refund-stage7-noreason-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("REFUND_REASON_REQUIRED"));
+    }
+
+    @Test
+    void updateRefundStateSkipsAlreadyRefundedRow() {
+        LocalDateTime refundedAt = LocalDateTime.now();
+        Instant updatedAt = Instant.now();
+        BigDecimal amount = new BigDecimal("159.00");
+
+        int first = orderMapper.updateRefundState(
+                "default", "A1002", "refunded", amount, refundedAt, "首次", "退款成功", updatedAt
+        );
+        assertThat(first).isEqualTo(1);
+
+        // WHERE payment_status != 'refunded' 已挡住重复更新（模拟并发下另一请求已退款）
+        int second = orderMapper.updateRefundState(
+                "default", "A1002", "refunded", amount, refundedAt, "重复", "退款成功", updatedAt
+        );
+        assertThat(second).isEqualTo(0);
     }
 }

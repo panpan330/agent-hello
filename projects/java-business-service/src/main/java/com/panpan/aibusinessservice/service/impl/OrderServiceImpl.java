@@ -178,7 +178,7 @@ public class OrderServiceImpl implements OrderService {
         order.setLatestEvent("退款成功");
         order.setUpdatedAt(updatedAt);
 
-        orderMapper.updateRefundState(
+        int updated = orderMapper.updateRefundState(
                 order.getTenantId(),
                 order.getOrderId(),
                 order.getPaymentStatus(),
@@ -188,6 +188,10 @@ public class OrderServiceImpl implements OrderService {
                 order.getLatestEvent(),
                 updatedAt
         );
+        if (updated == 0) {
+            // 并发下另一请求已退款该订单（payment_status 已为 refunded）
+            throw new BusinessException(BusinessErrorCode.REFUND_ALREADY_EXISTS);
+        }
 
         // 刷新订单缓存，避免 queryOrder/幂等返回读到退款前的 stale 快照
         orderCache.put(order);

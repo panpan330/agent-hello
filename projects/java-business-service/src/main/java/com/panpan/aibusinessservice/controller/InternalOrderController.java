@@ -44,11 +44,14 @@ public class InternalOrderController {
     @PostMapping("/{orderId}/refund")
     public ApiResponse<OrderToolView> refundOrder(
             @PathVariable String orderId,
-            @RequestBody Map<String, String> body,
+            @RequestBody(required = false) Map<String, String> body,
             @RequestHeader(value = TraceHeaders.IDEMPOTENCY_KEY, required = false) String idempotencyKey,
             HttpServletRequest request
     ) {
         InternalRequestContext context = requestResolver.resolve(request);
+        if (body == null) {
+            throw new BusinessException(BusinessErrorCode.REFUND_REASON_REQUIRED);
+        }
         String reason = body.get("reason");
         if (reason == null || reason.isBlank()) {
             throw new BusinessException(BusinessErrorCode.REFUND_REASON_REQUIRED);
