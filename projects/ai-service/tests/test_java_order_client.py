@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import json
 import logging
 from typing import Any
 
@@ -300,3 +301,82 @@ def test_java_order_client_from_settings_sends_internal_headers() -> None:
         "tenant_id": "default",
         "internal_token": "token-001",
     }
+
+
+def make_refunded_order_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "order_id": "A1002",
+        "customer_id": "C9001",
+        "order_status": "waiting_shipment",
+        "payment_status": "refunded",
+        "logistics_message": "商家已接单，等待仓库发货。",
+        "latest_event": "退款成功",
+        "can_create_ticket": False,
+        "refund_amount": 159.00,
+        "refunded_at": "2026-08-06T12:00:00",
+        "refund_reason": "七天无理由退货",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_refund_order_sends_post_with_reason_and_idempotency_key() -> None:
+    received: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received["method"] = request.method
+        received["path"] = request.url.path
+        received["body"] = json.loads(request.content)
+        received["idempotency_key"] = request.headers.get("Idempotency-Key")
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "code": "OK",
+                "message": "OK",
+                "data": make_refunded_order_payload(),
+                "trace_id": "trace-refund-001",
+            },
+            request=request,
+        )
+
+    client = make_client(handler)
+
+    result = client.refund_order(
+        "A1002",
+        "七天无理由退货",
+        idempotency_key="refund-idem-001",
+    )
+
+    assert received["method"] == "POST"
+    assert received["path"] == "/internal/orders/A1002/refund"
+    assert received["body"] == {"reason": "七天无理由退货"}
+    assert received["idempotency_key"] == "refund-idem-001"
+    assert result["order_id"] == "A1002"
+    assert result["payment_status"] == "refunded"
+    assert result["refund_amount"] == 159.00
+
+
+def test_refund_order_maps_business_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "success": False,
+                "code": "ORDER_NOT_REFUNDABLE",
+                "message": "当前订单状态不支持退款。",
+                "data": None,
+                "trace_id": "trace-refund-409",
+            },
+            request=request,
+        )
+
+    client = make_client(handler)
+
+    with pytest.raises(AppException) as exc_info:
+        client.refund_order("A1001", "不想要了")
+
+    exc = exc_info.value
+    assert exc.code == "ORDER_NOT_REFUNDABLE"
+    assert exc.message == "当前订单状态不支持退款。"
+    assert exc.status_code == 409

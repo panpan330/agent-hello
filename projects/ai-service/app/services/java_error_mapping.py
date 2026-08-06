@@ -6,7 +6,7 @@ import httpx
 from app.core.exceptions import AppException
 
 
-JavaOperation = Literal["order_query", "ticket_creation"]
+JavaOperation = Literal["order_query", "ticket_creation", "order_refund"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class JavaErrorMapping:
 ORDER_QUERY_UNAVAILABLE = "订单查询服务暂时不可用，请稍后重试。"
 TICKET_CREATION_UNAVAILABLE = "工单业务服务暂时不可用，请稍后重试。"
 TICKET_CONTRACT_REJECTED = "工单业务服务拒绝了已经校验过的请求，请联系管理员排查接口契约。"
+REFUND_UNAVAILABLE = "退款服务暂时不可用，请稍后重试。"
 
 
 USER_SAFE_JAVA_ERROR_MAPPINGS: dict[str, JavaErrorMapping] = {
@@ -51,6 +52,21 @@ USER_SAFE_JAVA_ERROR_MAPPINGS: dict[str, JavaErrorMapping] = {
         code="TICKET_ALREADY_EXISTS",
         message="已经存在相似工单，请不要重复提交。",
         status_code=409,
+    ),
+    "ORDER_NOT_REFUNDABLE": JavaErrorMapping(
+        code="ORDER_NOT_REFUNDABLE",
+        message="当前订单状态不支持退款。",
+        status_code=409,
+    ),
+    "REFUND_ALREADY_EXISTS": JavaErrorMapping(
+        code="REFUND_ALREADY_EXISTS",
+        message="订单已退款，请勿重复操作。",
+        status_code=409,
+    ),
+    "REFUND_REASON_REQUIRED": JavaErrorMapping(
+        code="REFUND_REASON_REQUIRED",
+        message="退款原因不能为空，请补充退款原因后重试。",
+        status_code=422,
     ),
     "IDEMPOTENCY_KEY_CONFLICT": JavaErrorMapping(
         code="IDEMPOTENCY_KEY_CONFLICT",
@@ -128,4 +144,6 @@ def build_java_error_app_exception(
 def _unavailable_message_for(operation: JavaOperation) -> str:
     if operation == "ticket_creation":
         return TICKET_CREATION_UNAVAILABLE
+    if operation == "order_refund":
+        return REFUND_UNAVAILABLE
     return ORDER_QUERY_UNAVAILABLE
