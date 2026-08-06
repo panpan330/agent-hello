@@ -145,3 +145,97 @@ docker compose down
 ```
 
 > 本文件与项目根 `docker-compose.otel.yml`、`otel-collector-config.yml` 内容一致，供 VM 上手动创建用；将来若 VM 上配置了共享目录或 SSH，可直接复制这两个文件过去。
+
+---
+
+## 附录 A：傻瓜操作版（推荐给不熟悉 Linux 的你）
+
+> 以下内容**不用看懂**，照做即可。所有操作都在 **VM 的 Ubuntu 终端**里完成。
+
+### A1. 打开 VM 终端
+
+打开 VMware 里的 Ubuntu 虚拟机 → 打开终端（Terminal）。若 Ubuntu 是图形界面，按 `Ctrl+Alt+T` 打开终端。
+
+### A2. 复制下面这一整段，粘贴进终端，回车
+
+```bash
+# ===== 一键部署 OTLP Collector（复制从这一行到最后一行）=====
+mkdir -p ~/otel-collector && cd ~/otel-collector && \
+cat > otel-collector-config.yml << 'CONFIG_EOF'
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  debug:
+    verbosity: detailed
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+CONFIG_EOF
+cat > docker-compose.yml << 'COMPOSE_EOF'
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-collector-config.yml:/etc/otelcol-contrib/config.yaml
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+COMPOSE_EOF
+docker compose up -d
+```
+
+粘贴后按回车，会看到类似输出（拉取镜像 + 启动容器）：
+
+```text
+[+] Running 2/2
+ ✔ Network otel-collector_default  Created
+ ✔ Container otel-collector       Started
+```
+
+### A3. 确认容器在跑
+
+复制下面这一段，粘贴，回车：
+
+```bash
+docker ps --filter name=otel-collector
+```
+
+看到类似：
+
+```text
+CONTAINER ID   IMAGE                                        ...   STATUS
+xxxxxxxxxxxx   otel/opentelemetry-collector-contrib:latest  ...   Up 2 seconds
+```
+
+就是成功了。`STATUS` 是 `Up ...`（不是 `Exited`）即可。
+
+### A4. 回到 Windows 验证端口通不通
+
+Windows 打开 PowerShell，粘贴：
+
+```powershell
+Test-NetConnection 192.168.88.10 -Port 4317
+```
+
+看到 `TcpTestSucceeded : True` 就说明通了，可以继续联调。
+
+> **这一步通过后，其余按正文第 4-5 节进行**（.env 已配好、Python 服务启动后，回到 VM 终端跑 `docker logs -f otel-collector` 看 span）。
+
+### A5. 如果 A2 出错怎么办
+
+| 现象 | 做法 |
+| --- | --- |
+| 提示 `docker: command not found` | Docker 没装或不在 PATH，先确认 VM 里 Docker 能用（`docker --version`） |
+| 提示 `docker compose` 不认识 | 有些旧版 Docker 用 `docker-compose`（带横杠），把 A2 最后一行换成 `docker-compose up -d` |
+| 拉镜像很慢/超时 | 重跑一次 A2 的最后一行 `docker compose up -d`，或先 `docker pull otel/opentelemetry-collector-contrib` 单独拉 |
+| 其他看不懂的报错 | 把报错截图/复制给我，我来帮你看 |
