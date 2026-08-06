@@ -71,9 +71,19 @@ function formatRate(value: number | undefined): string {
   return typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : '-'
 }
 
+function formatCount(value: number | undefined): string {
+  if (typeof value !== 'number') {
+    return '-'
+  }
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
 function formatMetricValue(metric: BaselineMetricComparison): string {
-  const baseline = formatRate(metric.baseline_value)
-  const candidate = formatRate(metric.candidate_value)
+  // 比率指标（*_rate，如 check_pass_rate / suite_pass_rate）按百分比显示；
+  // 计数指标（如 failed_suites / failed_checks，direction=lower_is_better）显示原值。
+  const isRateMetric = metric.name.endsWith('_rate')
+  const baseline = isRateMetric ? formatRate(metric.baseline_value) : formatCount(metric.baseline_value)
+  const candidate = isRateMetric ? formatRate(metric.candidate_value) : formatCount(metric.candidate_value)
   return `${metric.name}: ${baseline} → ${candidate}`
 }
 
