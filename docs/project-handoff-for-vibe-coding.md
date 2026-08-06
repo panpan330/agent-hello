@@ -638,7 +638,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | Java 启动时反馈表字段缺失 | 检查 `AiFeedbackSchemaMigration` 日志和 MySQL 表权限；它负责已有表的审核字段迁移。 |
 | MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致；或确认 `.env` 已设 `AGENT_MCP_TOOLS_ENABLED=true`。`MCP_PRODUCT_AUTH_TOKEN` 必须设置：未设置时 product MCP server 启动直接退出（fail-fast），且 client 端会返回 `MCP_AUTH_FAILED` 而非无限重试。 |
 | 多 Agent 模式 Agent 报错或路由异常 | 确认 `.env` 已设 `AGENT_MULTI_AGENT_ENABLED=true`；LLM 路由模式（`SUPERVISOR_ROUTER_MODE=llm`）下确认 `LLM_API_KEY` 已配置（失败会自动回退 rule）。 |
-| OTEL span 未出现在 Collector | 确认已启动 Collector（`docker compose -f docker-compose.otel.yml up -d`）且 `.env` 设了 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`；Collector 不可达时服务静默降级（启动期日志 `otel_setup_failed`，运行期批量导出失败不阻断业务），不影响业务。 |
+| OTEL span 未出现在 Collector | 确认已启动 Collector（VM 上：`cd ~/otel-collector && docker compose up -d`，见 `docs/otel-collector-vm-setup.md` 傻瓜版）且 `.env` 设了 `OTEL_EXPORTER_OTLP_ENDPOINT=http://192.168.88.10:4317`；Collector 不可达时服务静默降级（启动期日志 `otel_setup_failed`，运行期批量导出失败不阻断业务），不影响业务。已实测验证：真实对话后 VM Collector 日志可见 `ai-service` 与 `mcp-python-sdk` 两组 scope 的完整 span 树（http.request→agent.invoke→llm.call→tool.call→MCP send 子 span），同一条 Trace ID 贯穿。 |
 | SSE 流式对话路径的 span 链存在已知限制 | `stream_reply` 生成器跨线程 yield 导致流式下 `agent.invoke` 与子 span 的 parent 关系不完整；非流式 reply 路径 span 链完整。如需完整 span 树，验收时用非流式路径（普通 HTTP 请求）。 |
 
 ## 17. 已实现但未接入产品主流程的模块
