@@ -654,6 +654,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |
 | 多 Agent 协作 | `app/agents/supervisor/`（监督图+路由）、`app/agents/workers/`（3 个工作子图） | 监督-工作多 Agent 已实现：监督 Agent 嵌套 3 个子图（知识库问答、订单查询、工单创建），LLM/rule 可切换路由（`SUPERVISOR_ROUTER_MODE`）；`AGENT_MULTI_AGENT_ENABLED=true` 开启后生效，与 MCP 工具链路（`AGENT_MCP_TOOLS_ENABLED`）正交可叠加；单 Agent 图（`ticket_agent.py`）保留，默认关闭。 |
+| 退款全链路 | `refund_order` 工具（`app/tools/tool_registry.py` 已解禁，SENSITIVE + 需确认）、MCP handler（`app/mcp_servers/product_server.py`）、意图 `refund_request`（单 Agent + supervisor 路由）、Java 退款接口（`POST /internal/orders/{id}/refund` + 公开 `POST /api/orders/{id}/refund`）、orders 表退款字段、`order_events` 审计表 | **已接入产品主链路**（2026-08-06）：仅未发货（`waiting_shipment`）且未退款订单可全额退款；退款必须用户确认（复用 Redis 确认存储）；AI 对话（refund_request 意图 → 确认弹窗 → 执行）与订单页"申请退款"按钮双入口；退款审计事件落 `order_events` 表。真实联调三场景已验证（AI 对话退款 / 订单页退款 / 边界拒绝）。迁移：既有库需执行 `projects/java-business-service/docs/refund-migration.sql`（orders +4 列 + order_events 表）。 |
 
 ## 18. 当前进度与下一步方向
 
@@ -662,20 +663,21 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | Stage 1-11 | Python 基础 → FastAPI → LLM → RAG → LangGraph → 真实 Java 后端 → 前端联调 → 反馈/评测闭环 | 已完成 |
-| MCP 接入产品主链路 | product MCP server（streamable HTTP :9100）+ product MCP client，Agent 工具调用经 MCP 执行，确认凭证 Redis 共享校验 | 已完成（HEAD 92c4649） |
+| MCP 接入产品主链路 | product MCP server（streamable HTTP :9100）+ product MCP client，Agent 工具调用经 MCP 执行，确认凭证 Redis 共享校验 | 已完成 |
 | 多 Agent 协作升级 | 监督-工作多 Agent：顶层监督 Agent（LLM/rule 路由）+ 3 工作子图（知识库/订单/工单），跨 Agent 转单 | 已完成 |
+| 退款全链路闭环 | 退款工具解禁 + MCP handler + `refund_request` 意图 + Java 退款接口（内部/公开）+ orders 退款字段 + `order_events` 审计 + 前端双入口（AI 对话/订单页） | 已完成（真实联调三场景验证通过） |
 
-**当前 HEAD**：`92c4649`（`git log --oneline` 可见全部 40 个 commit）。
+**当前 HEAD**：`git log --oneline` 可见全部 commit。
 
-**当前基线测试**：Python `uv run pytest -q` = 1395 passed；Java `mvn test -q` = 49 passed；前端 `npm run build` 通过。
+**当前基线测试**：Python `uv run pytest -q` = 1458 passed；Java `mvn test -q` = 64 passed（另有 6 个历史遗留 `InternalRefundTicketControllerTest` 产物不在源码中）；前端 `npm run build` 通过。
 
 ### 候选下一步方向（按优先级）
 
 | 候选方向 | 内容 | 优先级理由 |
 | --- | --- | --- |
 | **生产化部署** | Docker Compose 三服务一键编排（Java 18004 / Python 8000 / MCP 9100 + 依赖容器）+ CI/CD | 交接文档第 9 节明确列为未实现；最接近真实交付形态，作品展示价值高 |
-| **可观测性真实接入** | OTEL 本机 Collector 已接入（`docker-compose.otel.yml` + `app/core/telemetry.py`，span 树 http→agent→llm→tool→java 实时可见）；剩余 LangSmith 真实上报（配 `LANGSMITH_TRACING=true` 与 `LANGSMITH_API_KEY` 即上报）与远端/云平台对接 | 本地联调排障已提效；补齐 LangSmith/远端平台后跨端排障更高效 |
-| **业务功能扩展** | 退款工具解禁（`refund_order` 当前 enabled=False）、新增业务工具/页面 | 有 MCP + 多 Agent 基础，扩展成本低，丰富作品展示面 |
+| **可观测性真实接入** | OTEL 已真实接入（VM Collector :4317，span 树 http→agent→llm→tool→java 已实测）；LangSmith 条件启用（配 key 即上报） | 本地联调排障已提效；补齐 LangSmith/远端平台后跨端排障更高效 |
+| **业务功能扩展** | 退款全链路已闭环（2026-08-06）；后续可新增订单取消、物流详情、优惠券等工具/页面 | 有 MCP + 多 Agent + 退款模式可复用，扩展成本低 |
 | **评测体系深化** | Bad Case 扩展、断言类型增强、回归覆盖加深 | 已有闭环（Stage 11），可进一步提升 Agent 行为质量证明 |
 
 ### 新对话开始前置动作
