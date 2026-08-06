@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -43,10 +44,19 @@ def setup_telemetry(settings: Settings | None = None) -> None:
 
     Idempotent: calling twice does not rebuild the provider.
     Failures are logged but never raised (service must start regardless).
+
+    LangSmith and OTEL are independent switches: LangSmith tracing is
+    configured whenever enabled, regardless of the OTEL exporter endpoint.
     """
     resolved_settings = settings or get_settings()
     service_name = resolved_settings.otel_service_name or _DEFAULT_SERVICE_NAME
     endpoint = resolved_settings.resolved_otel_exporter_otlp_endpoint
+
+    # Configure LangSmith first: it does not depend on the OTEL endpoint.
+    try:
+        _configure_langsmith(resolved_settings)
+    except Exception:
+        logger.exception("langsmith_setup_failed")
 
     if endpoint is None:
         logger.info("otel_export_disabled endpoint not configured")
@@ -59,20 +69,12 @@ def setup_telemetry(settings: Settings | None = None) -> None:
             logger.info("otel_export_already_enabled endpoint=%s service_name=%s", endpoint, service_name)
         else:
             provider = TracerProvider(resource=_build_resource(service_name))
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-
             exporter = OTLPSpanExporter(endpoint=endpoint)
             provider.add_span_processor(BatchSpanProcessor(exporter))
             trace.set_tracer_provider(provider)
             logger.info("otel_export_enabled endpoint=%s service_name=%s", endpoint, service_name)
     except Exception:
         logger.exception("otel_setup_failed endpoint=%s", endpoint)
-        return
-
-    try:
-        _configure_langsmith(resolved_settings)
-    except Exception:
-        logger.exception("langsmith_setup_failed")
 
 
 def get_tracer() -> Any:

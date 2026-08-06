@@ -1,4 +1,6 @@
-from typing import Generator
+import logging
+import os
+from typing import Any, Generator
 
 import pytest
 from opentelemetry import trace
@@ -81,4 +83,46 @@ def test_setup_failure_does_not_raise() -> None:
         otel_exporter_otlp_endpoint="http://127.0.0.1:1",
     )
     setup_telemetry(settings)  # 不应 raise
+    shutdown_telemetry()
+
+
+def test_langsmith_configured_without_otel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    # LangSmith is an independent switch: it must be configured even when the
+    # OTEL exporter endpoint is empty (OTEL disabled).
+    for name in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGSMITH_API_KEY", "LANGCHAIN_PROJECT"):
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(
+        _env_file=None,
+        langsmith_tracing=True,
+        langsmith_api_key="test-key",
+        otel_exporter_otlp_endpoint="",
+    )
+    setup_telemetry(settings)
+    assert os.environ.get("LANGSMITH_TRACING") == "true"
+    assert os.environ.get("LANGCHAIN_TRACING_V2") == "true"
+    assert os.environ.get("LANGSMITH_API_KEY") == "test-key"
+    assert os.environ.get("LANGCHAIN_PROJECT") == "ai-service"
+    # OTEL remains disabled (endpoint empty): provider was never installed.
+    assert is_telemetry_enabled() is False
+
+
+class _FailingExporter:
+    """Exporter stub whose construction always raises (real failure path)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("exporter construction failed")
+
+
+def test_setup_exporter_failure_does_not_raise(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    # Exporter construction raises: setup must not raise and must log otel_setup_failed.
+    monkeypatch.setattr("app.core.telemetry.OTLPSpanExporter", _FailingExporter)
+    settings = Settings(
+        _env_file=None,
+        otel_exporter_otlp_endpoint="http://127.0.0.1:1",
+    )
+    with caplog.at_level(logging.ERROR, logger="app.core.telemetry"):
+        setup_telemetry(settings)  # 不应 raise
+    assert any("otel_setup_failed" in record.message for record in caplog.records)
+    # Provider was never installed.
+    assert is_telemetry_enabled() is False
     shutdown_telemetry()
