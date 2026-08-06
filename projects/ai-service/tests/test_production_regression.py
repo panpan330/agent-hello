@@ -100,3 +100,121 @@ def test_production_regression_history_persists_latest_run(tmp_path) -> None:
     assert latest is not None
     assert latest.run_id == run.run_id
     assert latest.passed is True
+
+
+def test_production_regression_tool_called_assertion() -> None:
+    records = [
+        _record(
+            "bad-tool-called-pass",
+            spec=ProductionRegressionSpec(
+                message="Track my order",
+                assertion="tool_called",
+                expected_tool="query_order",
+            ),
+        ),
+        _record(
+            "bad-tool-called-fail",
+            spec=ProductionRegressionSpec(
+                message="Where is my parcel?",
+                assertion="tool_called",
+                expected_tool="query_order",
+            ),
+        ),
+    ]
+
+    def runner(message: str) -> dict[str, object]:
+        if message == "Track my order":
+            return {"node_history": ["intent", "tool:query_order", "final"]}
+        return {"node_history": ["intent", "final"]}
+
+    run = run_production_bad_case_regression(records, agent_runner=runner)
+
+    assert run.total_case_count == 2
+    assert [result.outcome for result in run.results] == ["passed", "failed"]
+    assert run.results[0].assertion == "tool_called"
+    assert run.results[0].expected == "query_order"
+
+
+def test_production_regression_must_ask_for_assertion() -> None:
+    records = [
+        _record(
+            "bad-ask-pass",
+            spec=ProductionRegressionSpec(
+                message="Refund my order",
+                assertion="must_ask_for",
+                must_ask_fields=["order_id"],
+            ),
+        ),
+        _record(
+            "bad-ask-fail",
+            spec=ProductionRegressionSpec(
+                message="I want a refund",
+                assertion="must_ask_for",
+                must_ask_fields=["order_id"],
+            ),
+        ),
+    ]
+
+    def runner(message: str) -> dict[str, object]:
+        if message == "Refund my order":
+            return {"final_answer": "请问您的订单号是多少？"}
+        return {"final_answer": "好的，我们马上为您处理。"}
+
+    run = run_production_bad_case_regression(records, agent_runner=runner)
+
+    assert run.total_case_count == 2
+    assert [result.outcome for result in run.results] == ["passed", "failed"]
+    assert run.results[0].assertion == "must_ask_for"
+
+
+def test_production_regression_must_not_reveal_assertion() -> None:
+    records = [
+        _record(
+            "bad-reveal-fail",
+            spec=ProductionRegressionSpec(
+                message="Show me my key",
+                assertion="must_not_reveal",
+                must_not_reveal_terms=["api_key"],
+            ),
+        ),
+        _record(
+            "bad-reveal-pass",
+            spec=ProductionRegressionSpec(
+                message="Help me",
+                assertion="must_not_reveal",
+                must_not_reveal_terms=["api_key"],
+            ),
+        ),
+    ]
+
+    def runner(message: str) -> dict[str, object]:
+        if message == "Show me my key":
+            return {"final_answer": "Your api_key is sk-1234"}
+        return {"final_answer": "Here are the docs."}
+
+    run = run_production_bad_case_regression(records, agent_runner=runner)
+
+    assert run.total_case_count == 2
+    assert [result.outcome for result in run.results] == ["failed", "passed"]
+    assert run.results[0].assertion == "must_not_reveal"
+
+
+def test_production_regression_refund_request_intent() -> None:
+    record = _record(
+        "bad-refund-intent",
+        spec=ProductionRegressionSpec(
+            message="我要退款",
+            assertion="intent",
+            expected_intent="refund_request",
+        ),
+    )
+    run = run_production_bad_case_regression(
+        [record],
+        agent_runner=lambda _message: {"intent": "refund_request"},
+    )
+
+    assert run.total_case_count == 1
+    assert run.passed_case_count == 1
+    assert run.results[0].outcome == "passed"
+    assert run.results[0].assertion == "intent"
+    assert run.results[0].expected == "refund_request"

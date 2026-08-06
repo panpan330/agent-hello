@@ -134,10 +134,21 @@ class PromoteProductionFeedbackRequest(BaseModel):
     regression_message: str = Field(min_length=1, max_length=4000)
     regression_assertion: Literal[
         "intent", "citation_present", "ticket_confirmation_required",
+        "tool_called", "must_ask_for", "must_not_reveal",
     ]
     regression_expected_intent: Literal[
-        "policy_question", "order_query", "ticket_request", "smalltalk", "unsupported", "unclear",
+        "policy_question", "order_query", "ticket_request", "refund_request",
+        "smalltalk", "unsupported", "unclear",
     ] | None = None
+    regression_expected_tool: str | None = Field(
+        default=None, max_length=200, description="tool_called 断言：期望被调用的工具名"
+    )
+    regression_must_ask_fields: list[str] = Field(
+        default_factory=list, description="must_ask_for 断言：必须追问的字段"
+    )
+    regression_must_not_reveal_terms: list[str] = Field(
+        default_factory=list, description="must_not_reveal 断言：不得泄露的 term"
+    )
 
     @model_validator(mode="after")
     def validate_regression_assertion(self) -> "PromoteProductionFeedbackRequest":
@@ -145,6 +156,22 @@ class PromoteProductionFeedbackRequest(BaseModel):
             raise ValueError("regression_expected_intent is required for an intent assertion")
         if self.regression_assertion != "intent" and self.regression_expected_intent is not None:
             raise ValueError("regression_expected_intent is only supported by an intent assertion")
+        if self.regression_assertion == "tool_called" and not self.regression_expected_tool:
+            raise ValueError("regression_expected_tool is required for a tool_called assertion")
+        if self.regression_assertion != "tool_called" and self.regression_expected_tool is not None:
+            raise ValueError("regression_expected_tool is only supported by a tool_called assertion")
+        if self.regression_assertion == "must_ask_for" and not self.regression_must_ask_fields:
+            raise ValueError("regression_must_ask_fields is required for a must_ask_for assertion")
+        if self.regression_assertion != "must_ask_for" and self.regression_must_ask_fields:
+            raise ValueError("regression_must_ask_fields is only supported by a must_ask_for assertion")
+        if self.regression_assertion == "must_not_reveal" and not self.regression_must_not_reveal_terms:
+            raise ValueError(
+                "regression_must_not_reveal_terms is required for a must_not_reveal assertion"
+            )
+        if self.regression_assertion != "must_not_reveal" and self.regression_must_not_reveal_terms:
+            raise ValueError(
+                "regression_must_not_reveal_terms is only supported by a must_not_reveal assertion"
+            )
         return self
 
 

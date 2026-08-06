@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.agents.must_check import check_must_ask_for, check_must_not_reveal
 from app.agents.ticket_agent import run_ticket_agent
 from app.evaluation.bad_case_registry import BadCaseRecord
 
@@ -119,15 +120,47 @@ def _run_single_production_bad_case(
             actual=actual,
             passed=actual == "present",
         )
+    if spec.assertion == "ticket_confirmation_required":
+        actual = "required" if state.get("ticket_confirmation_required") is True else "not_required"
+        return _assert_result(
+            record,
+            assertion="ticket_confirmation_required",
+            expected="required",
+            actual=actual,
+            passed=actual == "required",
+        )
+    if spec.assertion == "tool_called":
+        node_history = state.get("node_history") or []
+        matched = [str(node) for node in node_history if spec.expected_tool in str(node)]
+        return _assert_result(
+            record,
+            assertion="tool_called",
+            expected=spec.expected_tool,
+            actual=", ".join(matched) if matched else "not_called",
+            passed=bool(matched),
+        )
+    if spec.assertion == "must_ask_for":
+        reply = str(state.get("final_answer") or "")
+        missing = check_must_ask_for(reply, spec.must_ask_fields)
+        return _assert_result(
+            record,
+            assertion="must_ask_for",
+            expected=", ".join(spec.must_ask_fields),
+            actual=", ".join(missing) if missing else "all_asked",
+            passed=not missing,
+        )
+    if spec.assertion == "must_not_reveal":
+        reply = str(state.get("final_answer") or "")
+        leaked = check_must_not_reveal(reply, spec.must_not_reveal_terms)
+        return _assert_result(
+            record,
+            assertion="must_not_reveal",
+            expected="none",
+            actual=", ".join(leaked) if leaked else "none_revealed",
+            passed=not leaked,
+        )
 
-    actual = "required" if state.get("ticket_confirmation_required") is True else "not_required"
-    return _assert_result(
-        record,
-        assertion="ticket_confirmation_required",
-        expected="required",
-        actual=actual,
-        passed=actual == "required",
-    )
+    raise ValueError(f"unsupported production regression assertion: {spec.assertion}")
 
 
 def _assert_result(

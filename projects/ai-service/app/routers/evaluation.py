@@ -419,6 +419,9 @@ def _build_production_bad_case(
             message=request.regression_message,
             assertion=request.regression_assertion,
             expected_intent=request.regression_expected_intent,
+            expected_tool=request.regression_expected_tool,
+            must_ask_fields=request.regression_must_ask_fields,
+            must_not_reveal_terms=request.regression_must_not_reveal_terms,
         ),
         evidence_summary=(
             f"production_feedback_id={context.feedback_id}; trace_id={context.trace_id}; "
