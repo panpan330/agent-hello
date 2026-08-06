@@ -130,13 +130,28 @@ def test_confirmation_rejects_read_tool_that_does_not_need_confirmation() -> Non
     assert exc_info.value.status_code == 409
 
 
-def test_confirmation_rejects_disabled_tool() -> None:
+def test_confirmation_rejects_disabled_tool(disabled_sensitive_tool: str) -> None:
     service = make_service()
 
     with pytest.raises(AppException) as exc_info:
         service.request_confirmation(
-            make_request(tool_name="refund_order", arguments={"order_id": "A1001"})
+            make_request(tool_name=disabled_sensitive_tool, arguments={"order_id": "A1001"})
         )
 
     assert exc_info.value.code == "TOOL_NOT_ALLOWED"
     assert exc_info.value.status_code == 403
+
+
+def test_confirmation_accepts_refund_order_sensitive_tool() -> None:
+    service = make_service()
+
+    response = service.request_confirmation(
+        make_request(
+            tool_name="refund_order",
+            arguments={"order_id": "A1001", "reason": "不想要了"},
+        )
+    )
+
+    assert response.status == ToolConfirmationStatus.PENDING
+    assert response.tool_name == "refund_order"
+    assert response.arguments == {"order_id": "A1001", "reason": "不想要了"}

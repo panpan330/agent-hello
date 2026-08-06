@@ -1,10 +1,14 @@
 from app.core.exceptions import AppException
+from app.schemas.refund import get_refund_order_args_json_schema
 from app.schemas.tool import (
     ToolAccessLevel,
     ToolDefinition,
     get_query_order_args_json_schema,
 )
 from app.schemas.ticket import get_create_ticket_args_json_schema
+
+
+REFUND_ORDER_TOOL_NAME = "refund_order"
 
 
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
@@ -24,12 +28,13 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         enabled=True,
         argument_schema=get_create_ticket_args_json_schema(),
     ),
-    "refund_order": ToolDefinition(
-        name="refund_order",
-        description="发起退款操作，属于敏感业务动作，当前阶段不允许模型调用。",
+    REFUND_ORDER_TOOL_NAME: ToolDefinition(
+        name=REFUND_ORDER_TOOL_NAME,
+        description="发起退款操作，属于敏感业务动作，必须先让用户确认，且订单未发货才可退。",
         access_level=ToolAccessLevel.SENSITIVE,
         requires_confirmation=True,
-        enabled=False,
+        enabled=True,
+        argument_schema=get_refund_order_args_json_schema(),
     ),
 }
 

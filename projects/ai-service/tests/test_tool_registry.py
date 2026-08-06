@@ -85,9 +85,11 @@ def test_require_enabled_tool_definition_allows_write_tool_before_confirmation()
     assert definition.requires_confirmation is True
 
 
-def test_require_enabled_tool_definition_rejects_disabled_tool() -> None:
+def test_require_enabled_tool_definition_rejects_disabled_tool(
+    disabled_sensitive_tool: str,
+) -> None:
     with pytest.raises(AppException) as exc_info:
-        require_enabled_tool_definition("refund_order")
+        require_enabled_tool_definition(disabled_sensitive_tool)
 
     assert exc_info.value.code == "TOOL_NOT_ALLOWED"
     assert exc_info.value.status_code == 403
@@ -111,10 +113,42 @@ def test_authorize_tool_call_allows_write_tool_after_confirmation() -> None:
     assert definition.requires_confirmation is True
 
 
-def test_authorize_tool_call_rejects_disabled_sensitive_tool_even_when_confirmed() -> None:
+def test_authorize_tool_call_rejects_disabled_sensitive_tool_even_when_confirmed(
+    disabled_sensitive_tool: str,
+) -> None:
     with pytest.raises(AppException) as exc_info:
-        authorize_tool_call("refund_order", user_confirmed=True)
+        authorize_tool_call(disabled_sensitive_tool, user_confirmed=True)
 
     exc = exc_info.value
     assert exc.code == "TOOL_NOT_ALLOWED"
     assert exc.status_code == 403
+
+
+def test_authorize_tool_call_allows_refund_order_after_confirmation() -> None:
+    definition = authorize_tool_call("refund_order", user_confirmed=True)
+
+    assert definition.name == "refund_order"
+    assert definition.access_level == ToolAccessLevel.SENSITIVE
+    assert definition.requires_confirmation is True
+
+
+def test_refund_order_tool_is_enabled_and_requires_confirmation() -> None:
+    definition = get_tool_definition("refund_order")
+
+    assert definition is not None
+    assert definition.enabled is True
+    assert definition.access_level == ToolAccessLevel.SENSITIVE
+    assert definition.requires_confirmation is True
+    assert definition.argument_schema["type"] == "object"
+    assert set(definition.argument_schema["properties"]) == {
+        "order_id",
+        "reason",
+        "requester_id",
+    }
+    assert set(definition.argument_schema["required"]) == {"order_id", "reason"}
+
+
+def test_refund_order_not_in_read_only_model_callable_tools() -> None:
+    definitions = list_model_callable_tool_definitions()
+
+    assert "refund_order" not in {definition.name for definition in definitions}

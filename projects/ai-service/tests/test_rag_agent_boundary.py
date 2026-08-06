@@ -93,16 +93,34 @@ def test_build_rag_agent_boundary_decision_requested_write_tool_requires_agent_c
     assert decision.actions == ["run_agent_workflow", "request_user_confirmation"]
 
 
-def test_build_rag_agent_boundary_decision_rejects_disabled_sensitive_tool() -> None:
+def test_build_rag_agent_boundary_decision_rejects_disabled_sensitive_tool(
+    disabled_sensitive_tool: str,
+) -> None:
     decision = build_rag_agent_boundary_decision(
         "直接给订单退款",
-        requested_tool_name="refund_order",
+        requested_tool_name=disabled_sensitive_tool,
     )
 
     assert decision.primary_owner == "safety"
     assert decision.should_call_tool is False
     assert decision.actions == ["reject_tool_execution"]
     assert "RAG_AGENT_BOUNDARY_TOOL_NOT_ALLOWED" in decision.warnings
+
+
+def test_build_rag_agent_boundary_decision_refund_order_requires_agent_confirmation() -> None:
+    decision = build_rag_agent_boundary_decision(
+        "直接给订单退款",
+        requested_tool_name="refund_order",
+    )
+
+    assert decision.primary_owner == "agent"
+    assert decision.should_use_agent is True
+    assert decision.should_call_tool is False
+    assert decision.should_require_confirmation is True
+    assert decision.selected_tool_name == "refund_order"
+    assert decision.selected_tool_access_level == "sensitive"
+    assert decision.actions == ["run_agent_workflow", "request_user_confirmation"]
+    assert "RAG_AGENT_BOUNDARY_WRITE_REQUIRES_CONFIRMATION" in decision.warnings
 
 
 def test_build_rag_agent_boundary_decision_blocks_unsafe_query_before_rag_or_agent() -> None:
