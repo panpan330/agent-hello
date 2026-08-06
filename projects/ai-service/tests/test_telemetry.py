@@ -14,14 +14,24 @@ from app.core.telemetry import (
 )
 
 
+def _reset_tracer_provider() -> None:
+    # trace.set_tracer_provider is global AND guarded by a once-lock
+    # (_TRACER_PROVIDER_SET_ONCE): after the first call it no-ops with a warning,
+    # so resetting only _TRACER_PROVIDER is not enough. The public API cannot
+    # clear the provider (set_tracer_provider(None) raises), so touch privates.
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    once = getattr(trace, "_TRACER_PROVIDER_SET_ONCE", None)
+    if once is not None:
+        once._done = False  # type: ignore[attr-defined]
+
+
 @pytest.fixture(autouse=True)
 def reset_tracer_provider() -> Generator[None, None, None]:
-    # trace.set_tracer_provider is global; reset it so each test starts clean.
-    # NOTE: uses the private _TRACER_PROVIDER attribute as the opentelemetry
-    # public API does not allow clearing the provider (set_tracer_provider(None) raises).
-    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    # Reset the global provider state before and after each test so tests are
+    # order-independent and each can install a fresh SDK TracerProvider.
+    _reset_tracer_provider()
     yield
-    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    _reset_tracer_provider()
 
 
 def test_telemetry_disabled_when_endpoint_empty() -> None:
@@ -48,9 +58,15 @@ def test_setup_is_idempotent() -> None:
     )
     setup_telemetry(settings)
     provider1 = trace.get_tracer_provider()
+    # Must be a real SDK TracerProvider (not the default ProxyTracerProvider).
+    assert isinstance(provider1, TracerProvider)
+    processors_before = len(provider1._active_span_processor._span_processors)
     setup_telemetry(settings)
     provider2 = trace.get_tracer_provider()
+    # Second setup must not rebuild: same instance, same span processors.
+    assert isinstance(provider2, TracerProvider)
     assert provider1 is provider2
+    assert len(provider2._active_span_processor._span_processors) == processors_before
     shutdown_telemetry()
 
 
