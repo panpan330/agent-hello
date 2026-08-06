@@ -189,6 +189,9 @@ public class OrderServiceImpl implements OrderService {
                 updatedAt
         );
 
+        // 刷新订单缓存，避免 queryOrder/幂等返回读到退款前的 stale 快照
+        orderCache.put(order);
+
         orderMapper.insertOrderEvent(
                 order.getTenantId(),
                 "E-" + UUID.randomUUID(),

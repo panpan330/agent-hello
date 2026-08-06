@@ -71,7 +71,11 @@ public class RedisOrderCache implements OrderCache {
             String paymentStatus,
             String logisticsMessage,
             String latestEvent,
-            boolean canCreateTicket
+            boolean canCreateTicket,
+            java.math.BigDecimal amount,
+            java.math.BigDecimal refundAmount,
+            java.time.LocalDateTime refundedAt,
+            String refundReason
     ) {
         static CachedOrder from(Order order) {
             return new CachedOrder(
@@ -82,12 +86,16 @@ public class RedisOrderCache implements OrderCache {
                     order.getPaymentStatus(),
                     order.getLogisticsMessage(),
                     order.getLatestEvent(),
-                    order.isCanCreateTicket()
+                    order.isCanCreateTicket(),
+                    order.getAmount(),
+                    order.getRefundAmount(),
+                    order.getRefundedAt(),
+                    order.getRefundReason()
             );
         }
 
         Order toOrder() {
-            return new Order(
+            Order order = new Order(
                     orderId,
                     ownerUserId,
                     tenantId,
@@ -97,6 +105,11 @@ public class RedisOrderCache implements OrderCache {
                     latestEvent,
                     canCreateTicket
             );
+            order.setAmount(amount);
+            order.setRefundAmount(refundAmount);
+            order.setRefundedAt(refundedAt);
+            order.setRefundReason(refundReason);
+            return order;
         }
     }
 }
