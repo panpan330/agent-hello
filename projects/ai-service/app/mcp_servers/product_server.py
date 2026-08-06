@@ -18,11 +18,13 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.mcp_clients.product_client import MCP_AUTH_FAILED_ERROR_CODE
 from app.mcp_servers import order_tool
+from app.schemas.refund import RefundOrderArgs
 from app.schemas.ticket import CreateTicketArgs
+from app.services.java_order_client import JavaOrderClient
 from app.services.java_ticket_client import JavaTicketClient
 from app.tools.idempotency import run_idempotent_tool
 from app.tools.tool_confirmation import create_tool_confirmation_store
-from app.tools.tool_registry import authorize_tool_call
+from app.tools.tool_registry import REFUND_ORDER_TOOL_NAME, authorize_tool_call
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,25 @@ def _create_ticket_response(
 
 def _safe_created_ticket(ticket: Any) -> dict[str, Any]:
     return ticket.model_dump(mode="json")
+
+
+def _refund_response(
+    *,
+    ok: bool,
+    confirmation_id: str,
+    error_code: str | None,
+    message: str,
+    refund: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "allowed": True,
+        "confirmation_checked": True,
+        "confirmation_id": confirmation_id,
+        "error_code": error_code,
+        "message": message,
+        "refund": refund,
+    }
 
 
 def _product_create_ticket(
@@ -187,6 +208,132 @@ def _product_create_ticket(
     )
 
 
+def _product_refund_order(
+    order_id: str,
+    reason: str,
+    confirmation_id: str,
+    user_confirmed: bool = False,
+    requester_id: str | None = None,
+    user_id: str | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    """Refund an order with confirmation + authorization + idempotency guards.
+
+    ``user_id``/``tenant_id`` carry the authenticated actor identity that the
+    AI service injected into the tool call; they are applied to the Java
+    business call via the business context so refund ownership checks see the
+    real caller instead of the default fallback identity.
+    """
+    if not user_confirmed:
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id.strip(),
+            error_code="TOOL_CONFIRMATION_REQUIRED",
+            message="该工具需要用户确认后才能执行。",
+            refund=None,
+        )
+
+    resolved_requester_id = requester_id or "demo_user_001"
+
+    try:
+        arguments = RefundOrderArgs(
+            order_id=order_id,
+            reason=reason,
+            requester_id=resolved_requester_id,
+        )
+    except Exception as exc:  # pydantic.ValidationError
+        from pydantic import ValidationError
+
+        if not isinstance(exc, ValidationError):
+            raise
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="INVALID_TOOL_ARGUMENTS",
+            message="退款参数不正确，请确认后重新提交。",
+            refund=None,
+        )
+
+    try:
+        store = create_tool_confirmation_store()
+        store.require_confirmed(confirmation_id, actor_id=resolved_requester_id)
+    except AppException as exc:
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code=exc.code,
+            message=exc.message,
+            refund=None,
+        )
+    except Exception as exc:
+        # e.g. redis ConnectionError under the redis backend: never let
+        # infrastructure errors escape as MCP protocol errors.
+        logger.warning(
+            "product_mcp_confirmation_unavailable error_type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="TOOL_CONFIRMATION_UNAVAILABLE",
+            message="确认服务暂时不可用，请稍后重试或联系人工处理。",
+            refund=None,
+        )
+
+    try:
+        authorize_tool_call(REFUND_ORDER_TOOL_NAME, user_confirmed=True)
+        order_client = JavaOrderClient.from_settings(get_settings())
+        tokens = set_business_context(user_id=user_id, tenant_id=tenant_id)
+        try:
+            result = run_idempotent_tool(
+                REFUND_ORDER_TOOL_NAME,
+                arguments,
+                confirmation_id,
+                lambda: order_client.refund_order(
+                    order_id,
+                    reason,
+                    idempotency_key=confirmation_id,
+                ),
+            )
+        finally:
+            reset_business_context(tokens)
+    except AppException as exc:
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code=exc.code,
+            message=exc.message,
+            refund=None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "product_mcp_refund_order_failed error_type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return _refund_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="REFUND_TOOL_ERROR",
+            message="退款工具暂时不可用，请稍后重试或联系人工处理。",
+            refund=None,
+        )
+
+    logger.info(
+        "product_mcp_refund_order_succeeded confirmation_id=%s order_id=%s",
+        confirmation_id,
+        order_id,
+    )
+    return _refund_response(
+        ok=True,
+        confirmation_id=confirmation_id,
+        error_code=None,
+        message="退款成功。",
+        refund=dict(result),
+    )
+
+
 def create_product_mcp_server(
     settings: Settings | None = None,
 ) -> MCPServer:
@@ -241,6 +388,32 @@ def create_product_mcp_server(
             related_order_id=related_order_id,
             confirmation_id=confirmation_id,
             user_confirmed=user_confirmed,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+
+    @server.tool()
+    def refund_order(
+        order_id: str,
+        reason: Annotated[str, Field(min_length=1, max_length=200)],
+        confirmation_id: Annotated[str, Field(pattern=CONFIRMATION_ID_PATTERN)],
+        user_confirmed: bool = False,
+        requester_id: str | None = None,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Refund an order after user confirmation and idempotency checks.
+
+        ``user_id``/``tenant_id`` carry the authenticated actor identity injected
+        by the AI service; they are applied to the Java business call so refund
+        ownership is attributed to the real caller.
+        """
+        return _product_refund_order(
+            order_id=order_id,
+            reason=reason,
+            confirmation_id=confirmation_id,
+            user_confirmed=user_confirmed,
+            requester_id=requester_id,
             user_id=user_id,
             tenant_id=tenant_id,
         )

@@ -29,7 +29,7 @@ def test_product_server_registers_only_business_tools() -> None:
         async with Client(server) as client:
             tools = await client.list_tools()
         names = [tool.name for tool in tools.tools]
-        assert names == ["query_order", "create_ticket"]
+        assert names == ["query_order", "create_ticket", "refund_order"]
 
     import asyncio
 
@@ -317,6 +317,219 @@ def test_product_create_ticket_confirmation_unavailable_mapped_to_ok_false(
     assert result["ok"] is False
     assert result["error_code"] == "TOOL_CONFIRMATION_UNAVAILABLE"
     assert result["ticket"] is None
+
+
+def test_product_refund_order_requires_user_confirmation() -> None:
+    from app.mcp_servers import product_server
+
+    result = product_server._product_refund_order(
+        order_id="A1002",
+        reason="七天无理由退货",
+        confirmation_id="a" * 32,
+        user_confirmed=False,
+    )
+
+    assert result["ok"] is False
+    assert result["error_code"] == "TOOL_CONFIRMATION_REQUIRED"
+    assert result["refund"] is None
+
+
+def test_product_refund_order_validates_confirmation_id_format() -> None:
+    server = create_product_mcp_server(_settings())
+
+    async def run() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "refund_order",
+                {
+                    "order_id": "A1002",
+                    "reason": "七天无理由退货",
+                    "confirmation_id": "not-a-hex-id",
+                },
+            )
+        # MCP 2.0 surfaces pydantic argument-validation failures as an is_error
+        # CallToolResult whose text describes the confirmation_id pattern.
+        assert result.is_error is True
+        error_text = result.content[0].text
+        assert "confirmation_id" in error_text
+        assert "string_pattern_mismatch" in error_text
+
+    import asyncio
+
+    asyncio.run(run())
+
+
+def test_product_refund_order_sets_business_context_before_java_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.mcp_servers import product_server
+
+    captured: dict[str, object] = {}
+
+    class _ContextCapturingOrderClient:
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def refund_order(
+            self,
+            order_id: str,
+            reason: str,
+            *,
+            idempotency_key: str | None = None,
+            trace_context: object = None,
+        ) -> dict[str, object]:
+            captured["order_id"] = order_id
+            captured["reason"] = reason
+            captured["idempotency_key"] = idempotency_key
+            captured["headers"] = build_java_internal_headers(self.settings)
+            return {
+                "order_id": order_id,
+                "payment_status": "refunded",
+                "refund_amount": 159.00,
+            }
+
+    monkeypatch.setattr(
+        product_server,
+        "JavaOrderClient",
+        SimpleNamespace(
+            from_settings=staticmethod(
+                lambda settings: _ContextCapturingOrderClient(settings)
+            )
+        ),
+    )
+
+    class _ConfirmingStore:
+        def require_confirmed(
+            self,
+            confirmation_id: str,
+            *,
+            actor_id: str,
+        ) -> None:
+            return None
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _ConfirmingStore(),
+    )
+
+    result = product_server._product_refund_order(
+        order_id="A1002",
+        reason="七天无理由退货",
+        confirmation_id="b" * 32,
+        user_confirmed=True,
+        user_id="U5000",
+        tenant_id="tenant-5",
+    )
+    assert result["ok"] is True
+    # The Java refund call saw the injected identity, not the default fallback.
+    assert captured["headers"]["X-User-Id"] == "U5000"
+    assert captured["headers"]["X-Tenant-Id"] == "tenant-5"
+    # The confirmation id doubles as the idempotency key for the Java call.
+    assert captured["idempotency_key"] == "b" * 32
+    # The business context was reset after the Java call.
+    assert get_business_context() == (None, None)
+
+
+def test_product_refund_order_confirmation_unavailable_mapped_to_ok_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.mcp_servers import product_server
+
+    class _FailingConfirmationStore:
+        def require_confirmed(self, confirmation_id: str, *, actor_id: str) -> None:
+            raise RedisConnectionError("redis connection refused")
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _FailingConfirmationStore(),
+    )
+    result = product_server._product_refund_order(
+        order_id="A1002",
+        reason="七天无理由退货",
+        confirmation_id="a" * 32,
+        user_confirmed=True,
+    )
+    assert result["ok"] is False
+    assert result["error_code"] == "TOOL_CONFIRMATION_UNAVAILABLE"
+    assert result["refund"] is None
+
+
+def test_product_refund_order_success_returns_refund(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.mcp_servers import product_server
+
+    captured: dict[str, object] = {}
+
+    class _FakeOrderClient:
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def refund_order(
+            self,
+            order_id: str,
+            reason: str,
+            *,
+            idempotency_key: str | None = None,
+            trace_context: object = None,
+        ) -> dict[str, object]:
+            captured["order_id"] = order_id
+            captured["idempotency_key"] = idempotency_key
+            return {
+                "order_id": order_id,
+                "order_status": "refunded",
+                "payment_status": "refunded",
+                "refund_amount": 159.00,
+                "refunded_at": "2026-08-06T12:00:00",
+                "refund_reason": reason,
+            }
+
+    monkeypatch.setattr(
+        product_server,
+        "JavaOrderClient",
+        SimpleNamespace(
+            from_settings=staticmethod(
+                lambda settings: _FakeOrderClient(settings)
+            )
+        ),
+    )
+
+    class _ConfirmingStore:
+        def require_confirmed(
+            self,
+            confirmation_id: str,
+            *,
+            actor_id: str,
+        ) -> None:
+            return None
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _ConfirmingStore(),
+    )
+
+    result = product_server._product_refund_order(
+        order_id="A1002",
+        reason="七天无理由退货",
+        confirmation_id="c" * 32,
+        user_confirmed=True,
+        requester_id="user-1",
+    )
+    assert result["ok"] is True
+    assert result["allowed"] is True
+    assert result["confirmation_checked"] is True
+    assert result["confirmation_id"] == "c" * 32
+    assert result["error_code"] is None
+    assert result["message"] == "退款成功。"
+    assert result["refund"]["order_id"] == "A1002"
+    assert result["refund"]["payment_status"] == "refunded"
+    assert result["refund"]["refund_amount"] == 159.00
+    assert captured["idempotency_key"] == "c" * 32
 
 
 def test_main_refuses_to_start_without_auth_token(
