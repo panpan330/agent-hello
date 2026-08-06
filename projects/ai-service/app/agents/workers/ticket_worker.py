@@ -56,6 +56,24 @@ def route_ticket_worker_entry(state: TicketWorkerState) -> str:
     return "extract_ticket_fields"
 
 
+def _extract_ticket_fields_reset_refund_flag(
+    state: TicketWorkerState,
+) -> TicketWorkerState:
+    """进入工单创建链前的字段抽取：清除残留的退款活动标志。
+
+    退款流程停在待确认时 refund_request_active 仍为 True（handle_refund_request
+    写入，工单链不清除）。若用户随后改口建工单，抽取出的工单字段走
+    request_ticket_confirmation → route_by_ticket_confirmation 时会因该残留标志
+    被误路由到 execute_refund_request（真实执行退款，用工单 description 当退款
+    原因）。入口路由已保证走到本节点的都是非退款链（intent != refund_request 且
+    无 active-refund-collection），因此在此显式归零标志，使确认路由正确分流到
+    execute_create_ticket。退款链走 handle_refund_request，不受影响。
+    """
+    update = extract_ticket_fields_node(state)
+    update["refund_request_active"] = False
+    return update
+
+
 TICKET_WORKER_ENTRY_ROUTES = {
     "handle_refund_request": "handle_refund_request",
     "extract_ticket_fields": "extract_ticket_fields",
@@ -80,7 +98,7 @@ def build_ticket_worker_graph(
     )
     builder.add_node(
         "extract_ticket_fields",
-        lambda state: extract_ticket_fields_node(state),
+        _extract_ticket_fields_reset_refund_flag,
     )
     builder.add_node(
         "handle_refund_request",

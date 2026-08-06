@@ -283,6 +283,50 @@ def test_supervisor_refund_request_multi_turn_collects_order_id_then_executes() 
     assert "A1002" in (second.get("final_answer") or "")
 
 
+def test_supervisor_refund_pending_change_mind_to_ticket_creates_ticket_not_refund() -> None:
+    """退款字段完整停在待确认后，用户改口建工单：确认必须建工单而非误执行退款。
+
+    修复前残留 refund_request_active=True（handle_refund_request 写入、工单链
+    不清除）使 route_by_ticket_confirmation 把工单确认误路由到
+    execute_refund_request——真实执行退款，用工单 description 当退款原因。
+    """
+    refund_executor = FakeRefundExecutor()
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        refund_executor=refund_executor,
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-refund-changemind-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要退 A1002 的款，空调坏了"},
+        config=config,
+    )
+    # 退款字段完整（订单号+原因），停在待确认，refund_request_active 残留 True
+    assert first["intent"] == "refund_request"
+    assert first["refund_request_active"] is True
+    assert first["missing_ticket_fields"] == []
+
+    # 改口：建投诉工单（含完整字段），确认后应建工单，不得执行退款
+    second = graph.invoke(
+        {
+            "user_message": "我要投诉，订单号 A1002，商品破损，帮我建个工单",
+            "ticket_confirmation_approved": True,
+        },
+        config=config,
+    )
+    assert second["intent"] == "ticket_request"
+    assert second["ticket_creation_status"] == "created"
+    assert second["created_ticket"]["related_order_id"] == "A1002"
+    assert "商品破损" in (second["created_ticket"]["description"] or "")
+    assert second["refund_request_active"] is False
+    assert second.get("refund_status") is None
+    assert refund_executor.calls == []
+    assert "工单已创建" in (second.get("final_answer") or "")
+
+
 def test_supervisor_multi_turn_rule_ticket_request_collects_missing_fields() -> None:
     """rule 路由下纯工单诉求（无退款动作短语）的多轮字段收集仍走工单创建链：
     新增的条件 START 边在 ticket_request 下必须落到 extract_ticket_fields，
