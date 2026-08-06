@@ -18,8 +18,12 @@ from app.evaluation.bad_case_registry import (
     build_bad_case_id,
     build_regression_case_draft,
     build_bad_case_registry_summary,
+    mark_bad_case_regression_added,
 )
-from app.evaluation.production_bad_case_registry import append_production_bad_case
+from app.evaluation.production_bad_case_registry import (
+    append_production_bad_case,
+    update_production_bad_case,
+)
 from app.evaluation.case_writer import write_bad_case_to_agent_cases
 from app.evaluation.production_regression import (
     ProductionRegressionRun,
@@ -153,7 +157,14 @@ def promote_production_feedback(
     if context.review_status == "regression_added" and context.bad_case_id:
         existing = _find_bad_case_by_id(bad_case_registry_path, context.bad_case_id)
         if existing is not None:
-            return _promotion_response(existing)
+            # 提前返回：首次 promote 的写回可能已降级（告警）而未执行。写回函数自身幂等，
+            # 已写回的返回 None（不会重复写），未写回的重试补写，闭环不因提前返回断掉。
+            linked_record, written_case_id = _write_back_agent_case(
+                existing,
+                bad_case_registry_path=bad_case_registry_path,
+                agent_cases_path=agent_cases_path,
+            )
+            return _promotion_response(linked_record, written_case_id=written_case_id)
 
     record = _build_production_bad_case(context, request)
     stored_record = append_production_bad_case(bad_case_registry_path, record)
@@ -165,25 +176,15 @@ def promote_production_feedback(
         )
     finally:
         reset_business_context(tokens)
-    # 反馈→用例闭环：把 bad case 写回 agent_cases.json 生成正式评测用例。
-    # 写回是附属数据：失败只降级为告警日志，不阻断 promote 主流程（registry + Java 已写入）。
-    try:
-        written_case = write_bad_case_to_agent_cases(
-            stored_record,
-            cases_path=agent_cases_path,
-        )
-    except (OSError, ValueError) as exc:
-        logger.warning(
-            "agent_case_writeback_failed path=%s bad_case_id=%s error=%s",
-            agent_cases_path,
-            stored_record.id,
-            exc,
-        )
-        written_case = None
-    return _promotion_response(
+    # 反馈→用例闭环：写回 agent_cases.json 生成正式评测用例，并回填 registry 中
+    # record 的 regression_case_id 为写回 case id（追踪关系一致）。
+    # 写回/回填是附属数据：失败只降级为告警日志，不阻断 promote 主流程（registry + Java 已写入）。
+    linked_record, written_case_id = _write_back_agent_case(
         stored_record,
-        written_case_id=written_case.id if written_case is not None else None,
+        bad_case_registry_path=bad_case_registry_path,
+        agent_cases_path=agent_cases_path,
     )
+    return _promotion_response(linked_record, written_case_id=written_case_id)
 
 
 @router.post(
@@ -498,6 +499,53 @@ def _build_production_bad_case(
             *( [context.reason] if context.reason else [] ),
         ],
     )
+
+
+def _write_back_agent_case(
+    record: BadCaseRecord,
+    *,
+    bad_case_registry_path: Path,
+    agent_cases_path: Path,
+) -> tuple[BadCaseRecord, str | None]:
+    """写回 agent_cases.json 并回填 registry 中的 regression_case_id。
+
+    - 写回失败（OSError/ValueError）：降级为告警日志，返回 (record, None)，不阻断调用方；
+    - 写回幂等命中（已存在）：返回 (record, None)，不重复写；
+    - 写回成功：若 record.regression_case_id 与写回 case id 不一致，用
+      mark_bad_case_regression_added 回填并原子更新 registry（更新失败同样降级为告警），
+      返回 (更新后的 record, 写回 case id)。
+    """
+    try:
+        written_case = write_bad_case_to_agent_cases(record, cases_path=agent_cases_path)
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "agent_case_writeback_failed path=%s bad_case_id=%s error=%s",
+            agent_cases_path,
+            record.id,
+            exc,
+        )
+        return record, None
+    if written_case is None:
+        return record, None
+    if record.regression_case_id == written_case.id:
+        return record, written_case.id
+    linked_record = mark_bad_case_regression_added(
+        record,
+        regression_case_id=written_case.id,
+        regression_dataset_name="agent_eval",
+    )
+    try:
+        update_production_bad_case(bad_case_registry_path, linked_record)
+    except (OSError, ValueError) as exc:
+        logger.warning(
+            "bad_case_relink_failed path=%s bad_case_id=%s case_id=%s error=%s",
+            bad_case_registry_path,
+            record.id,
+            written_case.id,
+            exc,
+        )
+        return record, written_case.id
+    return linked_record, written_case.id
 
 
 def _promotion_response(

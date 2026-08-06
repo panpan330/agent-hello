@@ -14,6 +14,7 @@ from app.routers.evaluation import get_bad_case_registry_path, get_production_re
 from app.routers.evaluation import get_eval_snapshot_store_path
 from app.routers.evaluation import get_agent_cases_path
 from app.agents.intent_evaluation import AgentEvalDataset
+from app.evaluation.bad_case_registry import BadCaseRegistry
 from app.services.java_feedback_client import JavaFeedbackContext
 from app.routers.evaluation import _load_or_generate_bad_cases
 from app.evaluation.eval_platform import (
@@ -439,10 +440,15 @@ def _promote_test_app(
     *,
     registry_path: Path | None = None,
     cases_path: Path | None = None,
-) -> None:
+    context: JavaFeedbackContext | None = None,
+    registry_content: str | None = None,
+) -> tuple[Path, Path]:
     registry_path = registry_path or (tmp_path / "bad_cases.json")
     cases_path = cases_path or (tmp_path / "agent_cases.json")
-    _write_bad_case_registry_fixture(registry_path)
+    if registry_content is None:
+        _write_bad_case_registry_fixture(registry_path)
+    else:
+        registry_path.write_text(registry_content, encoding="utf-8")
     _write_agent_cases_fixture(cases_path)
     app.dependency_overrides[get_evaluation_actor] = lambda: ConsoleAgentActor(
         user_id="SUP1001", tenant_id="default", roles=("supervisor",)
@@ -452,8 +458,9 @@ def _promote_test_app(
     monkeypatch.setattr(
         evaluation_router,
         "JavaFeedbackClient",
-        _fake_feedback_client_class(_intent_feedback_context()),
+        _fake_feedback_client_class(context or _intent_feedback_context()),
     )
+    return registry_path, cases_path
     return registry_path, cases_path
 
 
@@ -516,3 +523,122 @@ def test_promote_is_idempotent_for_same_bad_case(
 
     written = AgentEvalDataset.model_validate_json(cases_path.read_text(encoding="utf-8"))
     assert len(written.cases) == 1
+
+
+REGRESSION_ADDED_REGISTRY = """
+{
+  "schema_version": "stage10.bad_case_registry.v1",
+  "records": [{
+    "id": "bad_production_feedback_stage11_feedback_1_intent",
+    "title": "Production feedback 1: misroute",
+    "source": "production",
+    "task_type": "agent",
+    "severity": "high",
+    "status": "regression_added",
+    "source_case_id": "feedback_1",
+    "failure_layer": "intent",
+    "failure_category": "misroute",
+    "expected_behavior": "Refund requests must route to refund handling.",
+    "actual_behavior": "The route was incorrect.",
+    "recommended_action": "Adjust the intent classifier.",
+    "regression_action": "Add an intent regression case.",
+    "regression_dataset_name": "agent_eval",
+    "regression_case_id": "feedback_1_regression_intent",
+    "production_regression": {
+      "message": "我要申请退款，订单 A1001",
+      "assertion": "intent",
+      "expected_intent": "refund_request"
+    },
+    "evidence_summary": "feedback_id=1"
+  }]
+}
+"""
+
+
+def _regression_added_context() -> JavaFeedbackContext:
+    return JavaFeedbackContext(
+        feedback_id=1,
+        conversation_id="conversation-refund-1",
+        trace_id="trace-refund-1",
+        reason="misclassified refund request as unsupported",
+        agent_route="build_unsupported_answer",
+        citation_count=0,
+        human_handoff_suggested=False,
+        user_message_excerpt="我要申请退款，订单 A1001",
+        assistant_answer_excerpt="I am sorry, I cannot help with refunds.",
+        citation_summary_json=None,
+        review_status="regression_added",
+        bad_case_id="bad_production_feedback_stage11_feedback_1_intent",
+        review_note="confirmed by supervisor",
+    )
+
+
+def _promote_intent_request(client: TestClient, *, trace_id: str):
+    return client.post(
+        "/api/ai/evaluation/feedback-candidates/1/promote",
+        json=PROMOTE_INTENT_PAYLOAD,
+        headers={TRACE_ID_HEADER: trace_id},
+    )
+
+
+def test_promote_links_regression_case_id_in_registry(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    registry_path, cases_path = _promote_test_app(app, tmp_path, monkeypatch)
+
+    response = _promote_intent_request(client, trace_id="trace-relink-1")
+    assert response.status_code == 200
+    written_case_id = response.json()["written_case_id"]
+    assert written_case_id
+
+    registry = BadCaseRegistry.model_validate_json(
+        registry_path.read_text(encoding="utf-8")
+    )
+    record = registry.records[0]
+    assert record.regression_case_id == written_case_id
+    assert record.regression_dataset_name == "agent_eval"
+    assert record.status == "regression_added"
+
+
+def test_promote_early_return_writes_back_bad_case_and_links_registry(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # 提前返回路径：review_status=regression_added 且 registry 已有该 bad case。
+    # 首次 promote 会走提前返回，此时也应补写 agent_cases 并回填 regression_case_id。
+    registry_path, cases_path = _promote_test_app(
+        app,
+        tmp_path,
+        monkeypatch,
+        context=_regression_added_context(),
+        registry_content=REGRESSION_ADDED_REGISTRY,
+    )
+
+    response = _promote_intent_request(client, trace_id="trace-early-1")
+    assert response.status_code == 200
+    written_case_id = response.json()["written_case_id"]
+    assert written_case_id
+
+    written = AgentEvalDataset.model_validate_json(cases_path.read_text(encoding="utf-8"))
+    assert len(written.cases) == 1
+    assert written.cases[0].expected.intent == "refund_request"
+    assert written.cases[0].expected.intent_route == "handle_refund_request"
+
+    registry = BadCaseRegistry.model_validate_json(
+        registry_path.read_text(encoding="utf-8")
+    )
+    assert registry.records[0].regression_case_id == written_case_id
+
+    # 再次走提前返回：写回幂等命中，不重复写，响应 written_case_id 为 None。
+    second = _promote_intent_request(client, trace_id="trace-early-2")
+    assert second.status_code == 200
+    assert second.json()["written_case_id"] is None
+    written_again = AgentEvalDataset.model_validate_json(
+        cases_path.read_text(encoding="utf-8")
+    )
+    assert len(written_again.cases) == 1
