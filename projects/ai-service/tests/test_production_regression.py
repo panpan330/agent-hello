@@ -135,6 +135,58 @@ def test_production_regression_tool_called_assertion() -> None:
     assert run.results[0].expected == "query_order"
 
 
+def test_production_regression_tool_called_matches_real_node_names() -> None:
+    # supervisor 按工具名填 refund_order 时，应命中退款执行节点 execute_refund_request
+    #（修复前 refund_order 与真实节点名不匹配会恒误报 failed）。
+    records = [
+        _record(
+            "bad-tool-refund-alias-pass",
+            spec=ProductionRegressionSpec(
+                message="Refund order A1001",
+                assertion="tool_called",
+                expected_tool="refund_order",
+            ),
+        ),
+        _record(
+            "bad-tool-query-node-pass",
+            spec=ProductionRegressionSpec(
+                message="Where is order A1001?",
+                assertion="tool_called",
+                expected_tool="query_order",
+            ),
+        ),
+        _record(
+            "bad-tool-refund-not-executed-fail",
+            spec=ProductionRegressionSpec(
+                message="Refund order B1002",
+                assertion="tool_called",
+                expected_tool="refund_order",
+            ),
+        ),
+    ]
+
+    def runner(message: str) -> dict[str, object]:
+        if message.startswith("Refund"):
+            if message == "Refund order A1001":
+                return {
+                    "node_history": [
+                        "classify_intent",
+                        "handle_refund_request",
+                        "execute_refund_request",
+                    ]
+                }
+            return {"node_history": ["classify_intent", "handle_refund_request"]}
+        return {"node_history": ["classify_intent", "query_order", "build_direct_answer"]}
+
+    run = run_production_bad_case_regression(records, agent_runner=runner)
+
+    assert run.total_case_count == 3
+    assert [result.outcome for result in run.results] == ["passed", "passed", "failed"]
+    assert run.results[0].actual == "execute_refund_request"
+    assert run.results[1].actual == "query_order"
+    assert run.results[2].actual == "not_called"
+
+
 def test_production_regression_must_ask_for_assertion() -> None:
     records = [
         _record(

@@ -15,6 +15,14 @@ from app.evaluation.bad_case_registry import BadCaseRecord
 ProductionRegressionOutcome = Literal["passed", "failed", "not_ready", "error"]
 AgentRunner = Callable[[str], Mapping[str, Any]]
 
+# tool_called 断言：supervisor 按工具名填 expected_tool，但 node_history 记录的是
+# 真实执行节点名，二者并不总是一致（如退款工具 refund_order 由 execute_refund_request
+# 节点执行）。这里维护 工具名 → 节点名 的别名表，匹配时把工具名与节点名都纳入候选，
+# 填 `refund_order` 或 `execute_refund_request` 均能命中退款执行节点。
+_TOOL_CALLED_NODE_ALIASES: Mapping[str, str] = {
+    "refund_order": "execute_refund_request",
+}
+
 
 class ProductionRegressionCaseResult(BaseModel):
     bad_case_id: str = Field(min_length=1)
@@ -131,7 +139,15 @@ def _run_single_production_bad_case(
         )
     if spec.assertion == "tool_called":
         node_history = state.get("node_history") or []
-        matched = [str(node) for node in node_history if spec.expected_tool in str(node)]
+        candidates = {spec.expected_tool}
+        node_alias = _TOOL_CALLED_NODE_ALIASES.get(spec.expected_tool)
+        if node_alias:
+            candidates.add(node_alias)
+        matched = [
+            str(node)
+            for node in node_history
+            if any(candidate in str(node) for candidate in candidates)
+        ]
         return _assert_result(
             record,
             assertion="tool_called",

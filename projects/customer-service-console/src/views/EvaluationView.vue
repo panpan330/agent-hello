@@ -662,7 +662,7 @@ onMounted(() => {
               </el-select>
             </el-form-item>
             <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'tool_called'" label="期望工具">
-              <el-input v-model="feedbackPromotionForm.regression_expected_tool" maxlength="200" placeholder="如：create_order" />
+              <el-input v-model="feedbackPromotionForm.regression_expected_tool" maxlength="200" placeholder="如：query_order / refund_order / create_ticket（工具名或执行节点名均可）" />
             </el-form-item>
             <el-form-item v-if="feedbackPromotionForm.regression_assertion === 'must_ask_for'" label="必须追问字段">
               <el-input

@@ -461,7 +461,6 @@ def _promote_test_app(
         _fake_feedback_client_class(context or _intent_feedback_context()),
     )
     return registry_path, cases_path
-    return registry_path, cases_path
 
 
 def test_promote_writes_bad_case_to_agent_cases(
@@ -642,3 +641,48 @@ def test_promote_early_return_writes_back_bad_case_and_links_registry(
         cases_path.read_text(encoding="utf-8")
     )
     assert len(written_again.cases) == 1
+
+
+def test_promote_degrades_when_agent_case_writeback_fails(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # 写回 agent_cases.json 抛 OSError：fail-safe 降级，promote 主流程仍成功。
+    _promote_test_app(app, tmp_path, monkeypatch)
+
+    def failing_writeback(record, *, cases_path):  # noqa: ANN001
+        raise OSError("simulated writeback failure")
+
+    monkeypatch.setattr(evaluation_router, "write_bad_case_to_agent_cases", failing_writeback)
+    caplog.set_level(logging.WARNING)
+
+    response = _promote_intent_request(client, trace_id="trace-writeback-fail")
+    assert response.status_code == 200
+    assert response.json()["written_case_id"] is None
+    assert "agent_case_writeback_failed" in caplog.text
+
+
+def test_promote_degrades_when_registry_relink_fails(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # 写回成功后回填 registry 失败（update_production_bad_case 抛 OSError）：
+    # 降级为告警，promote 仍成功并返回已写回的 case id。
+    _promote_test_app(app, tmp_path, monkeypatch)
+
+    def failing_update(path, record):  # noqa: ANN001
+        raise OSError("simulated registry update failure")
+
+    monkeypatch.setattr(evaluation_router, "update_production_bad_case", failing_update)
+    caplog.set_level(logging.WARNING)
+
+    response = _promote_intent_request(client, trace_id="trace-relink-fail")
+    assert response.status_code == 200
+    assert response.json()["written_case_id"]
+    assert "bad_case_relink_failed" in caplog.text
