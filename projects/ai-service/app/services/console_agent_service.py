@@ -282,6 +282,7 @@ class ConsoleAgentService:
                 knowledge_service=ProductionPolicyRagService(self.settings),
                 order_query_executor=order_query_executor,
                 ticket_creator=ticket_creator,
+                refund_executor=refund_executor,
                 checkpointer=self._create_redis_checkpointer(),
                 interrupt_confirmation=True,
             )

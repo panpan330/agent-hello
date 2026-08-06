@@ -24,6 +24,13 @@ class SupervisorState(TypedDict, total=False):
     ticket_creation_status: str | None
     created_ticket: dict | None
     ticket_actor_id: str
+    # refund 执行字段（ticket worker 退款链输出，顶层读取供监督层编排与
+    # console 确认分流 is_refund_execution；active 标志用于多轮 active-collection）
+    refund_request_active: bool | None
+    refund_status: str | None
+    refund_error_code: str | None
+    refund_error_message: str | None
+    refund_result: dict | None
     # order worker 子图输出（顶层读取失败状态，供转人工/错误处理编排）
     order_query_order_id: str | None
     order_query_status: str
@@ -76,6 +83,8 @@ class OrderWorkerState(TypedDict, total=False):
 class TicketWorkerState(TypedDict, total=False):
     normalized_message: str
     agent_trace_id: str
+    # 监督层传入的意图（str，见 SupervisorState.intent 说明；子图入口据此分流退款链）
+    intent: str
     rag_answer_status: str
     needs_ticket: bool
     ticket_fields: dict | None
@@ -98,6 +107,11 @@ class TicketWorkerState(TypedDict, total=False):
     ticket_creation_error_message: str | None
     ticket_creation_idempotency_key: str | None
     created_ticket: dict | None
+    refund_request_active: bool | None
+    refund_status: str | None
+    refund_error_code: str | None
+    refund_error_message: str | None
+    refund_result: dict | None
     final_answer: str | None
     node_history: Annotated[list[str], add]
 
@@ -113,6 +127,11 @@ SUPERVISOR_OUTPUT_KEYS = frozenset(
         "ticket_creation_status",
         "created_ticket",
         "missing_ticket_fields",
+        "refund_request_active",
+        "refund_status",
+        "refund_error_code",
+        "refund_error_message",
+        "refund_result",
         "agent_error_code",
         "agent_error_message",
         "order_query_order_id",

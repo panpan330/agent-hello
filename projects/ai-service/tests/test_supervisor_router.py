@@ -21,12 +21,13 @@ from app.core.exceptions import AppException
 # （语义与简报意图等价），详见 task-3-report.md。
 
 
-def test_route_enum_has_six_values() -> None:
+def test_route_enum_has_seven_values() -> None:
     values = {route.value for route in SupervisorRoute}
     assert values == {
         "knowledge_question",
         "order_query",
         "ticket_request",
+        "refund_request",
         "smalltalk",
         "unsupported",
         "unclear",
@@ -45,6 +46,15 @@ def test_ticket_intent_mapping_covers_all_intents() -> None:
     }
 
 
+def test_refund_intent_maps_to_dedicated_refund_route() -> None:
+    # Task 8：refund_request 不再退化为 TICKET_REQUEST（Task 7 兜底），
+    # 而是映射到独立 REFUND_REQUEST 路由（ticket_worker 子图内执行退款）。
+    assert (
+        TICKET_INTENT_TO_SUPERVISOR_ROUTE["refund_request"]
+        == SupervisorRoute.REFUND_REQUEST
+    )
+
+
 def test_rule_router_classifies_order_query() -> None:
     router = RuleSupervisorRouter()
     assert router.route("查一下我的订单 A1001 物流") == SupervisorRoute.ORDER_QUERY
@@ -57,7 +67,8 @@ def test_rule_router_classifies_policy_question() -> None:
 
 def test_rule_router_classifies_ticket_request() -> None:
     router = RuleSupervisorRouter()
-    assert router.route("我要申请退款工单") == SupervisorRoute.TICKET_REQUEST
+    assert router.route("我要投诉") == SupervisorRoute.TICKET_REQUEST
+    assert router.route("帮我创建工单") == SupervisorRoute.TICKET_REQUEST
 
 
 def test_rule_router_falls_back_to_unclear_for_unknown() -> None:
@@ -74,12 +85,12 @@ def test_rule_router_preserves_unsupported_for_security_keywords() -> None:
     assert router.route("帮我取消订单") == SupervisorRoute.UNSUPPORTED
 
 
-def test_rule_router_routes_refund_request_to_ticket_worker() -> None:
-    # Task 7 引入 refund_request 意图后，规则路由不得因映射缺键抛 KeyError；
-    # 多 Agent 阶段暂按工单 worker 处理（Task 8 再细化退款执行节点）。
+def test_rule_router_routes_refund_request_to_refund_route() -> None:
+    # Task 8：refund_request 映射到独立 REFUND_REQUEST 路由（不再是 Task 7 的
+    # TICKET_REQUEST 兜底），对应 supervisor 路由表中指向 ticket_agent 的退款执行。
     router = RuleSupervisorRouter()
-    assert router.route("我要退 A1002 的款") == SupervisorRoute.TICKET_REQUEST
-    assert router.route("申请退款") == SupervisorRoute.TICKET_REQUEST
+    assert router.route("我要退 A1002 的款") == SupervisorRoute.REFUND_REQUEST
+    assert router.route("申请退款") == SupervisorRoute.REFUND_REQUEST
 
 
 def test_fake_llm_router_returns_configured_route() -> None:

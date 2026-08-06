@@ -17,6 +17,7 @@ from tests.rag_fakes import make_retrieved_chunk
 from tests.tool_fakes import (
     FakeNoContextPolicyRagService,
     FakePolicyRagService,
+    FakeRefundExecutor,
     FakeTicketCreator,
     make_created_ticket,
     make_policy_rag_answer,
@@ -232,12 +233,93 @@ def test_supervisor_llm_router_failure_falls_back_to_rule() -> None:
     assert "已发货" in (result.get("final_answer") or "")
 
 
-def test_supervisor_multi_turn_rule_collects_missing_order_id() -> None:
-    """多 Agent 多轮（rule 路由）：缺字段追问后，补充消息不得被 ORDER_KEYWORDS
-    带偏到 order_agent，必须强制回工单并合并第一轮字段建单。"""
+def test_supervisor_routes_refund_request_executes_refund() -> None:
+    """多 Agent 下 refund_request 必须走到 ticket_agent（ticket_worker 子图内
+    退款链）并真正执行退款——与单 Agent 语义一致（规格 6.3 场景 A），
+    而非退化为创建退款工单。"""
     graph = build_supervisor_graph(
         router=RuleSupervisorRouter(),
         ticket_creator=FakeTicketCreator(),
+        refund_executor=FakeRefundExecutor(),
+        interrupt_confirmation=False,
+    )
+    result = graph.invoke(
+        {
+            "user_message": "我要退 A1002 的款",
+            "ticket_confirmation_approved": True,
+        }
+    )
+    assert result["intent"] == "refund_request"
+    assert result["refund_status"] == "succeeded"
+    assert "A1002" in (result.get("final_answer") or "")
+
+
+def test_supervisor_refund_request_multi_turn_collects_order_id_then_executes() -> None:
+    """多 Agent 多轮退款：第一轮缺订单号追问，第二轮补充后不得被 ORDER_KEYWORDS
+    带到 order_agent，必须经 active-refund-collection 强制回退款链并执行退款。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        refund_executor=FakeRefundExecutor(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-refund-multi-turn-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要退款，商品破损"},
+        config=config,
+    )
+    assert first["intent"] == "refund_request"
+    assert first["missing_ticket_fields"] == ["order_id"]
+    assert "订单号" in (first.get("final_answer") or "")
+
+    second = graph.invoke(
+        {"user_message": "订单号是 A1002", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["intent"] == "refund_request"
+    assert second["refund_status"] == "succeeded"
+    assert "A1002" in (second.get("final_answer") or "")
+
+
+def test_supervisor_multi_turn_rule_ticket_request_collects_missing_fields() -> None:
+    """rule 路由下纯工单诉求（无退款动作短语）的多轮字段收集仍走工单创建链：
+    新增的条件 START 边在 ticket_request 下必须落到 extract_ticket_fields，
+    补充消息也不得被 ORDER_KEYWORDS 带偏到 order_agent。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-multi-turn-rule-ticket-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要投诉，商品破损"},
+        config=config,
+    )
+    assert first["intent"] == "ticket_request"
+    assert first["missing_ticket_fields"] == ["order_id"]
+
+    second = graph.invoke(
+        {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["intent"] == "ticket_request"
+    assert second["ticket_creation_status"] == "created"
+    assert second["created_ticket"]["related_order_id"] == "A1001"
+    # 第一轮提供的描述保留并随工单创建
+    assert "商品破损" in (second["created_ticket"]["description"] or "")
+
+
+def test_supervisor_multi_turn_rule_collects_missing_order_id() -> None:
+    """多 Agent 多轮（rule 路由）：缺字段追问后，补充消息不得被 ORDER_KEYWORDS
+    带偏到 order_agent，必须强制回退款链并合并第一轮字段执行退款。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        refund_executor=FakeRefundExecutor(),
         checkpointer=MemorySaver(),
         interrupt_confirmation=False,
     )
@@ -247,25 +329,24 @@ def test_supervisor_multi_turn_rule_collects_missing_order_id() -> None:
         {"user_message": "我要申请退款，商品破损"},
         config=config,
     )
-    # 进入工单流程并触发缺字段追问
-    assert first["needs_ticket"] is True
+    # 进入退款流程并触发缺订单号追问
+    assert first["intent"] == "refund_request"
+    assert first["refund_request_active"] is True
     assert first["missing_ticket_fields"] == ["order_id"]
     assert "订单号" in (first.get("final_answer") or "")
 
     # 第二轮补充订单号："订单号是 A1001" 在 rule 路由下会命中 ORDER_KEYWORDS，
-    # 若没有 active-collection 检查会被误判为 order_query
+    # 若没有 active-refund-collection 检查会被误判为 order_query
     second = graph.invoke(
         {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
         config=config,
     )
-    assert second["intent"] == "ticket_request"
+    assert second["intent"] == "refund_request"
     assert second["missing_ticket_fields"] == []
-    assert second["ticket_creation_status"] == "created"
-    assert second["created_ticket"] is not None
-    assert second["created_ticket"]["related_order_id"] == "A1001"
-    # 第一轮提供的字段（description）必须保留并随工单创建
-    assert "商品破损" in (second["created_ticket"]["description"] or "")
-    assert "A1001" in (second["created_ticket"]["title"] or "")
+    assert second["refund_status"] == "succeeded"
+    assert second["refund_result"]["order_id"] == "A1001"
+    # 第一轮提供的字段（商品破损）必须保留并合并进退款草稿的 description
+    assert "商品破损" in (second["ticket_fields"]["description"] or "")
 
 
 def test_supervisor_multi_turn_llm_merges_follow_up_fields() -> None:
@@ -297,8 +378,8 @@ def test_supervisor_multi_turn_llm_merges_follow_up_fields() -> None:
     assert "商品破损" in (second["created_ticket"]["description"] or "")
 
 
-def test_supervisor_after_ticket_creation_next_policy_turn_not_leaked() -> None:
-    """建单成功后顶层 needs_ticket 残留 True 不应让下一轮知识问题被
+def test_supervisor_after_refund_execution_next_policy_turn_not_leaked() -> None:
+    """退款执行成功后顶层 needs_ticket 残留 True 不应让下一轮知识问题被
     after_knowledge_agent 误转工单（knowledge 子图会重新计算 needs_ticket）。"""
     graph = build_supervisor_graph(
         router=RuleSupervisorRouter(),
@@ -306,6 +387,7 @@ def test_supervisor_after_ticket_creation_next_policy_turn_not_leaked() -> None:
             make_policy_rag_answer(answer="退货政策是 30 天无理由。")
         ),
         ticket_creator=FakeTicketCreator(),
+        refund_executor=FakeRefundExecutor(),
         checkpointer=MemorySaver(),
         interrupt_confirmation=False,
     )
@@ -321,7 +403,9 @@ def test_supervisor_after_ticket_creation_next_policy_turn_not_leaked() -> None:
         {"user_message": "订单号是 A1001", "ticket_confirmation_approved": True},
         config=config,
     )
-    assert second["ticket_creation_status"] == "created"
+    assert second["refund_status"] == "succeeded"
+    # 退款执行完成即流程终止：标志清除，防止同线程后续确认路由误执行退款
+    assert second["refund_request_active"] is False
 
     third = graph.invoke(
         {"user_message": "退货政策是什么"},

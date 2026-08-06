@@ -10,10 +10,12 @@ from app.agents.supervisor.supervisor_router import SupervisorRoute, SupervisorR
 from app.agents.ticket_agent import (
     OrderQueryExecutor,
     PolicyRagService,
+    RefundExecutor,
     TicketCreator,
     ask_clarifying_question_node,
     build_direct_answer_node,
     build_unsupported_answer_node,
+    has_active_refund_collection,
     has_active_ticket_field_collection,
     normalize_user_input_node,
 )
@@ -28,6 +30,7 @@ SUPERVISOR_ROUTE_TABLE: dict[SupervisorRoute, str] = {
     SupervisorRoute.KNOWLEDGE_QUESTION: "knowledge_agent",
     SupervisorRoute.ORDER_QUERY: "order_agent",
     SupervisorRoute.TICKET_REQUEST: "ticket_agent",
+    SupervisorRoute.REFUND_REQUEST: "ticket_agent",
     SupervisorRoute.SMALLTALK: "build_direct_answer",
     SupervisorRoute.UNSUPPORTED: "build_unsupported_answer",
     SupervisorRoute.UNCLEAR: "ask_clarifying_question",
@@ -40,6 +43,7 @@ def build_supervisor_graph(
     knowledge_service: PolicyRagService | None = None,
     order_query_executor: OrderQueryExecutor | None = None,
     ticket_creator: TicketCreator | None = None,
+    refund_executor: RefundExecutor | None = None,
     checkpointer: Any | None = None,
     interrupt_confirmation: bool = False,
 ) -> Any:
@@ -51,6 +55,7 @@ def build_supervisor_graph(
     order_graph = build_order_agent_graph(order_query_executor)
     ticket_graph = build_ticket_worker_graph(
         ticket_creator,
+        refund_executor=refund_executor,
         interrupt_confirmation=interrupt_confirmation,
     )
 
@@ -58,6 +63,25 @@ def build_supervisor_graph(
     builder.add_node("normalize_user_input", normalize_user_input_node)
 
     def supervisor_route_node(state: SupervisorState) -> SupervisorState:
+        # active-refund-collection 检查：上一轮退款流程进行中（refund_request_active
+        # =True 且已抽取部分字段但仍有缺失）时，强制回到退款链继续收集，不经过
+        # supervisor 路由判定——否则"订单号是 A1001"这类补充消息会被 ORDER_KEYWORDS
+        # 误路由到 order_agent，或 LLM 路由误判而偏离退款流程。
+        # 优先级高于工单 active-collection：退款草稿同样写 needs_ticket/ticket_fields/
+        # missing_ticket_fields，若不先判退款会把退款流程误当工单收集（建退款工单
+        # 而非执行退款，造成单/多 Agent 语义分裂）。
+        if has_active_refund_collection(state):
+            logger.info(
+                "supervisor_active_refund_collection forcing refund_request "
+                "missing_fields=%s",
+                state.get("missing_ticket_fields"),
+            )
+            return {
+                "intent": "refund_request",
+                "intent_reason": "用户正在补充上一轮退款流程缺少的信息。",
+                "node_history": ["supervisor_route"],
+            }
+
         # active-collection 检查：上一轮工单字段收集进行中（needs_ticket=True 且
         # 已抽取部分字段但仍有缺失）时，强制回到 ticket_agent 继续收集，
         # 不经过 supervisor 路由判定——否则"订单号是 A1001"这类补充消息会被
@@ -86,6 +110,7 @@ def build_supervisor_graph(
             SupervisorRoute.KNOWLEDGE_QUESTION: "policy_question",
             SupervisorRoute.ORDER_QUERY: "order_query",
             SupervisorRoute.TICKET_REQUEST: "ticket_request",
+            SupervisorRoute.REFUND_REQUEST: "refund_request",
             SupervisorRoute.SMALLTALK: "smalltalk",
             SupervisorRoute.UNSUPPORTED: "unsupported",
             SupervisorRoute.UNCLEAR: "unclear",
@@ -101,9 +126,11 @@ def build_supervisor_graph(
             "intent_reason": f"supervisor routed to {route.value} (source={source})",
             "node_history": ["supervisor_route"],
         }
-        if intent == "ticket_request":
-            # 标记工单流程激活，与单 Agent decide_ticket_need 对 ticket_request
-            # 的输出一致：让 has_active_ticket_field_collection 能在多轮中生效。
+        if intent in ("ticket_request", "refund_request"):
+            # 标记工单/退款流程激活，与单 Agent decide_ticket_need 对
+            # ticket_request、handle_refund_request 对 refund_request 的输出一致：
+            # 让 has_active_ticket_field_collection / has_active_refund_collection
+            # 能在多轮中生效。
             update["needs_ticket"] = True
             update["ticket_need_source"] = "explicit_user_request"
         return update
@@ -125,6 +152,7 @@ def build_supervisor_graph(
             "policy_question": SupervisorRoute.KNOWLEDGE_QUESTION,
             "order_query": SupervisorRoute.ORDER_QUERY,
             "ticket_request": SupervisorRoute.TICKET_REQUEST,
+            "refund_request": SupervisorRoute.REFUND_REQUEST,
             "smalltalk": SupervisorRoute.SMALLTALK,
             "unsupported": SupervisorRoute.UNSUPPORTED,
             "unclear": SupervisorRoute.UNCLEAR,
