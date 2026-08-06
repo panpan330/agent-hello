@@ -16,6 +16,7 @@ from app.agents.ticket_agent import (
     build_pending_ticket_confirmation,
     build_ticket_agent_graph_for_model_mode,
     build_ticket_agent_thread_config,
+    create_java_refund_executor,
     get_ticket_confirmation_interrupt_payload,
     find_missing_ticket_fields,
     resume_ticket_confirmation_interrupt,
@@ -71,9 +72,11 @@ AGENT_PROGRESS_BY_NODE: dict[str, tuple[str, str]] = {
     "decide_ticket_need": ("planning", "正在规划处理方式"),
     "query_order": ("order_lookup", "正在查询订单信息"),
     "extract_ticket_fields": ("ticket_draft", "正在整理工单信息"),
+    "handle_refund_request": ("refund_draft", "正在整理退款信息"),
     "ask_missing_ticket_fields": ("need_details", "正在确认需要补充的信息"),
     "request_ticket_confirmation": ("confirmation", "正在准备工单确认"),
     "create_ticket": ("ticket_creation", "正在创建工单"),
+    "execute_refund_request": ("refund_execution", "正在执行退款"),
     "build_direct_answer": ("answering", "正在整理回复"),
     "build_unsupported_answer": ("answering", "正在整理回复"),
     "ask_clarifying_question": ("need_details", "正在确认需要补充的信息"),
@@ -269,7 +272,9 @@ class ConsoleAgentService:
         return self._graph
 
     def _build_graph(self) -> Any:
-        ticket_creator, order_query_executor = self._build_tool_dependencies()
+        ticket_creator, order_query_executor, refund_executor = (
+            self._build_tool_dependencies()
+        )
         if self.settings.agent_multi_agent_enabled:
             from app.agents.supervisor.supervisor_graph import build_supervisor_graph
 
@@ -284,28 +289,32 @@ class ConsoleAgentService:
             ticket_creator=ticket_creator,
             policy_rag_service=ProductionPolicyRagService(self.settings),
             order_query_executor=order_query_executor,
+            refund_executor=refund_executor,
             mode=self.settings.ticket_agent_model_mode,
             settings=self.settings,
             checkpointer=self._create_redis_checkpointer(),
             interrupt_confirmation=True,
         )
 
-    def _build_tool_dependencies(self) -> tuple[Any, Any]:
+    def _build_tool_dependencies(self) -> tuple[Any, Any, Any]:
         if self.settings.agent_mcp_tools_enabled:
             from app.agents.mcp_tool_adapters import (
                 create_mcp_order_query_executor,
+                create_mcp_refund_executor,
                 create_mcp_ticket_creator,
             )
 
             return (
                 create_mcp_ticket_creator(self.settings),
                 create_mcp_order_query_executor(self.settings),
+                create_mcp_refund_executor(self.settings),
             )
         from app.tools.fake_order_tool import query_order
 
         return (
             JavaTicketClient.from_settings(self.settings),
             lambda arguments: query_order(arguments, settings=self.settings),
+            create_java_refund_executor(),
         )
 
     def close(self) -> None:

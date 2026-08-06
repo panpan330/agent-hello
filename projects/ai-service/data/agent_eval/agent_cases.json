@@ -228,15 +228,15 @@
         "history": []
       },
       "expected": {
-        "intent": "ticket_request",
-        "intent_route": "decide_ticket_need",
+        "intent": "refund_request",
+        "intent_route": "handle_refund_request",
         "ticket": {
           "should_create_ticket": true,
           "ticket_need_source": "explicit_user_request",
           "expected_fields": {
             "issue_type": "refund",
             "order_id": "A1003",
-            "user_request": "创建工单",
+            "user_request": "售后退款处理",
             "urgency": "normal",
             "need_human_review": true
           },

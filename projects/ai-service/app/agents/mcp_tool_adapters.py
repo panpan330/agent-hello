@@ -7,9 +7,11 @@ from app.core.business_context import get_business_context
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.mcp_clients.product_client import McpToolCaller, create_product_mcp_client
+from app.schemas.refund import RefundOrderArgs
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
 from app.tools.tool_confirmation import create_tool_confirmation_store
+from app.tools.tool_registry import REFUND_ORDER_TOOL_NAME
 
 
 CREATE_TICKET_TOOL_NAME = "create_ticket"
@@ -158,6 +160,73 @@ def create_mcp_order_query_executor(
     )
 
 
+class McpRefundExecutor:
+    """RefundExecutor that executes refund_order through the product MCP client."""
+
+    def __init__(
+        self,
+        caller: McpToolCaller,
+        *,
+        settings: Settings | None = None,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> None:
+        self._caller = caller
+        self._settings = settings or get_settings()
+        self._user_id = user_id
+        self._tenant_id = tenant_id
+
+    def refund_order(
+        self,
+        arguments: RefundOrderArgs,
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        # The requester id is the agent's ticket_actor_id (the authenticated
+        # user). The tenant comes from the injected value or the business
+        # context; both are forwarded to the standalone MCP server so Java
+        # ownership checks see the real caller, not the default fallback.
+        user_id = self._user_id or arguments.requester_id
+        tenant_id = _resolve_tenant_id(injected=self._tenant_id)
+        payload = self._caller.call_tool(
+            REFUND_ORDER_TOOL_NAME,
+            {
+                "order_id": arguments.order_id,
+                "reason": arguments.reason,
+                "confirmation_id": idempotency_key,
+                "requester_id": arguments.requester_id,
+                "user_confirmed": True,
+                "user_id": user_id,
+                "tenant_id": tenant_id,
+            },
+        )
+        _require_ok(payload, fallback_code="REFUND_TOOL_ERROR")
+        refund_payload = payload.get("refund")
+        if not isinstance(refund_payload, dict):
+            raise AppException(
+                code="MCP_RESULT_INVALID",
+                message="AI 工具服务返回了无法解析的退款结果。",
+                status_code=502,
+            )
+        return refund_payload
+
+
+def create_mcp_refund_executor(
+    settings: Settings | None = None,
+    *,
+    caller: McpToolCaller | None = None,
+    user_id: str | None = None,
+    tenant_id: str | None = None,
+) -> McpRefundExecutor:
+    resolved_settings = settings or get_settings()
+    return McpRefundExecutor(
+        caller or create_product_mcp_client(resolved_settings),
+        settings=resolved_settings,
+        user_id=user_id,
+        tenant_id=tenant_id,
+    )
+
+
 def register_ticket_confirmation(
     actor_id: str,
     fields: TicketFields,
@@ -167,16 +236,28 @@ def register_ticket_confirmation(
     """Register the agent's pending confirmation as confirmed in the shared store.
 
     Returns the confirmation_id that the MCP server will verify.
+
+    The registered tool_name follows the draft's issue_type: a refund draft
+    (issue_type=refund) registers under ``refund_order`` so the confirmation is
+    semantically attributed to the refund tool, while every other draft keeps
+    ``create_ticket``.  The shared store's require_confirmed gate only checks
+    confirmation_id + actor_id, so this is an audit/attribution concern rather
+    than a functional one.
     """
     from app.agents.ticket_agent import build_pending_ticket_confirmation
 
     resolved_settings = settings or get_settings()
     confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
     store = create_tool_confirmation_store(resolved_settings)
+    tool_name = (
+        REFUND_ORDER_TOOL_NAME
+        if isinstance(fields, dict) and fields.get("issue_type") == "refund"
+        else CREATE_TICKET_TOOL_NAME
+    )
     store.register_confirmed(
         confirmation_id=confirmation_id,
         actor_id=actor_id,
-        tool_name=CREATE_TICKET_TOOL_NAME,
+        tool_name=tool_name,
         arguments=dict(fields),
         ttl_seconds=resolved_settings.tool_confirmation_ttl_seconds,
     )

@@ -29,6 +29,7 @@ TICKET_INTENT_TO_SUPERVISOR_ROUTE: dict[str, SupervisorRoute] = {
     "policy_question": SupervisorRoute.KNOWLEDGE_QUESTION,
     "order_query": SupervisorRoute.ORDER_QUERY,
     "ticket_request": SupervisorRoute.TICKET_REQUEST,
+    "refund_request": SupervisorRoute.TICKET_REQUEST,
     "smalltalk": SupervisorRoute.SMALLTALK,
     "unsupported": SupervisorRoute.UNSUPPORTED,
     "unclear": SupervisorRoute.UNCLEAR,

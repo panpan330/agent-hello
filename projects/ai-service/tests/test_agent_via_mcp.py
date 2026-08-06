@@ -1,14 +1,17 @@
 import pytest
 
 from app.agents.mcp_tool_adapters import (
+    McpRefundExecutor,
     McpTicketCreator,
     create_mcp_order_query_executor,
+    create_mcp_refund_executor,
     create_mcp_ticket_creator,
     mcp_order_query_executor,
     register_ticket_confirmation,
 )
 from app.core.config import Settings
 from app.core.exceptions import AppException
+from app.schemas.refund import RefundOrderArgs
 from app.schemas.ticket import (
     CreateTicketArgs,
     CreatedTicket,
@@ -216,6 +219,35 @@ def test_register_ticket_confirmation_registers_confirmed_record() -> None:
     store = create_tool_confirmation_store(_settings())
     record = store.require_confirmed(confirmation_id, actor_id="user_001")
     assert record.status.value == "confirmed"
+    # A refund draft registers under refund_order so the confirmation is
+    # attributed to the refund tool rather than create_ticket.
+    assert record.tool_name == "refund_order"
+
+
+def test_register_ticket_confirmation_uses_create_ticket_for_non_refund_draft() -> None:
+    from app.agents.ticket_agent import build_pending_ticket_confirmation
+
+    fields = {
+        "issue_type": "complaint",
+        "order_id": "A1001",
+        "description": "物流一直不动",
+        "user_request": "投诉处理",
+        "urgency": "high",
+        "need_human_review": True,
+    }
+    confirmation_id = register_ticket_confirmation(
+        actor_id="user_001",
+        fields=fields,
+        settings=_settings(),
+    )
+    expected_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
+    assert confirmation_id == expected_id
+
+    from app.tools.tool_confirmation import create_tool_confirmation_store
+
+    store = create_tool_confirmation_store(_settings())
+    record = store.require_confirmed(confirmation_id, actor_id="user_001")
+    assert record.tool_name == "create_ticket"
 
 
 def test_create_mcp_ticket_creator_builds_from_settings() -> None:
@@ -265,3 +297,117 @@ def test_mcp_ticket_creator_forwards_injected_tenant_over_requester() -> None:
     creator.create_ticket(arguments, idempotency_key="c" * 16)
     assert caller.calls[0][1]["user_id"] == "injected-user"
     assert caller.calls[0][1]["tenant_id"] == "injected-tenant"
+
+
+def test_create_mcp_refund_executor_builds_from_settings() -> None:
+    executor = create_mcp_refund_executor(
+        Settings(
+            _env_file=None,
+            mcp_product_base_url="http://127.0.0.1:9100/mcp",
+            mcp_product_auth_token="token",
+        )
+    )
+    assert isinstance(executor, McpRefundExecutor)
+
+
+def test_mcp_refund_executor_calls_refund_order_with_confirmation_and_identity() -> None:
+    caller = FakeMcpToolCaller(
+        responses={
+            "refund_order": {
+                "ok": True,
+                "confirmation_id": "c" * 16,
+                "error_code": None,
+                "message": "退款成功。",
+                "refund": {
+                    "order_id": "A1001",
+                    "refund_status": "succeeded",
+                },
+            }
+        }
+    )
+    executor = McpRefundExecutor(
+        caller,
+        settings=_settings(),
+        user_id="injected-user",
+        tenant_id="injected-tenant",
+    )
+    arguments = RefundOrderArgs(
+        order_id="A1001",
+        reason="商品有质量问题",
+        requester_id="user_007",
+    )
+    result = executor.refund_order(arguments, idempotency_key="c" * 16)
+
+    assert result["refund_status"] == "succeeded"
+    assert caller.calls == [
+        (
+            "refund_order",
+            {
+                "order_id": "A1001",
+                "reason": "商品有质量问题",
+                "confirmation_id": "c" * 16,
+                "requester_id": "user_007",
+                "user_confirmed": True,
+                "user_id": "injected-user",
+                "tenant_id": "injected-tenant",
+            },
+        )
+    ]
+
+
+def test_mcp_refund_executor_maps_failure_payload_to_app_exception() -> None:
+    caller = FakeMcpToolCaller(
+        responses={
+            "refund_order": {
+                "ok": False,
+                "confirmation_id": "c" * 16,
+                "error_code": "ORDER_REFUND_NOT_ALLOWED",
+                "message": "当前订单状态不支持退款。",
+            }
+        }
+    )
+    executor = McpRefundExecutor(caller, settings=_settings())
+    arguments = RefundOrderArgs(
+        order_id="A1001",
+        reason="不想要了",
+        requester_id="user_007",
+    )
+
+    with pytest.raises(AppException) as exc_info:
+        executor.refund_order(arguments, idempotency_key="c" * 16)
+
+    assert exc_info.value.code == "ORDER_REFUND_NOT_ALLOWED"
+    assert exc_info.value.message == "当前订单状态不支持退款。"
+
+
+class _FakeJavaRefundClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str | None]] = []
+
+    def refund_order(
+        self,
+        order_id: str,
+        reason: str,
+        *,
+        idempotency_key: str | None = None,
+        trace_context: object | None = None,
+    ) -> dict[str, object]:
+        self.calls.append((order_id, reason, idempotency_key))
+        return {"order_id": order_id, "refund_status": "succeeded"}
+
+
+def test_java_refund_executor_delegates_to_java_client() -> None:
+    from app.agents.ticket_agent import JavaRefundExecutor
+
+    client = _FakeJavaRefundClient()
+    executor = JavaRefundExecutor(client)
+    arguments = RefundOrderArgs(
+        order_id="A1002",
+        reason="不想要了",
+        requester_id="demo_user_001",
+    )
+
+    result = executor.refund_order(arguments, idempotency_key="k" * 16)
+
+    assert result == {"order_id": "A1002", "refund_status": "succeeded"}
+    assert client.calls == [("A1002", "不想要了", "k" * 16)]

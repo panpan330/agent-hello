@@ -20,6 +20,8 @@ ALL_AGENT_ROUTE_NODES = {
     "ask_missing_ticket_fields",
     "request_ticket_confirmation",
     "create_ticket",
+    "handle_refund_request",
+    "execute_refund_request",
     "build_direct_answer",
     "build_unsupported_answer",
     "ask_clarifying_question",
@@ -86,6 +88,11 @@ def build_expected_node_path(eval_case: AgentEvalCase) -> list[str]:
     if intent == "ticket_request":
         path = COMMON_ENTRY_NODES + ["decide_ticket_need"]
         path += _expected_ticket_tail(expected_ticket)
+        return path
+
+    if intent == "refund_request":
+        path = COMMON_ENTRY_NODES + ["handle_refund_request"]
+        path += _expected_refund_tail(expected_ticket)
         return path
 
     if intent == "smalltalk":
@@ -257,6 +264,15 @@ def _expected_ticket_tail(expected_ticket: Mapping[str, Any]) -> list[str]:
     if expected_ticket.get("confirmation_required") is True:
         return ["extract_ticket_fields", "request_ticket_confirmation"]
     return ["extract_ticket_fields"]
+
+
+def _expected_refund_tail(expected_ticket: Mapping[str, Any]) -> list[str]:
+    missing_fields = _string_list(expected_ticket.get("missing_ticket_fields"))
+    if missing_fields:
+        return ["ask_missing_ticket_fields"]
+    if expected_ticket.get("confirmation_required") is True:
+        return ["request_ticket_confirmation"]
+    return []
 
 
 def _actual_node_path(actual_state: Mapping[str, Any]) -> list[str]:

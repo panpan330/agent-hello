@@ -28,11 +28,13 @@ from app.agents.ticket_agent import (
     classify_ticket_intent,
     decide_ticket_need,
     decide_ticket_need_node,
+    execute_refund_request_node,
     extract_ticket_fields,
     extract_ticket_fields_node,
     find_missing_ticket_fields,
     get_ticket_confirmation_interrupt_payload,
     get_ticket_agent_thread_state,
+    handle_refund_request_node,
     is_ticket_confirmation_resume_approved,
     normalize_user_input_node,
     create_ticket_node,
@@ -66,6 +68,7 @@ from app.schemas.tool import QueryOrderArgs, QueryOrderResult
 from tests.tool_fakes import (
     FakeNoContextPolicyRagService,
     FakePolicyRagService,
+    FakeRefundExecutor,
     FakeTicketCreator,
 )
 
@@ -76,6 +79,17 @@ def make_complete_ticket_fields() -> dict[str, object]:
         "order_id": "1001",
         "description": "我要投诉订单 1001，物流一直不动",
         "user_request": "投诉处理",
+        "urgency": "high",
+        "need_human_review": True,
+    }
+
+
+def make_refund_ticket_fields() -> dict[str, object]:
+    return {
+        "issue_type": "refund",
+        "order_id": "A1001",
+        "description": "我要退 A1001 的款，商品有质量问题",
+        "user_request": "售后退款处理",
         "urgency": "high",
         "need_human_review": True,
     }
@@ -160,6 +174,7 @@ def test_ticket_agent_fixed_edges_define_entry_and_finish_points() -> None:
         ("query_order", END),
         ("ask_missing_ticket_fields", END),
         ("create_ticket", END),
+        ("execute_refund_request", END),
         ("build_direct_answer", END),
         ("build_unsupported_answer", END),
         ("ask_clarifying_question", END),
@@ -171,6 +186,7 @@ def test_ticket_agent_intent_routes_map_intent_to_next_node() -> None:
         "policy_question": "retrieve_policy",
         "order_query": "query_order",
         "ticket_request": "decide_ticket_need",
+        "refund_request": "handle_refund_request",
         "smalltalk": "build_direct_answer",
         "unsupported": "build_unsupported_answer",
         "unclear": "ask_clarifying_question",
@@ -194,6 +210,7 @@ def test_ticket_agent_field_completion_routes_map_decision_to_next_node() -> Non
 def test_ticket_agent_confirmation_routes_map_decision_to_next_node() -> None:
     assert TICKET_AGENT_CONFIRMATION_ROUTES == {
         "execute_create_ticket": "create_ticket",
+        "execute_refund_request": "execute_refund_request",
         "request_confirmation": "request_ticket_confirmation",
         "finish": END,
     }
@@ -206,7 +223,7 @@ def test_ticket_agent_confirmation_routes_map_decision_to_next_node() -> None:
         ("我的订单 1001 到哪了？", "order_query"),
         ("我要投诉订单 1001，物流一直不动", "ticket_request"),
         ("你好，你能做什么？", "smalltalk"),
-        ("帮我直接退款到账", "unsupported"),
+        ("帮我直接退款到账", "refund_request"),
         ("有问题", "unclear"),
         ("   ", "unclear"),
     ],
@@ -219,6 +236,24 @@ def test_classify_ticket_intent_returns_expected_intent(
 
     assert classification["intent"] == expected_intent
     assert classification["reason"]
+
+
+def test_classify_refund_request_intent() -> None:
+    assert classify_ticket_intent("我要退 A1002 的款")["intent"] == "refund_request"
+    assert classify_ticket_intent("申请退款")["intent"] == "refund_request"
+
+
+def test_classify_refund_policy_question_still_policy() -> None:
+    assert classify_ticket_intent("退款政策是什么")["intent"] == "policy_question"
+    assert classify_ticket_intent("退款规则是什么？")["intent"] == "policy_question"
+    # 咨询句式不得被误判为退款动作
+    assert classify_ticket_intent("怎么申请退款")["intent"] == "policy_question"
+    assert classify_ticket_intent("退款多久到账？")["intent"] == "policy_question"
+
+
+def test_classify_cancel_order_still_unsupported() -> None:
+    assert classify_ticket_intent("取消订单")["intent"] == "unsupported"
+    assert classify_ticket_intent("我要取消订单 A1002")["intent"] == "unsupported"
 
 
 def test_normalize_user_input_node_returns_clean_message() -> None:
@@ -1332,8 +1367,13 @@ def test_resume_ticket_confirmation_interrupt_safely_handles_unexpected_error() 
         ),
         (
             "帮我直接退款到账",
-            "unsupported",
-            ["normalize_user_input", "classify_intent", "build_unsupported_answer"],
+            "refund_request",
+            [
+                "normalize_user_input",
+                "classify_intent",
+                "handle_refund_request",
+                "ask_missing_ticket_fields",
+            ],
         ),
         (
             "这个怎么办",
@@ -1358,6 +1398,145 @@ def test_run_ticket_agent_routes_to_expected_business_path(
     assert result["intent"] == expected_intent
     assert result["final_answer"]
     assert result["node_history"] == expected_node_history
+
+
+def test_handle_refund_request_node_collects_fields_and_asks_missing_order_id() -> None:
+    update = handle_refund_request_node({"normalized_message": "申请退款"})
+
+    assert update["refund_request_active"] is True
+    assert update["needs_ticket"] is True
+    assert update["missing_ticket_fields"] == ["order_id"]
+    assert update["ticket_fields"]["issue_type"] == "refund"
+    assert update["ticket_fields"]["order_id"] is None
+    assert "订单号" in update["final_answer"]
+    assert update["node_history"] == ["handle_refund_request"]
+
+
+def test_handle_refund_request_node_marks_complete_with_order_and_reason() -> None:
+    update = handle_refund_request_node(
+        {"normalized_message": "我要退 A1002 的款，商品有质量问题"}
+    )
+
+    assert update["refund_request_active"] is True
+    assert update["missing_ticket_fields"] == []
+    assert update["ticket_fields"]["issue_type"] == "refund"
+    assert update["ticket_fields"]["order_id"] == "A1002"
+    assert "商品有质量问题" in update["ticket_fields"]["description"]
+    assert update["node_history"] == ["handle_refund_request"]
+
+
+def test_execute_refund_request_node_blocks_without_user_confirmation() -> None:
+    refund_executor = FakeRefundExecutor()
+    update = execute_refund_request_node(
+        {"ticket_fields": make_refund_ticket_fields()},
+        refund_executor=refund_executor,
+    )
+
+    assert update["refund_status"] == "blocked"
+    assert update["refund_error_code"] == "REFUND_CONFIRMATION_REQUIRED"
+    assert update["final_answer"] == "执行退款前需要先得到用户确认。"
+    assert update["node_history"] == ["execute_refund_request"]
+    assert refund_executor.calls == []
+
+
+def test_execute_refund_request_node_calls_refund_executor_after_confirmation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.agents.ticket_agent")
+    fields = make_refund_ticket_fields()
+    pending_confirmation = build_pending_ticket_confirmation(fields)
+    refund_executor = FakeRefundExecutor()
+
+    update = execute_refund_request_node(
+        {
+            "ticket_actor_id": "demo_user_001",
+            "ticket_confirmation_approved": True,
+            "refund_request_active": True,
+            "pending_ticket_confirmation": pending_confirmation,
+        },
+        refund_executor=refund_executor,
+    )
+
+    assert update["refund_status"] == "succeeded"
+    assert update["refund_result"]["order_id"] == "A1001"
+    assert update["refund_result"]["refund_status"] == "succeeded"
+    assert "退款已申请成功" in update["final_answer"]
+    assert update["node_history"] == ["execute_refund_request"]
+    assert len(refund_executor.calls) == 1
+    assert refund_executor.calls[0].order_id == "A1001"
+    assert refund_executor.calls[0].requester_id == "demo_user_001"
+    assert refund_executor.idempotency_keys == [pending_confirmation["confirmation_id"]]
+    assert "ticket_agent_refund_started order_id=A1001" in caplog.text
+    assert "ticket_agent_refund_finished status=succeeded" in caplog.text
+    assert "我要退 A1001 的款" not in caplog.text
+
+
+def test_interrupting_graph_pauses_for_refund_confirmation() -> None:
+    graph = build_interrupting_ticket_agent_graph(
+        refund_executor=FakeRefundExecutor(),
+        ticket_creator=FakeTicketCreator(),
+    )
+
+    result = run_ticket_agent_in_thread(
+        graph,
+        "我要退 A1002 的款",
+        thread_id="ticket-refund-001",
+        actor_id="demo_user_001",
+    )
+    payload = get_ticket_confirmation_interrupt_payload(result)
+    snapshot = graph.get_state(
+        build_ticket_agent_thread_config("ticket-refund-001")
+    )
+
+    assert payload["kind"] == "ticket_confirmation"
+    assert payload["pending_ticket_confirmation"]["status"] == "pending"
+    assert "确认" in payload["message"]
+    assert snapshot.next == ("request_ticket_confirmation",)
+    assert snapshot.values["node_history"] == [
+        "normalize_user_input",
+        "classify_intent",
+        "handle_refund_request",
+    ]
+
+
+def test_interrupting_graph_resumes_approved_refund_to_execute_refund_order() -> None:
+    refund_executor = FakeRefundExecutor()
+    graph = build_interrupting_ticket_agent_graph(
+        refund_executor=refund_executor,
+        ticket_creator=FakeTicketCreator(),
+    )
+    thread_id = "ticket-refund-002"
+    result = run_ticket_agent_in_thread(
+        graph,
+        "我要退 A1002 的款",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    payload = get_ticket_confirmation_interrupt_payload(result)
+
+    resumed = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=True,
+        actor_id="demo_user_001",
+    )
+
+    assert resumed["ticket_confirmation_approved"] is True
+    assert resumed["pending_ticket_confirmation"]["confirmation_id"] == payload[
+        "confirmation_id"
+    ]
+    assert resumed["refund_status"] == "succeeded"
+    assert resumed["refund_result"]["order_id"] == "A1002"
+    assert resumed["node_history"] == [
+        "normalize_user_input",
+        "classify_intent",
+        "handle_refund_request",
+        "request_ticket_confirmation",
+        "execute_refund_request",
+    ]
+    assert len(refund_executor.calls) == 1
+    assert refund_executor.calls[0].order_id == "A1002"
+    assert refund_executor.idempotency_keys == [payload["confirmation_id"]]
 
 
 def test_run_ticket_agent_safely_returns_normal_result_when_graph_succeeds(

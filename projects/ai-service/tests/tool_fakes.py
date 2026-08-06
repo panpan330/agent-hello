@@ -8,6 +8,7 @@ from app.rag.generator import (
     build_grounded_rag_answer,
     build_no_context_rag_answer,
 )
+from app.schemas.refund import RefundOrderArgs
 from app.schemas.structured import TicketExtraction, TicketIntent, TicketUrgency
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
 from tests.rag_fakes import make_retrieved_chunk
@@ -168,6 +169,36 @@ class FakeTicketCreator:
         if self.error is not None:
             raise self.error
         return self.ticket or make_created_ticket(arguments)
+
+
+class FakeRefundExecutor:
+    """In-memory RefundExecutor used to test the refund flow without Java/MCP."""
+
+    def __init__(
+        self,
+        *,
+        result: Mapping[str, Any] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.calls: list[RefundOrderArgs] = []
+        self.idempotency_keys: list[str] = []
+
+    def refund_order(
+        self,
+        arguments: RefundOrderArgs,
+        *,
+        idempotency_key: str,
+    ) -> Mapping[str, Any]:
+        self.calls.append(arguments)
+        self.idempotency_keys.append(idempotency_key)
+        if self.error is not None:
+            raise self.error
+        return self.result or {
+            "order_id": arguments.order_id,
+            "refund_status": "succeeded",
+        }
 
 
 class FakeMcpToolCaller:

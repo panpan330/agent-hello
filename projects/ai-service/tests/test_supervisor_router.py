@@ -38,6 +38,7 @@ def test_ticket_intent_mapping_covers_all_intents() -> None:
         "policy_question",
         "order_query",
         "ticket_request",
+        "refund_request",
         "smalltalk",
         "unsupported",
         "unclear",
@@ -67,10 +68,18 @@ def test_rule_router_falls_back_to_unclear_for_unknown() -> None:
 
 
 def test_rule_router_preserves_unsupported_for_security_keywords() -> None:
-    # 安全边界词（UNSUPPORTED_KEYWORDS 命中，如"直接退款到账"）必须保留
+    # 安全边界词（UNSUPPORTED_KEYWORDS 命中，如"取消订单"）必须保留
     # UNSUPPORTED（安全拒绝语义），不得降级为 UNCLEAR 引导追问。
     router = RuleSupervisorRouter()
-    assert router.route("帮我直接退款到账") == SupervisorRoute.UNSUPPORTED
+    assert router.route("帮我取消订单") == SupervisorRoute.UNSUPPORTED
+
+
+def test_rule_router_routes_refund_request_to_ticket_worker() -> None:
+    # Task 7 引入 refund_request 意图后，规则路由不得因映射缺键抛 KeyError；
+    # 多 Agent 阶段暂按工单 worker 处理（Task 8 再细化退款执行节点）。
+    router = RuleSupervisorRouter()
+    assert router.route("我要退 A1002 的款") == SupervisorRoute.TICKET_REQUEST
+    assert router.route("申请退款") == SupervisorRoute.TICKET_REQUEST
 
 
 def test_fake_llm_router_returns_configured_route() -> None:

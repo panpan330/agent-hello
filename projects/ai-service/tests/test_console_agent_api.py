@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 import pytest
 
-from app.agents.mcp_tool_adapters import McpTicketCreator, mcp_order_query_executor
+from app.agents.mcp_tool_adapters import (
+    McpRefundExecutor,
+    McpTicketCreator,
+    mcp_order_query_executor,
+)
 from app.agents.ticket_agent import (
     build_pending_ticket_confirmation,
     build_ticket_agent_thread_config,
@@ -658,6 +662,17 @@ def _install_fake_mcp_caller(
                     "created_at": "2026-01-01T00:00:00Z",
                 },
             },
+            "refund_order": {
+                "ok": True,
+                "confirmation_checked": True,
+                "confirmation_id": "b" * 16,
+                "error_code": None,
+                "message": "退款成功。",
+                "refund": {
+                    "order_id": "A1002",
+                    "refund_status": "succeeded",
+                },
+            },
         }
     )
     store = create_tool_confirmation_store(settings)
@@ -665,14 +680,14 @@ def _install_fake_mcp_caller(
 
     class ConfirmationGatedCaller:
         def call_tool(self, tool_name: str, arguments: dict) -> dict:
-            if tool_name == "create_ticket":
+            if tool_name in {"create_ticket", "refund_order"}:
                 captured["confirmation_id"] = arguments["confirmation_id"]
                 captured["user_confirmed"] = arguments["user_confirmed"]
                 if check_confirmation_store:
                     # Mirror the MCP server's confirmation gate: when create_ticket
-                    # executes, the shared store must already hold a confirmed record.
-                    # This fails (TOOL_CONFIRMATION_NOT_FOUND) if registration happens
-                    # after resume instead of before it.
+                    # / refund_order execute, the shared store must already hold a
+                    # confirmed record. This fails (TOOL_CONFIRMATION_NOT_FOUND) if
+                    # registration happens after resume instead of before it.
                     record = store.require_confirmed(
                         arguments["confirmation_id"],
                         actor_id="U1001",
@@ -689,6 +704,10 @@ def _install_fake_mcp_caller(
     monkeypatch.setattr(
         "app.agents.mcp_tool_adapters.create_mcp_order_query_executor",
         lambda resolved: mcp_order_query_executor(gated_caller),
+    )
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.create_mcp_refund_executor",
+        lambda resolved: McpRefundExecutor(gated_caller, settings=resolved),
     )
     return fake_caller, context
 
@@ -724,7 +743,7 @@ def test_mcp_mode_decide_approved_registers_confirmation_before_create_ticket(
     service.reply(
         actor=actor,
         conversation_id=conversation_id,
-        message="我的订单 A1001 商品破损了，申请退款",
+        message="我的订单 A1001 商品破损了，帮我处理",
     )
 
     snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
@@ -805,7 +824,7 @@ def test_mcp_mode_register_failure_keeps_interrupt_pending_and_skips_create_tick
     service.reply(
         actor=actor,
         conversation_id=conversation_id,
-        message="我的订单 A1001 商品破损了，申请退款",
+        message="我的订单 A1001 商品破损了，帮我处理",
     )
 
     snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
@@ -897,7 +916,7 @@ def test_direct_mode_decide_approved_skips_confirmation_registration(
     service.reply(
         actor=actor,
         conversation_id=conversation_id,
-        message="我的订单 A1001 商品破损了，申请退款",
+        message="我的订单 A1001 商品破损了，帮我处理",
     )
     snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
     confirmation_id = build_pending_ticket_confirmation(
@@ -915,5 +934,75 @@ def test_direct_mode_decide_approved_skips_confirmation_registration(
     assert register_calls == []
     assert response.created_ticket is not None
     assert response.created_ticket.ticket_id == "T1001"
+    resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" not in resolved.next
+
+
+def test_mcp_mode_refund_confirmation_registers_refund_order_and_executes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=True,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    _install_fake_redis_checkpointer(monkeypatch)
+    fake_caller, _ = _install_fake_mcp_caller(
+        monkeypatch,
+        check_confirmation_store=True,
+    )
+    store = create_tool_confirmation_store(settings)
+
+    service = ConsoleAgentService(
+        settings,
+        conversation_store=FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-refund-001"
+    thread_id = f"console-{actor.tenant_id}-{actor.user_id}-{conversation_id}"
+
+    service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="我要退 A1002 的款",
+    )
+
+    snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" in snapshot.next
+    fields = snapshot.values["ticket_fields"]
+    assert fields["issue_type"] == "refund"
+    confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        approved=True,
+    )
+
+    refund_calls = [
+        call for call in fake_caller.calls if call[0] == "refund_order"
+    ]
+    assert len(refund_calls) == 1
+    assert refund_calls[0][1]["order_id"] == "A1002"
+    assert refund_calls[0][1]["confirmation_id"] == confirmation_id
+    assert refund_calls[0][1]["user_confirmed"] is True
+    assert refund_calls[0][1]["requester_id"] == "U1001"
+    assert refund_calls[0][1]["user_id"] == "U1001"
+    assert refund_calls[0][1]["tenant_id"] == "default"
+
+    # The confirmation was pre-registered under refund_order before resume.
+    record = store.require_confirmed(confirmation_id, actor_id="U1001")
+    assert record.status.value == "confirmed"
+    assert record.tool_name == "refund_order"
+
+    assert "退款已申请成功" in response.reply
+    assert response.created_ticket is None
+
     resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
     assert "request_ticket_confirmation" not in resolved.next

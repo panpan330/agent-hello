@@ -6,7 +6,6 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.multi_agent_states import TicketWorkerState
 from app.agents.ticket_agent import (
-    TICKET_AGENT_CONFIRMATION_ROUTES,
     TICKET_AGENT_FIELD_COMPLETION_ROUTES,
     TicketCreator,
     ask_missing_ticket_fields_node,
@@ -15,6 +14,16 @@ from app.agents.ticket_agent import (
     request_ticket_confirmation_interrupt_node,
     request_ticket_confirmation_node,
 )
+
+
+# 工单 worker 只执行 create_ticket，不处理 refund_request（Task 8 引入 supervisor
+# refund 路由时再决定执行节点）；因此不能用共享 TICKET_AGENT_CONFIRMATION_ROUTES
+# （其 execute_refund_request 目标节点在本子图中不存在，langgraph 编译校验会拒绝）。
+TICKET_WORKER_CONFIRMATION_ROUTES = {
+    "execute_create_ticket": "create_ticket",
+    "request_confirmation": "request_ticket_confirmation",
+    "finish": END,
+}
 
 
 def build_ticket_worker_graph(
@@ -60,6 +69,6 @@ def build_ticket_worker_graph(
             if state.get("ticket_confirmation_approved") is True
             else "finish"
         ),
-        TICKET_AGENT_CONFIRMATION_ROUTES,
+        TICKET_WORKER_CONFIRMATION_ROUTES,
     )
     return builder.compile(checkpointer=checkpointer)
