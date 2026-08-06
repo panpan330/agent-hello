@@ -15,6 +15,9 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "pymilvus>=3.0.0",
     "uvicorn>=0.50.0",
+    "langsmith>=0.1.0",
+    "opentelemetry-exporter-otlp>=1.24.0",
+    "opentelemetry-sdk>=1.24.0",
 ]
 
 [dependency-groups]

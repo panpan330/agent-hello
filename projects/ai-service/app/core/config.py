@@ -123,6 +123,10 @@ class Settings(BaseSettings):
     agent_multi_agent_enabled: bool = Field(default=False)
     supervisor_router_mode: str = Field(default="rule")
     log_level: str = Field(default="INFO")
+    otel_exporter_otlp_endpoint: str = Field(default="")
+    otel_service_name: str = Field(default="ai-service")
+    langsmith_tracing: bool = Field(default=False)
+    langsmith_api_key: str | None = Field(default=None, repr=False)
     cors_allowed_origins: str = Field(
         default="http://localhost:5173,http://127.0.0.1:5173"
     )
@@ -319,6 +323,20 @@ class Settings(BaseSettings):
     def resolved_supervisor_router_mode(self) -> str:
         value = self.supervisor_router_mode.strip()
         return "llm" if value == "llm" else "rule"
+
+    @property
+    def resolved_otel_exporter_otlp_endpoint(self) -> str | None:
+        value = self.otel_exporter_otlp_endpoint.strip()
+        return value or None
+
+    @property
+    def resolved_langsmith_api_key(self) -> str | None:
+        value = (self.langsmith_api_key or "").strip()
+        return value or None
+
+    @property
+    def langsmith_enabled(self) -> bool:
+        return self.langsmith_tracing and self.resolved_langsmith_api_key is not None
 
 
 @lru_cache

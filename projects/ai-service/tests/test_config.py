@@ -838,3 +838,34 @@ def test_supervisor_router_mode_env_override_with_surrounding_whitespace() -> No
 def test_supervisor_router_mode_invalid_falls_back_to_rule() -> None:
     settings = Settings(_env_file=None, supervisor_router_mode="invalid")
     assert settings.resolved_supervisor_router_mode == "rule"
+
+
+def test_observability_settings_defaults() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.otel_exporter_otlp_endpoint == ""
+    assert settings.otel_service_name == "ai-service"
+    assert settings.langsmith_tracing is False
+    assert settings.langsmith_api_key is None
+    assert settings.resolved_otel_exporter_otlp_endpoint is None
+    assert settings.langsmith_enabled is False
+
+
+def test_observability_settings_env_overrides() -> None:
+    settings = Settings(
+        _env_file=None,
+        otel_exporter_otlp_endpoint=" http://localhost:4317 ",
+        otel_service_name="ai-service-test",
+        langsmith_tracing=True,
+        langsmith_api_key="ls-key-123",
+    )
+    assert settings.resolved_otel_exporter_otlp_endpoint == "http://localhost:4317"
+    assert settings.otel_service_name == "ai-service-test"
+    assert settings.langsmith_enabled is True
+
+
+def test_langsmith_enabled_requires_both_tracing_and_key() -> None:
+    without_key = Settings(_env_file=None, langsmith_tracing=True)
+    assert without_key.langsmith_enabled is False
+
+    without_tracing = Settings(_env_file=None, langsmith_api_key="ls-key-123")
+    assert without_tracing.langsmith_enabled is False
