@@ -12,6 +12,10 @@
         <result column="logistics_message" property="logisticsMessage"/>
         <result column="latest_event" property="latestEvent"/>
         <result column="can_create_ticket" property="canCreateTicket"/>
+        <result column="amount" property="amount"/>
+        <result column="refund_amount" property="refundAmount"/>
+        <result column="refunded_at" property="refundedAt"/>
+        <result column="refund_reason" property="refundReason"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -25,6 +29,10 @@
         logistics_message,
         latest_event,
         can_create_ticket,
+        amount,
+        refund_amount,
+        refunded_at,
+        refund_reason,
         created_at,
         updated_at
     </sql>

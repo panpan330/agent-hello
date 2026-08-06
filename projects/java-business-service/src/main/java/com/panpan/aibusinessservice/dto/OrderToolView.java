@@ -1,6 +1,8 @@
 package com.panpan.aibusinessservice.dto;
 
 import com.panpan.aibusinessservice.entity.Order;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record OrderToolView(
         String orderId,
@@ -9,6 +11,9 @@ public record OrderToolView(
         String logisticsMessage,
         String latestEvent,
         boolean canCreateTicket,
+        BigDecimal refundAmount,
+        LocalDateTime refundedAt,
+        String refundReason,
         String userVisibleSummary
 ) {
     public static OrderToolView from(Order order) {
@@ -19,6 +24,9 @@ public record OrderToolView(
                 order.getLogisticsMessage(),
                 order.getLatestEvent(),
                 order.isCanCreateTicket(),
+                order.getRefundAmount(),
+                order.getRefundedAt(),
+                order.getRefundReason(),
                 buildSummary(order)
         );
     }

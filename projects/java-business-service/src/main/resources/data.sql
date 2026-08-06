@@ -168,6 +168,7 @@ INSERT INTO orders (
   logistics_message,
   latest_event,
   can_create_ticket,
+  amount,
   created_at,
   updated_at
 )
@@ -180,6 +181,7 @@ SELECT
   '订单已发货，预计 2 天内送达。',
   '包裹已离开发货仓。',
   1,
+  299.00,
   CURRENT_TIMESTAMP(6),
   CURRENT_TIMESTAMP(6)
 WHERE NOT EXISTS (
@@ -195,6 +197,7 @@ INSERT INTO orders (
   logistics_message,
   latest_event,
   can_create_ticket,
+  amount,
   created_at,
   updated_at
 )
@@ -207,6 +210,7 @@ SELECT
   '商家已接单，等待仓库发货。',
   '仓库正在准备出库。',
   1,
+  159.00,
   CURRENT_TIMESTAMP(6),
   CURRENT_TIMESTAMP(6)
 WHERE NOT EXISTS (
@@ -222,6 +226,7 @@ INSERT INTO orders (
   logistics_message,
   latest_event,
   can_create_ticket,
+  amount,
   created_at,
   updated_at
 )
@@ -234,6 +239,7 @@ SELECT
   '订单已签收。',
   '用户已确认收货。',
   0,
+  89.00,
   CURRENT_TIMESTAMP(6),
   CURRENT_TIMESTAMP(6)
 WHERE NOT EXISTS (

@@ -1,6 +1,8 @@
 package com.panpan.aibusinessservice.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 public class Order {
     private String orderId;
@@ -11,6 +13,10 @@ public class Order {
     private String logisticsMessage;
     private String latestEvent;
     private boolean canCreateTicket;
+    private BigDecimal amount;
+    private BigDecimal refundAmount;
+    private LocalDateTime refundedAt;
+    private String refundReason;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -103,6 +109,38 @@ public class Order {
 
     public void setCanCreateTicket(boolean canCreateTicket) {
         this.canCreateTicket = canCreateTicket;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public BigDecimal getRefundAmount() {
+        return refundAmount;
+    }
+
+    public void setRefundAmount(BigDecimal refundAmount) {
+        this.refundAmount = refundAmount;
+    }
+
+    public LocalDateTime getRefundedAt() {
+        return refundedAt;
+    }
+
+    public void setRefundedAt(LocalDateTime refundedAt) {
+        this.refundedAt = refundedAt;
+    }
+
+    public String getRefundReason() {
+        return refundReason;
+    }
+
+    public void setRefundReason(String refundReason) {
+        this.refundReason = refundReason;
     }
 
     public Instant getCreatedAt() {
