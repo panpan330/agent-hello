@@ -114,10 +114,13 @@ async function decideConfirmation(message: ChatMessage, approved: boolean) {
       approved,
     })
     message.pendingConfirmation = undefined
+    const isRefund = isRefundConfirmation(confirmation)
     messages.value.push({
       id: crypto.randomUUID(),
       role: 'user',
-      text: approved ? '确认创建工单' : '取消创建工单',
+      text: approved
+        ? (isRefund ? '确认退款' : '确认创建工单')
+        : (isRefund ? '取消退款' : '取消创建工单'),
     })
     appendAgentResponse(response)
   } catch (error) {
@@ -181,7 +184,7 @@ async function submitConfirmationCorrection(message: ChatMessage) {
     messages.value.push({
       id: crypto.randomUUID(),
       role: 'user',
-      text: '修改工单草稿并重新确认',
+      text: isRefundConfirmation(confirmation) ? '修改退款信息并重新确认' : '修改工单草稿并重新确认',
     })
     cancelConfirmationCorrection()
     appendAgentResponse(response)
@@ -340,6 +343,10 @@ function formatCitation(citation: RagCitation) {
 function priorityLabel(priority: string) {
   return { low: '低', normal: '普通', high: '高' }[priority] || priority
 }
+
+function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): boolean {
+  return confirmation?.ticket_fields.issue_type === 'refund'
+}
 </script>
 
 <template>
@@ -359,7 +366,7 @@ function priorityLabel(priority: string) {
 
             <div v-if="message.pendingConfirmation" class="agent-confirmation">
               <div class="confirmation-heading">
-                <strong>{{ message.pendingConfirmation.title }}</strong>
+                <strong>{{ isRefundConfirmation(message.pendingConfirmation) ? '确认退款' : message.pendingConfirmation.title }}</strong>
                 <el-tag type="warning">等待确认</el-tag>
               </div>
               <p>{{ message.pendingConfirmation.summary }}</p>
@@ -368,48 +375,68 @@ function priorityLabel(priority: string) {
                 class="correction-form"
                 label-position="top"
               >
-                <el-form-item label="问题类型">
-                  <el-select v-model="correctionFields.issue_type">
-                    <el-option label="退款/退货" value="refund" />
-                    <el-option label="物流/发货" value="logistics" />
-                    <el-option label="投诉/异常处理" value="complaint" />
-                    <el-option label="知识库缺口" value="policy_gap" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="关联订单">
-                  <el-input v-model="correctionFields.order_id" maxlength="64" />
-                </el-form-item>
-                <el-form-item label="问题说明">
-                  <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
-                </el-form-item>
-                <el-form-item label="处理诉求">
-                  <el-input v-model="correctionFields.user_request" maxlength="200" />
-                </el-form-item>
-                <el-form-item label="紧急程度">
-                  <el-radio-group v-model="correctionFields.urgency">
-                    <el-radio value="low">低</el-radio>
-                    <el-radio value="normal">普通</el-radio>
-                    <el-radio value="high">高</el-radio>
-                  </el-radio-group>
-                </el-form-item>
-                <el-form-item label="需要人工复核">
-                  <el-switch v-model="correctionFields.need_human_review" />
-                </el-form-item>
+                <template v-if="isRefundConfirmation(message.pendingConfirmation)">
+                  <el-form-item label="退款订单">
+                    <el-input v-model="correctionFields.order_id" maxlength="64" />
+                  </el-form-item>
+                  <el-form-item label="退款原因">
+                    <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+                  </el-form-item>
+                </template>
+                <template v-else>
+                  <el-form-item label="问题类型">
+                    <el-select v-model="correctionFields.issue_type">
+                      <el-option label="退款/退货" value="refund" />
+                      <el-option label="物流/发货" value="logistics" />
+                      <el-option label="投诉/异常处理" value="complaint" />
+                      <el-option label="知识库缺口" value="policy_gap" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="关联订单">
+                    <el-input v-model="correctionFields.order_id" maxlength="64" />
+                  </el-form-item>
+                  <el-form-item label="问题说明">
+                    <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+                  </el-form-item>
+                  <el-form-item label="处理诉求">
+                    <el-input v-model="correctionFields.user_request" maxlength="200" />
+                  </el-form-item>
+                  <el-form-item label="紧急程度">
+                    <el-radio-group v-model="correctionFields.urgency">
+                      <el-radio value="low">低</el-radio>
+                      <el-radio value="normal">普通</el-radio>
+                      <el-radio value="high">高</el-radio>
+                    </el-radio-group>
+                  </el-form-item>
+                  <el-form-item label="需要人工复核">
+                    <el-switch v-model="correctionFields.need_human_review" />
+                  </el-form-item>
+                </template>
               </el-form>
 
               <el-descriptions v-else :column="1" size="small" border>
-                <el-descriptions-item label="问题类型">
-                  {{ message.pendingConfirmation.ticket_fields.issue_type }}
-                </el-descriptions-item>
-                <el-descriptions-item label="关联订单">
-                  {{ message.pendingConfirmation.ticket_fields.order_id || '未提供' }}
-                </el-descriptions-item>
-                <el-descriptions-item label="紧急程度">
-                  {{ priorityLabel(message.pendingConfirmation.ticket_fields.urgency) }}
-                </el-descriptions-item>
-                <el-descriptions-item label="问题说明">
-                  {{ message.pendingConfirmation.ticket_fields.description }}
-                </el-descriptions-item>
+                <template v-if="isRefundConfirmation(message.pendingConfirmation)">
+                  <el-descriptions-item label="退款订单">
+                    {{ message.pendingConfirmation.ticket_fields.order_id || '未提供' }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="退款原因">
+                    {{ message.pendingConfirmation.ticket_fields.description }}
+                  </el-descriptions-item>
+                </template>
+                <template v-else>
+                  <el-descriptions-item label="问题类型">
+                    {{ message.pendingConfirmation.ticket_fields.issue_type }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="关联订单">
+                    {{ message.pendingConfirmation.ticket_fields.order_id || '未提供' }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="紧急程度">
+                    {{ priorityLabel(message.pendingConfirmation.ticket_fields.urgency) }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="问题说明">
+                    {{ message.pendingConfirmation.ticket_fields.description }}
+                  </el-descriptions-item>
+                </template>
               </el-descriptions>
               <div class="confirmation-actions">
                 <template v-if="editingConfirmationMessageId === message.id">
@@ -422,7 +449,7 @@ function priorityLabel(priority: string) {
                   <el-button :loading="confirmationSubmitting" @click="decideConfirmation(message, false)">取消</el-button>
                   <el-button :disabled="confirmationSubmitting" @click="beginConfirmationCorrection(message)">修改信息</el-button>
                   <el-button type="primary" :loading="confirmationSubmitting" @click="decideConfirmation(message, true)">
-                  确认创建工单
+                    {{ isRefundConfirmation(message.pendingConfirmation) ? '确认退款' : '确认创建工单' }}
                   </el-button>
                 </template>
               </div>
