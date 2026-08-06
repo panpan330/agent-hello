@@ -666,10 +666,11 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | MCP 接入产品主链路 | product MCP server（streamable HTTP :9100）+ product MCP client，Agent 工具调用经 MCP 执行，确认凭证 Redis 共享校验 | 已完成 |
 | 多 Agent 协作升级 | 监督-工作多 Agent：顶层监督 Agent（LLM/rule 路由）+ 3 工作子图（知识库/订单/工单），跨 Agent 转单 | 已完成 |
 | 退款全链路闭环 | 退款工具解禁 + MCP handler + `refund_request` 意图 + Java 退款接口（内部/公开）+ orders 退款字段 + `order_events` 审计 + 前端双入口（AI 对话/订单页） | 已完成（真实联调三场景验证通过） |
+| 评测体系深化 | must_ask_for/must_not_reveal 断言生效（prompt-injection 用例真正防护）+ 生产回归断言扩至 6 种（intent/citation_present/ticket_confirmation_required/tool_called/must_ask_for/must_not_reveal，intent 补 refund_request）+ Baseline 对比（snapshot 落盘 + overview 对比 + 前端基线卡片）+ Bad Case promote 写回 agent_cases.json 闭环 | 已完成（真实验收三场景：基线对比 / promote 闭环 / 生产回归执行） |
 
 **当前 HEAD**：`git log --oneline` 可见全部 commit。
 
-**当前基线测试**：Python `uv run pytest -q` = 1458 passed；Java `mvn test -q` = 64 passed（另有 6 个历史遗留 `InternalRefundTicketControllerTest` 产物不在源码中）；前端 `npm run build` 通过。
+**当前基线测试**：Python `uv run pytest -q` = 1481 passed；Java `mvn test -q` = 64 passed（另有 6 个历史遗留 `InternalRefundTicketControllerTest` 产物不在源码中）；前端 `npm run build` 通过。
 
 ### 候选下一步方向（按优先级）
 
@@ -678,7 +679,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | **生产化部署** | Docker Compose 三服务一键编排（Java 18004 / Python 8000 / MCP 9100 + 依赖容器）+ CI/CD | 交接文档第 9 节明确列为未实现；最接近真实交付形态，作品展示价值高 |
 | **可观测性真实接入** | OTEL 已真实接入（VM Collector :4317，span 树 http→agent→llm→tool→java 已实测）；LangSmith 条件启用（配 key 即上报） | 本地联调排障已提效；补齐 LangSmith/远端平台后跨端排障更高效 |
 | **业务功能扩展** | 退款全链路已闭环（2026-08-06）；后续可新增订单取消、物流详情、优惠券等工具/页面 | 有 MCP + 多 Agent + 退款模式可复用，扩展成本低 |
-| **评测体系深化** | Bad Case 扩展、断言类型增强、回归覆盖加深 | 已有闭环（Stage 11），可进一步提升 Agent 行为质量证明 |
+| **评测体系深化** | must_* 断言 + 6 种回归断言 + Baseline 对比 + promote 闭环（2026-08-06 已完成）；后续可加定时回归、趋势图、报告导出 | 已闭环；定时/CI 触发与趋势可视化是下一步 |
 
 ### 新对话开始前置动作
 
