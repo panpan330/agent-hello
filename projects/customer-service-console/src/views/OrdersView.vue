@@ -43,7 +43,11 @@ async function handleRefund(row: OrderListItem) {
         confirmButtonText: '确认退款',
         cancelButtonText: '取消',
         inputPlaceholder: '退款原因（必填）',
-        inputValidator: (input: string) => (input && input.trim() ? true : '退款原因不能为空'),
+        inputMaxlength: 100,
+        inputValidator: (input: string) => {
+          if (!input || !input.trim()) return '退款原因不能为空'
+          return input.trim().length <= 100 ? true : '退款原因不能超过 100 字'
+        },
       },
     )
     if (!value || !value.trim()) return

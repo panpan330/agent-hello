@@ -32,6 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class OrderServiceImpl implements OrderService {
     private static final Pattern ORDER_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
+    // 与 MCP 工具 schema（product_server.py refund_order reason max_length=200）及
+    // 订单表 refund_reason VARCHAR(255) 保持一致：超长会在数据库层 DataTruncation 500，
+    // 必须在 service 层前置拦截。
+    private static final int REFUND_REASON_MAX_LENGTH = 200;
 
     private final OrderMapper orderMapper;
     private final OrderCache orderCache;
@@ -72,6 +76,9 @@ public class OrderServiceImpl implements OrderService {
     ) {
         if (!ORDER_ID_PATTERN.matcher(orderId).matches()) {
             throw new BusinessException(BusinessErrorCode.ORDER_ID_INVALID);
+        }
+        if (reason != null && reason.length() > REFUND_REASON_MAX_LENGTH) {
+            throw new BusinessException(BusinessErrorCode.REFUND_REASON_TOO_LONG);
         }
 
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);

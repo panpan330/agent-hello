@@ -64,6 +64,8 @@ ALTER TABLE orders ADD COLUMN refund_reason VARCHAR(255) NULL;
 - 成功后：`payment_status=refunded`、`refund_amount=<实付>`、`refunded_at=now`、`refund_reason=reason`、`latest_event=退款成功`；写 ticket_events（event_type='refund'）
 - 返回 `OrderToolView`（扩展含退款字段）
 
+> **实现偏离（2026-08-06 落地时）**：审计事件未复用 `ticket_events`，而是新建独立 `order_events` 表（tenant_id/order_id/event_type/payload 等）。原因：`ticket_events` 的 `ticket_id` NOT NULL 无法承载订单维度事件。迁移见 `projects/java-business-service/docs/refund-migration.sql`，审计写入/幂等判定均基于 `order_events`。
+
 ### 3.3 OrderService 接口扩展
 ```java
 OrderToolView refundOrder(String orderId, String reason, InternalRequestContext context, String idempotencyKey);

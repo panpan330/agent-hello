@@ -274,6 +274,23 @@ class InternalOrderControllerTest {
     }
 
     @Test
+    void refundOrderRejectsReasonTooLong() throws Exception {
+        // reason 超过 200 字必须在 service 层拦截，否则落到 refund_reason
+        // VARCHAR(255) 时 DataTruncation 返回 500。
+        String tooLongReason = "A".repeat(201);
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "refund-stage7-reason-long-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"" + tooLongReason + "\"}")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("REFUND_REASON_TOO_LONG"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
     void updateRefundStateSkipsAlreadyRefundedRow() {
         LocalDateTime refundedAt = LocalDateTime.now();
         Instant updatedAt = Instant.now();

@@ -267,6 +267,14 @@ def test_classify_refund_policy_question_still_policy() -> None:
     assert classify_ticket_intent("退款多久到账？")["intent"] == "policy_question"
 
 
+def test_classify_order_refund_policy_query_stays_policy() -> None:
+    # 订单号 + 退款关键词但实为政策咨询：不得因 has_order_id 被误判为退款请求
+    # （修复前 "查订单 A1001 的退款政策" 会命中 REFUND_KEYWORDS 分支进入退款流程）。
+    assert classify_ticket_intent("查订单 A1001 的退款政策")["intent"] == "policy_question"
+    assert classify_ticket_intent("订单 A1001 的退款政策是什么")["intent"] == "policy_question"
+    assert classify_ticket_intent("查订单 A1001 的退款规则")["intent"] == "policy_question"
+
+
 def test_classify_cancel_order_still_unsupported() -> None:
     assert classify_ticket_intent("取消订单")["intent"] == "unsupported"
     assert classify_ticket_intent("我要取消订单 A1002")["intent"] == "unsupported"

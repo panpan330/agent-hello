@@ -68,6 +68,11 @@ USER_SAFE_JAVA_ERROR_MAPPINGS: dict[str, JavaErrorMapping] = {
         message="退款原因不能为空，请补充退款原因后重试。",
         status_code=422,
     ),
+    "REFUND_REASON_TOO_LONG": JavaErrorMapping(
+        code="REFUND_REASON_TOO_LONG",
+        message="退款原因不能超过 200 字，请精简后重试。",
+        status_code=422,
+    ),
     "IDEMPOTENCY_KEY_CONFLICT": JavaErrorMapping(
         code="IDEMPOTENCY_KEY_CONFLICT",
         message="本次提交和已确认的工单请求不一致，请重新确认后再提交。",

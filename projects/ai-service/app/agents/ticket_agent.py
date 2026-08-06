@@ -1461,14 +1461,21 @@ def _is_refund_request(lowered_message: str, normalized_message: str) -> bool:
     demote a bare policy consultation ("怎么申请退款") that carries no order id.
     A refund keyword combined with a concrete order id (订单 A1002 我要退款) or a
     bare 退 + order id (退 A1002 的款 / 退A1002) also implies an action.  Pure
-    policy questions (退款政策是什么/退款规则) fall through to policy_question.
+    policy questions (退款政策是什么/退款规则/查订单 A1001 的退款政策) fall
+    through to policy_question.
     """
     has_order_id = _extract_order_id(normalized_message) is not None
     querying = _contains_any(lowered_message, REFUND_QUERY_WORDS)
+    policy_hint = _contains_any(lowered_message, POLICY_KEYWORDS)
 
     if _contains_any(lowered_message, REFUND_ACTION_PHRASES):
         return not querying or has_order_id
-    if has_order_id and _contains_any(lowered_message, REFUND_KEYWORDS):
+    if (
+        has_order_id
+        and not querying
+        and not policy_hint
+        and _contains_any(lowered_message, REFUND_KEYWORDS)
+    ):
         return True
     if REFUND_WITH_ORDER_PATTERN.search(lowered_message) is not None:
         return True
@@ -1509,7 +1516,10 @@ def classify_ticket_intent(message: str) -> TicketAgentIntentClassification:
             "reason": "用户表达了投诉、售后处理或创建工单诉求。",
         }
 
-    if _contains_any(lowered_message, ORDER_KEYWORDS):
+    if (
+        _contains_any(lowered_message, ORDER_KEYWORDS)
+        and not _contains_any(lowered_message, POLICY_KEYWORDS)
+    ):
         return {
             "intent": "order_query",
             "reason": "用户在询问订单、物流、支付或发货状态。",
