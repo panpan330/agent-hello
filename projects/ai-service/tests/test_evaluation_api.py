@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import logging
+
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -307,3 +311,30 @@ def test_overview_skips_comparison_when_stored_baseline_dataset_version_mismatch
 
     assert response.status_code == 200
     assert response.json()["baseline_comparison"] is None
+
+
+def test_overview_degrades_gracefully_when_snapshot_save_fails(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    state = {"passed": True}
+    _override_snapshot_store_and_builder(app, tmp_path, monkeypatch, state)
+
+    def failing_save(self, snapshot):  # noqa: ANN001
+        raise OSError("simulated save failure")
+
+    monkeypatch.setattr(evaluation_router.SnapshotStore, "save", failing_save)
+    caplog.set_level(logging.WARNING)
+
+    response = client.get(
+        "/api/ai/evaluation/overview",
+        headers={TRACE_ID_HEADER: "trace-save-failure"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["baseline_comparison"] is None
+    assert response.json()["latest_run"]["run_id"] == "local-agent-eval-latest"
+    assert "snapshot_save_failed" in caplog.text

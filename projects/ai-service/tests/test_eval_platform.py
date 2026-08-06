@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import json
+
 import pytest
 
 from app.agents.eval_suite import AgentEvalRunReport, AgentEvalSuiteReport
@@ -226,6 +228,10 @@ def test_snapshot_store_keeps_only_latest_max_snapshots(tmp_path: Path) -> None:
         )
         store.save(snapshot)
 
+    raw_items = json.loads(store.path.read_text(encoding="utf-8"))
+    assert len(raw_items) == 2
+    assert raw_items[-1]["context"]["run_id"] == "run-003"
+    assert raw_items[0]["context"]["run_id"] == "run-002"
     assert store.load_latest().context.run_id == "run-003"
     store.save(
         build_agent_eval_run_snapshot(
@@ -233,6 +239,9 @@ def test_snapshot_store_keeps_only_latest_max_snapshots(tmp_path: Path) -> None:
             context=_context(run_id="run-004", candidate_version="prompt-v4"),
         )
     )
+    raw_items = json.loads(store.path.read_text(encoding="utf-8"))
+    assert len(raw_items) == 2
+    assert raw_items[-1]["context"]["run_id"] == "run-004"
     assert store.load_latest().context.run_id == "run-004"
 
 

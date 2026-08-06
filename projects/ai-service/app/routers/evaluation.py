@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Header
 
@@ -56,6 +57,9 @@ from app.services.console_agent_service import ConsoleAgentActor, JavaConsoleAge
 from app.services.java_feedback_client import JavaFeedbackClient, JavaFeedbackContext
 from app.core.business_context import reset_business_context, set_business_context
 from app.core.config import Settings, get_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/api/ai/evaluation", tags=["evaluation"])
@@ -254,7 +258,11 @@ def evaluation_overview(
         and baseline.context.dataset_version == snapshot.context.dataset_version
         else None
     )
-    snapshot_store.save(snapshot)
+    # 快照是附属数据：写盘失败只降级为告警日志，不影响看板响应。
+    try:
+        snapshot_store.save(snapshot)
+    except OSError as exc:
+        logger.warning("snapshot_save_failed path=%s error=%s", snapshot_store_path, exc)
 
     bad_case_registry = BadCaseRegistry(
         schema_version="stage11.bad_case_registry.view",
