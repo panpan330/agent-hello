@@ -48,7 +48,7 @@ ALTER TABLE orders ADD COLUMN refunded_at DATETIME(6) NULL;
 ALTER TABLE orders ADD COLUMN refund_reason VARCHAR(255) NULL;
 ```
 - `refund_amount` = 实付金额（全额退款）。为支持真实金额展示，**同时新增 `amount DECIMAL(10,2) NOT NULL DEFAULT 0` 列**（订单金额，data.sql 现有订单补金额值）；refund_amount 等于 amount。
-- 不新建退款表；审计复用 `ticket_events` 表（event_type='refund'，payload 存金额/原因/操作者）。
+- 不新建退款表；审计复用 `ticket_events` 表（event_type='refund'，payload 存金额/原因/操作者）——**实现偏离：审计实际用独立 `order_events` 表（见 3.2 补记），因 ticket_events.ticket_id NOT NULL 无法承载订单维度事件**。
 - `payment_status` 枚举已含 `refunded`，不改。
 
 ### 3.2 新接口 `POST /internal/orders/{orderId}/refund`
