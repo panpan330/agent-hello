@@ -756,7 +756,7 @@ JAVA_MOCK_SERVICE_TIMEOUT_SECONDS=5
 | --- | --- | --- | --- |
 | `query_order` | `read` | 是 | 否 |
 | `create_ticket` | `write` | 是 | 是 |
-| `refund_order` | `sensitive` | 否 | 是 |
+| `refund_order` | `sensitive` | 是 | 是 |
 
 如果模型请求未知工具或禁用工具，后端会返回：
 
