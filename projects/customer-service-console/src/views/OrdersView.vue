@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { listOrders } from '../services/businessApi'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { listOrders, refundOrder } from '../services/businessApi'
 import type { OrderListItem } from '../services/businessApi'
 
 const orders = ref<OrderListItem[]>([])
@@ -30,8 +30,30 @@ async function loadOrders() {
   }
 }
 
-function formatDate(value: string) {
+function formatDate(value: string | null | undefined) {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
+}
+
+async function handleRefund(row: OrderListItem) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入退款原因，提交后将不可撤销',
+      `申请退款 - ${row.order_id}`,
+      {
+        confirmButtonText: '确认退款',
+        cancelButtonText: '取消',
+        inputPlaceholder: '退款原因（必填）',
+        inputValidator: (input: string) => (input && input.trim() ? true : '退款原因不能为空'),
+      },
+    )
+    if (!value || !value.trim()) return
+    await refundOrder(row.order_id, value.trim())
+    ElMessage.success('退款成功')
+    await loadOrders()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error instanceof Error ? error.message : '退款失败')
+  }
 }
 
 onMounted(loadOrders)
@@ -54,9 +76,12 @@ onMounted(loadOrders)
           <el-tag effect="light">{{ orderStatusLabels[row.order_status] || row.order_status }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="支付状态" width="120">
+      <el-table-column label="支付状态" width="200">
         <template #default="{ row }">
-          {{ paymentStatusLabels[row.payment_status] || row.payment_status }}
+          <template v-if="row.payment_status === 'refunded'">
+            已退款 ¥{{ row.refund_amount ?? '-' }}（{{ formatDate(row.refunded_at) }}）
+          </template>
+          <template v-else>{{ paymentStatusLabels[row.payment_status] || row.payment_status }}</template>
         </template>
       </el-table-column>
       <el-table-column prop="logistics_message" label="物流状态" min-width="220" show-overflow-tooltip />
@@ -70,6 +95,20 @@ onMounted(loadOrders)
       </el-table-column>
       <el-table-column label="更新时间" width="180">
         <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="110" fixed="right">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.order_status === 'waiting_shipment' && row.payment_status !== 'refunded'"
+            type="primary"
+            plain
+            size="small"
+            @click="handleRefund(row)"
+          >
+            申请退款
+          </el-button>
+          <span v-else>-</span>
+        </template>
       </el-table-column>
     </el-table>
 

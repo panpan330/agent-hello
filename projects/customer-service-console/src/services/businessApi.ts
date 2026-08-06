@@ -9,7 +9,22 @@ export interface OrderListItem {
   logistics_message: string
   latest_event: string
   can_create_ticket: boolean
+  refund_amount: number | null
+  refunded_at: string | null
   updated_at: string
+}
+
+export interface OrderToolView {
+  order_id: string
+  order_status: string
+  payment_status: string
+  logistics_message: string
+  latest_event: string
+  can_create_ticket: boolean
+  refund_amount: number | null
+  refunded_at: string | null
+  refund_reason: string | null
+  user_visible_summary: string | null
 }
 
 export interface TicketListItem {
@@ -106,6 +121,11 @@ function unwrapResponse<T>(response: ApiResponse<T>): T {
 
 export async function listOrders() {
   const response = await javaApi.get<ApiResponse<OrderListItem[]>>('/api/orders')
+  return unwrapResponse(response.data)
+}
+
+export async function refundOrder(orderId: string, reason: string) {
+  const response = await javaApi.post<ApiResponse<OrderToolView>>(`/api/orders/${orderId}/refund`, { reason })
   return unwrapResponse(response.data)
 }
 
