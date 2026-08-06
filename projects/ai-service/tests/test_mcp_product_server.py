@@ -326,6 +326,7 @@ def test_product_refund_order_requires_user_confirmation() -> None:
         order_id="A1002",
         reason="七天无理由退货",
         confirmation_id="a" * 32,
+        requester_id="user-1",
         user_confirmed=False,
     )
 
@@ -344,6 +345,7 @@ def test_product_refund_order_validates_confirmation_id_format() -> None:
                 {
                     "order_id": "A1002",
                     "reason": "七天无理由退货",
+                    "requester_id": "user-1",
                     "confirmation_id": "not-a-hex-id",
                 },
             )
@@ -405,6 +407,7 @@ def test_product_refund_order_sets_business_context_before_java_call(
             *,
             actor_id: str,
         ) -> None:
+            captured["confirmation_actor_id"] = actor_id
             return None
 
     monkeypatch.setattr(
@@ -417,11 +420,14 @@ def test_product_refund_order_sets_business_context_before_java_call(
         order_id="A1002",
         reason="七天无理由退货",
         confirmation_id="b" * 32,
+        requester_id="U5000",
         user_confirmed=True,
         user_id="U5000",
         tenant_id="tenant-5",
     )
     assert result["ok"] is True
+    # The confirmation store verified the real requester id, not a demo fallback.
+    assert captured["confirmation_actor_id"] == "U5000"
     # The Java refund call saw the injected identity, not the default fallback.
     assert captured["headers"]["X-User-Id"] == "U5000"
     assert captured["headers"]["X-Tenant-Id"] == "tenant-5"
@@ -451,6 +457,7 @@ def test_product_refund_order_confirmation_unavailable_mapped_to_ok_false(
         order_id="A1002",
         reason="七天无理由退货",
         confirmation_id="a" * 32,
+        requester_id="user-1",
         user_confirmed=True,
     )
     assert result["ok"] is False
@@ -505,6 +512,7 @@ def test_product_refund_order_success_returns_refund(
             *,
             actor_id: str,
         ) -> None:
+            captured["confirmation_actor_id"] = actor_id
             return None
 
     monkeypatch.setattr(
@@ -517,10 +525,12 @@ def test_product_refund_order_success_returns_refund(
         order_id="A1002",
         reason="七天无理由退货",
         confirmation_id="c" * 32,
-        user_confirmed=True,
         requester_id="user-1",
+        user_confirmed=True,
     )
     assert result["ok"] is True
+    # The confirmation store verified the real requester id, not a demo fallback.
+    assert captured["confirmation_actor_id"] == "user-1"
     assert result["allowed"] is True
     assert result["confirmation_checked"] is True
     assert result["confirmation_id"] == "c" * 32
@@ -530,6 +540,21 @@ def test_product_refund_order_success_returns_refund(
     assert result["refund"]["payment_status"] == "refunded"
     assert result["refund"]["refund_amount"] == 159.00
     assert captured["idempotency_key"] == "c" * 32
+
+
+def test_product_refund_order_rejects_missing_requester_id() -> None:
+    from app.mcp_servers import product_server
+
+    result = product_server._product_refund_order(
+        order_id="A1002",
+        reason="七天无理由退货",
+        confirmation_id="a" * 32,
+        requester_id="",
+        user_confirmed=True,
+    )
+    assert result["ok"] is False
+    assert result["error_code"] == "INVALID_TOOL_ARGUMENTS"
+    assert result["refund"] is None
 
 
 def test_main_refuses_to_start_without_auth_token(

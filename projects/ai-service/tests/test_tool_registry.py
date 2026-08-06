@@ -145,7 +145,11 @@ def test_refund_order_tool_is_enabled_and_requires_confirmation() -> None:
         "reason",
         "requester_id",
     }
-    assert set(definition.argument_schema["required"]) == {"order_id", "reason"}
+    assert set(definition.argument_schema["required"]) == {
+        "order_id",
+        "reason",
+        "requester_id",
+    }
 
 
 def test_refund_order_not_in_read_only_model_callable_tools() -> None:

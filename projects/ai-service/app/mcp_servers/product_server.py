@@ -212,8 +212,8 @@ def _product_refund_order(
     order_id: str,
     reason: str,
     confirmation_id: str,
+    requester_id: str,
     user_confirmed: bool = False,
-    requester_id: str | None = None,
     user_id: str | None = None,
     tenant_id: str | None = None,
 ) -> dict[str, Any]:
@@ -233,13 +233,11 @@ def _product_refund_order(
             refund=None,
         )
 
-    resolved_requester_id = requester_id or "demo_user_001"
-
     try:
         arguments = RefundOrderArgs(
             order_id=order_id,
             reason=reason,
-            requester_id=resolved_requester_id,
+            requester_id=requester_id,
         )
     except Exception as exc:  # pydantic.ValidationError
         from pydantic import ValidationError
@@ -256,7 +254,7 @@ def _product_refund_order(
 
     try:
         store = create_tool_confirmation_store()
-        store.require_confirmed(confirmation_id, actor_id=resolved_requester_id)
+        store.require_confirmed(confirmation_id, actor_id=requester_id)
     except AppException as exc:
         return _refund_response(
             ok=False,
@@ -397,8 +395,8 @@ def create_product_mcp_server(
         order_id: str,
         reason: Annotated[str, Field(min_length=1, max_length=200)],
         confirmation_id: Annotated[str, Field(pattern=CONFIRMATION_ID_PATTERN)],
+        requester_id: Annotated[str, Field(min_length=1, max_length=64)],
         user_confirmed: bool = False,
-        requester_id: str | None = None,
         user_id: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
@@ -412,8 +410,8 @@ def create_product_mcp_server(
             order_id=order_id,
             reason=reason,
             confirmation_id=confirmation_id,
-            user_confirmed=user_confirmed,
             requester_id=requester_id,
+            user_confirmed=user_confirmed,
             user_id=user_id,
             tenant_id=tenant_id,
         )

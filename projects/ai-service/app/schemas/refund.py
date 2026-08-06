@@ -15,7 +15,11 @@ class RefundOrderArgs(BaseModel):
         max_length=200,
         description="退款原因",
     )
-    requester_id: str | None = Field(None, description="发起退款的操作者用户 ID")
+    requester_id: str = Field(
+        min_length=1,
+        max_length=64,
+        description="发起退款的操作者用户 ID",
+    )
 
 
 def get_refund_order_args_json_schema() -> dict[str, Any]:
