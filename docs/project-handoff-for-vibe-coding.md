@@ -362,7 +362,7 @@ npm run build
 | Milvus | 已安装、已学习、代码有适配配置；当前真实 RAG 使用 Qdrant。 |
 | `java-mock-service` | 早期工具调用和接口联调模拟服务；当前真实业务使用 Java business service。 |
 | MCP | 学习型 minimal server 保留；产品主链路新增 product MCP server（streamable HTTP :9100）+ product MCP client，Agent 的 query_order/create_ticket 经 MCP 调用，确认凭证经共享存储校验（默认关闭，需设 `AGENT_MCP_TOOLS_ENABLED=true` 启用）。 |
-| LangSmith / OpenTelemetry | 已接入真实 OpenTelemetry（本机 OTLP Collector :4317，`app/core/telemetry.py` + `app/agents/tracing_spans.py`）；LangSmith 条件启用（`LANGSMITH_TRACING=true` 且 `LANGSMITH_API_KEY` 非空才上报）。启动：`docker compose -f docker-compose.otel.yml up -d`。 |
+| LangSmith / OpenTelemetry | 已接入真实 OpenTelemetry（本机 OTLP Collector :4317，`app/core/telemetry.py` + `app/agents/tracing_spans.py`）；LangSmith 条件启用（`LANGSMITH_TRACING=true` 且 `LANGSMITH_API_KEY` 非空才上报）。启动：`docker compose -f docker-compose.otel.yml up -d`。span 树随部署形态而异：MCP 模式（`AGENT_MCP_TOOLS_ENABLED=true`，当前 `.env` 形态）本进程为 `http.request → agent.invoke → llm.call → tool.call`，Java 调用在独立 MCP server 进程（其 `java.call` 不在此进程内）；非 MCP 模式为 `http.request → agent.invoke → llm.call → java.call`（无 `tool.call`）。 |
 | Docker Compose 整体部署 | Redis/Qdrant/Milvus 使用 Docker；前后端项目尚未统一 Compose 化。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 尚未实现。 |
 | 多 Agent 协作 | 已升级为监督-工作（supervisor-worker）多 Agent：顶层监督 Agent（LLM/rule 可切换路由）+ 3 个工作子 Agent（知识库问答、订单查询、工单创建）。默认关闭，需设 `AGENT_MULTI_AGENT_ENABLED=true` 启用；`SUPERVISOR_ROUTER_MODE=rule|llm` 切换监督路由方式。 |
@@ -648,7 +648,8 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | `java-mock-service` | `projects/java-mock-service` | 早期学习与模拟；当前不承载真实业务。 |
 | Milvus | VMware Ubuntu、`app/rag` 的 Milvus 脚本 | 已安装和学习；当前 RAG 主链路为 Qdrant。 |
 | MCP | `app/mcp_servers`（minimal + product）、`app/mcp_clients`（minimal + product） | 学习型 minimal server 保留；产品级 product server（独立进程，streamable HTTP :9100，Bearer token 认证，`MCP_PRODUCT_AUTH_TOKEN` 必须设置、未设置启动即退出）与 product client 已接入客服 Agent 主链路（需在 `.env` 设 `AGENT_MCP_TOOLS_ENABLED=true` 并启动 product server 才生效；确认凭证跨进程校验要求 `TOOL_CONFIRMATION_BACKEND=redis`，否则 AI 服务与 server 进程各自持有独立确认存储，工单确认会失败）。启动：`cd projects/ai-service && uv run python -m app.mcp_servers.product_server`。配置：`MCP_PRODUCT_BASE_URL` / `MCP_PRODUCT_AUTH_TOKEN` / `TOOL_CONFIRMATION_BACKEND` / `AGENT_MCP_TOOLS_ENABLED`。工具调用会透传已认证用户的 `X-User-Id`/`X-Tenant-Id` 到 Java 业务服务（经 MCP 工具参数注入业务上下文），订单/工单归属按真实调用者校验。 |
-| LangSmith/OTEL | `app/core/telemetry.py`、`app/agents/tracing_spans.py`（真实接入）；`app/agents/langsmith_tracing.py`、`otel_tracing.py`（plan 数据类，学习/测试保留） | 真实 OTEL 已接入（本机 Collector :4317，span 树 http→agent→llm→tool→java）；LangSmith 条件启用（配 key 即上报）。 |
+| LangSmith/OTEL | `app/core/telemetry.py`、`app/agents/tracing_spans.py`（真实接入）；`app/agents/langsmith_tracing.py`、`otel_tracing.py`（plan 数据类，学习/测试保留） | 真实 OTEL 已接入（本机 Collector :4317；span 树随部署形态不同，见下方说明）；LangSmith 条件启用（配 key 即上报）。 |
+| span 树形态 | 部署形态差异 | **MCP 模式**（当前 `.env` 形态：`AGENT_MCP_TOOLS_ENABLED=true`）：本进程 span 树为 `http.request → agent.invoke → llm.call → tool.call`，Java 调用发生在**独立 MCP server 进程**，其 `java.call` 不出现在本进程 span 树中（MCP server 若也接入 OTEL，会形成跨进程的独立 span）。**非 MCP 模式**（`AGENT_MCP_TOOLS_ENABLED=false`，工具直接调用 Java 内部 API）：span 树为 `http.request → agent.invoke → llm.call → java.call`（无 `tool.call`）。`llm.call` 覆盖意图分类、工单字段提取与 RAG 回答等模型调用点。 |
 | LangChain 学习接口 | `langchain_chat` 等服务和路由 | 仍可学习/验证；产品主 Agent 使用 LangGraph 和直接 OpenAI-compatible 调用。 |
 | Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |

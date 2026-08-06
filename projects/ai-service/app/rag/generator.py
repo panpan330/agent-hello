@@ -298,10 +298,27 @@ class RagAnswerService:
         messages = build_rag_messages(normalized_query, chunks)
         start_time = perf_counter()
         try:
-            completion = self._get_client().chat.completions.create(
+            from app.agents.tracing_spans import set_span_attributes, start_llm_span
+
+            with start_llm_span(
                 model=self.settings.llm_model,
-                messages=messages,
-            )
+                provider=self.settings.llm_provider,
+                prompt_name="rag_answer",
+            ):
+                completion = self._get_client().chat.completions.create(
+                    model=self.settings.llm_model,
+                    messages=messages,
+                )
+                usage = extract_token_usage(completion)
+                token_attributes: dict[str, int] = {}
+                if usage.prompt_tokens is not None:
+                    token_attributes["prompt_tokens"] = usage.prompt_tokens
+                if usage.completion_tokens is not None:
+                    token_attributes["completion_tokens"] = usage.completion_tokens
+                if usage.total_tokens is not None:
+                    token_attributes["total_tokens"] = usage.total_tokens
+                if token_attributes:
+                    set_span_attributes(token_attributes)
             reply = extract_first_reply(completion)
         except AppException as exc:
             self._log_failure(exc, (perf_counter() - start_time) * 1000)

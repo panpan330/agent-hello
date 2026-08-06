@@ -36,15 +36,29 @@ def register_trace_middleware(app: FastAPI) -> None:
 
         try:
             if is_telemetry_enabled():
-                from app.agents.tracing_spans import start_http_span
+                from app.agents.tracing_spans import (
+                    set_span_attributes,
+                    set_span_status_error,
+                    start_http_span,
+                )
 
                 with start_http_span(
                     method=request.method,
                     path=request.url.path,
                 ):
-                    return await _run_request_body(
+                    response = await _run_request_body(
                         request, call_next, trace_id, start_time
                     )
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    set_span_attributes(
+                        {
+                            "status_code": response.status_code,
+                            "duration_ms": elapsed_ms,
+                        }
+                    )
+                    if response.status_code >= 400:
+                        set_span_status_error()
+                    return response
             return await _run_request_body(request, call_next, trace_id, start_time)
         finally:
             reset_trace_id(token)

@@ -113,10 +113,17 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 docker logs -f otel-collector
 ```
 
-**验证点**：Collector 日志中出现 span 树：
+**验证点**：Collector 日志中出现 span 树。span 树形状取决于 `.env` 的部署形态：
 
 ```text
-http.request → agent.invoke → tool.call → java.call
+MCP 模式（AGENT_MCP_TOOLS_ENABLED=true，当前 .env 形态，本进程内）：
+http.request → agent.invoke → llm.call → tool.call
+（Java 调用发生在独立 MCP server 进程内，其 java.call 不出现在本进程 span 树；
+ 若 MCP server 进程也接入 OTEL，会作为跨进程独立 span 存在）
+
+非 MCP 模式（AGENT_MCP_TOOLS_ENABLED=false，工具直接调用 Java 内部 API）：
+http.request → agent.invoke → llm.call → java.call
+（无 tool.call）
 ```
 
 每个 span 带 `x_trace_id` 属性（与 AI 服务日志中的 X-Trace-Id 一致）。
