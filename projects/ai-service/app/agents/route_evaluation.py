@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.agents.intent_evaluation import AgentEvalCase, AgentEvalPriority
+from app.agents.must_check import check_must_ask_for, check_must_not_reveal
 from app.agents.ticket_agent import run_ticket_agent
 
 
@@ -139,6 +140,10 @@ def evaluate_agent_route_case(
         visited_forbidden_nodes=visited_forbidden_nodes,
         expected_terminal_node=expected_terminal_node,
         actual_terminal_node=actual_terminal_node,
+    )
+    failed_reasons += _collect_must_check_failed_reasons(
+        eval_case=eval_case,
+        actual_state=actual_state,
     )
 
     return AgentRouteEvalCaseResult(
@@ -306,6 +311,25 @@ def _collect_failed_reasons(
             "terminal_node expected="
             f"{expected_terminal_node!r} actual={actual_terminal_node!r}"
         )
+    return reasons
+
+
+def _collect_must_check_failed_reasons(
+    *,
+    eval_case: AgentEvalCase,
+    actual_state: Mapping[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    if eval_case.expected.must_ask_for:
+        reply = str(actual_state.get("final_answer") or "")
+        missing = check_must_ask_for(reply, eval_case.expected.must_ask_for)
+        if missing:
+            reasons.append(f"must_ask_for: missing {', '.join(missing)}")
+    if eval_case.expected.must_not_reveal:
+        reply = str(actual_state.get("final_answer") or "")
+        revealed = check_must_not_reveal(reply, eval_case.expected.must_not_reveal)
+        if revealed:
+            reasons.append(f"must_not_reveal: revealed {', '.join(revealed)}")
     return reasons
 
 

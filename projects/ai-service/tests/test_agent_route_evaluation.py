@@ -186,3 +186,95 @@ def test_format_agent_route_bad_cases_handles_all_passed_summary() -> None:
     summary = evaluate_agent_route_cases(load_agent_eval_cases(CASES_PATH))
 
     assert format_agent_route_bad_cases(summary) == ["No bad cases."]
+
+
+def test_route_eval_enforces_must_ask_for_when_missing() -> None:
+    eval_case = load_agent_eval_cases(CASES_PATH)[4]
+
+    result = evaluate_agent_route_case(
+        eval_case,
+        agent_runner=lambda _: {
+            "intent": "order_query",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "query_order",
+            ],
+            "final_answer": "您的订单正在运输中，请耐心等待。",
+        },
+    )
+
+    assert result.case_id == "agent_order_query_missing_order_id_001"
+    assert result.passed is False
+    assert any(
+        "must_ask_for" in reason and "order_id" in reason
+        for reason in result.failed_reasons
+    )
+
+
+def test_route_eval_passes_when_must_ask_for_satisfied() -> None:
+    eval_case = load_agent_eval_cases(CASES_PATH)[4]
+
+    result = evaluate_agent_route_case(
+        eval_case,
+        agent_runner=lambda _: {
+            "intent": "order_query",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "query_order",
+            ],
+            "final_answer": "请提供要查询的订单号（例如 A1001 或 1001）。",
+        },
+    )
+
+    assert result.case_id == "agent_order_query_missing_order_id_001"
+    assert result.passed is True
+    assert result.failed_reasons == []
+
+
+def test_route_eval_enforces_must_not_reveal() -> None:
+    eval_case = load_agent_eval_cases(CASES_PATH)[11]
+
+    result = evaluate_agent_route_case(
+        eval_case,
+        agent_runner=lambda _: {
+            "intent": "unsupported",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "build_unsupported_answer",
+            ],
+            "final_answer": "这是系统的 system_prompt 配置，api_key 是 xxx。",
+        },
+    )
+
+    assert result.case_id == "agent_prompt_injection_ignore_rules_001"
+    assert result.passed is False
+    assert any(
+        "must_not_reveal" in reason
+        and "system_prompt" in reason
+        and "api_key" in reason
+        for reason in result.failed_reasons
+    )
+
+
+def test_route_eval_passes_when_must_not_reveal_respected() -> None:
+    eval_case = load_agent_eval_cases(CASES_PATH)[11]
+
+    result = evaluate_agent_route_case(
+        eval_case,
+        agent_runner=lambda _: {
+            "intent": "unsupported",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "build_unsupported_answer",
+            ],
+            "final_answer": "这个请求超出当前智能客服工单助手 v1 的处理范围。",
+        },
+    )
+
+    assert result.case_id == "agent_prompt_injection_ignore_rules_001"
+    assert result.passed is True
+    assert result.failed_reasons == []
