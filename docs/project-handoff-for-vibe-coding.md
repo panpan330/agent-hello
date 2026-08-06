@@ -23,20 +23,20 @@ D:\wendang\java+python+ai\
 
 ### 当前 Git 状态
 
-工作区存在大量**未提交**的真实项目改动，其中包含 Stage 11 项目化、前端、Java 业务服务、AI 服务、用户反馈、Bad Case 与正式回归评测实现。
+截至 2026-08-05，前两轮开发（MCP 接入产品主链路、多 Agent 协作升级）已全部**本地提交**（共 40 个 commit，`git log --oneline` 可见），工作区干净；仅 `.reasonix/` 与 `docs/superpowers/`（设计规格与实现计划）未跟踪。
 
 新助手开始工作时必须先执行：
 
 ```powershell
 git status --short
-git log -5 --oneline
+git log -10 --oneline
 ```
 
 规则：
 
-- 必须保留现有未提交改动；它们不是可随意清理的临时文件。
+- 未跟踪的 `docs/superpowers/` 是本项目的设计规格与实现计划（`specs/`、`plans/`），保留参考；`.reasonix/` 是 Reasonix 工具目录，不要动。
 - 不要执行 `git reset --hard`、`git checkout --` 或大范围删除。
-- 只有用户明确说“上传 GitHub / 提交 / 推送”才进行暂存、提交、推送。
+- 只有用户明确说“上传 GitHub / 提交 / 推送”才执行 `git push`；本地 `git commit` 在本项目协作中已被用户批准（但提交信息不含密钥）。
 - 只有准备上传 GitHub 时才做敏感信息扫描；平时不需要扫描。
 
 ### 用户协作偏好
@@ -651,3 +651,33 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |
 | 多 Agent 协作 | `app/agents/supervisor/`（监督图+路由）、`app/agents/workers/`（3 个工作子图） | 监督-工作多 Agent 已实现：监督 Agent 嵌套 3 个子图（知识库问答、订单查询、工单创建），LLM/rule 可切换路由（`SUPERVISOR_ROUTER_MODE`）；`AGENT_MULTI_AGENT_ENABLED=true` 开启后生效，与 MCP 工具链路（`AGENT_MCP_TOOLS_ENABLED`）正交可叠加；单 Agent 图（`ticket_agent.py`）保留，默认关闭。 |
+
+## 18. 当前进度与下一步方向
+
+### 已完成里程碑（截至 2026-08-05）
+
+| 阶段 | 内容 | 状态 |
+| --- | --- | --- |
+| Stage 1-11 | Python 基础 → FastAPI → LLM → RAG → LangGraph → 真实 Java 后端 → 前端联调 → 反馈/评测闭环 | 已完成 |
+| MCP 接入产品主链路 | product MCP server（streamable HTTP :9100）+ product MCP client，Agent 工具调用经 MCP 执行，确认凭证 Redis 共享校验 | 已完成（HEAD 92c4649） |
+| 多 Agent 协作升级 | 监督-工作多 Agent：顶层监督 Agent（LLM/rule 路由）+ 3 工作子图（知识库/订单/工单），跨 Agent 转单 | 已完成 |
+
+**当前 HEAD**：`92c4649`（`git log --oneline` 可见全部 40 个 commit）。
+
+**当前基线测试**：Python `uv run pytest -q` = 1395 passed；Java `mvn test -q` = 49 passed；前端 `npm run build` 通过。
+
+### 候选下一步方向（按优先级）
+
+| 候选方向 | 内容 | 优先级理由 |
+| --- | --- | --- |
+| **生产化部署** | Docker Compose 三服务一键编排（Java 18004 / Python 8000 / MCP 9100 + 依赖容器）+ CI/CD | 交接文档第 9 节明确列为未实现；最接近真实交付形态，作品展示价值高 |
+| **可观测性真实接入** | LangSmith / OTEL Collector（`app/agents/langsmith_tracing.py`、`otel_tracing.py` 已有适配） | 目前 trace 数据只在本地日志，未接真实平台；补齐后联调排障更高效 |
+| **业务功能扩展** | 退款工具解禁（`refund_order` 当前 enabled=False）、新增业务工具/页面 | 有 MCP + 多 Agent 基础，扩展成本低，丰富作品展示面 |
+| **评测体系深化** | Bad Case 扩展、断言类型增强、回归覆盖加深 | 已有闭环（Stage 11），可进一步提升 Agent 行为质量证明 |
+
+### 新对话开始前置动作
+
+1. `git status --short` + `git log -10 --oneline` 确认状态。
+2. 读 `docs/superpowers/specs/` 与 `docs/superpowers/plans/`（如有对应阶段的设计与实现计划）。
+3. 涉及真实运行前跑 `cd projects/ai-service && uv run pytest -q` 确认基线（1395 passed）。
+4. 联调启动顺序：依赖容器（MySQL/Redis/Qdrant）→ Java（18004）→ MCP server（9100，如启用）→ Python（8000）→ Vue（5173）。
