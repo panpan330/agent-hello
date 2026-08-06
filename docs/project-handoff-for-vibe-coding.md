@@ -362,7 +362,7 @@ npm run build
 | Milvus | 已安装、已学习、代码有适配配置；当前真实 RAG 使用 Qdrant。 |
 | `java-mock-service` | 早期工具调用和接口联调模拟服务；当前真实业务使用 Java business service。 |
 | MCP | 学习型 minimal server 保留；产品主链路新增 product MCP server（streamable HTTP :9100）+ product MCP client，Agent 的 query_order/create_ticket 经 MCP 调用，确认凭证经共享存储校验（默认关闭，需设 `AGENT_MCP_TOOLS_ENABLED=true` 启用）。 |
-| LangSmith / OpenTelemetry | 有学习型适配和本地 trace 设计；未接入真实 LangSmith 或 OTEL Collector。 |
+| LangSmith / OpenTelemetry | 已接入真实 OpenTelemetry（本机 OTLP Collector :4317，`app/core/telemetry.py` + `app/agents/tracing_spans.py`）；LangSmith 条件启用（`LANGSMITH_TRACING=true` 且 `LANGSMITH_API_KEY` 非空才上报）。启动：`docker compose -f docker-compose.otel.yml up -d`。 |
 | Docker Compose 整体部署 | Redis/Qdrant/Milvus 使用 Docker；前后端项目尚未统一 Compose 化。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 尚未实现。 |
 | 多 Agent 协作 | 已升级为监督-工作（supervisor-worker）多 Agent：顶层监督 Agent（LLM/rule 可切换路由）+ 3 个工作子 Agent（知识库问答、订单查询、工单创建）。默认关闭，需设 `AGENT_MULTI_AGENT_ENABLED=true` 启用；`SUPERVISOR_ROUTER_MODE=rule|llm` 切换监督路由方式。 |
@@ -638,6 +638,8 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | Java 启动时反馈表字段缺失 | 检查 `AiFeedbackSchemaMigration` 日志和 MySQL 表权限；它负责已有表的审核字段迁移。 |
 | MCP 联调时 Agent 报 `MCP_SERVER_UNREACHABLE` | 未启动 product MCP server：先运行 `cd projects/ai-service && uv run python -m app.mcp_servers.product_server`（监听 9100）；或检查 `MCP_PRODUCT_AUTH_TOKEN` 是否与 server 启动环境一致；或确认 `.env` 已设 `AGENT_MCP_TOOLS_ENABLED=true`。`MCP_PRODUCT_AUTH_TOKEN` 必须设置：未设置时 product MCP server 启动直接退出（fail-fast），且 client 端会返回 `MCP_AUTH_FAILED` 而非无限重试。 |
 | 多 Agent 模式 Agent 报错或路由异常 | 确认 `.env` 已设 `AGENT_MULTI_AGENT_ENABLED=true`；LLM 路由模式（`SUPERVISOR_ROUTER_MODE=llm`）下确认 `LLM_API_KEY` 已配置（失败会自动回退 rule）。 |
+| OTEL span 未出现在 Collector | 确认已启动 Collector（`docker compose -f docker-compose.otel.yml up -d`）且 `.env` 设了 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`；Collector 不可达时服务静默降级（日志 `otel_export_failed`），不影响业务。 |
+| SSE 流式对话路径的 span 链存在已知限制 | `stream_reply` 生成器跨线程 yield 导致流式下 `agent.invoke` 与子 span 的 parent 关系不完整；非流式 reply 路径 span 链完整。如需完整 span 树，验收时用非流式路径（普通 HTTP 请求）。 |
 
 ## 17. 已实现但未接入产品主流程的模块
 
@@ -646,7 +648,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | `java-mock-service` | `projects/java-mock-service` | 早期学习与模拟；当前不承载真实业务。 |
 | Milvus | VMware Ubuntu、`app/rag` 的 Milvus 脚本 | 已安装和学习；当前 RAG 主链路为 Qdrant。 |
 | MCP | `app/mcp_servers`（minimal + product）、`app/mcp_clients`（minimal + product） | 学习型 minimal server 保留；产品级 product server（独立进程，streamable HTTP :9100，Bearer token 认证，`MCP_PRODUCT_AUTH_TOKEN` 必须设置、未设置启动即退出）与 product client 已接入客服 Agent 主链路（需在 `.env` 设 `AGENT_MCP_TOOLS_ENABLED=true` 并启动 product server 才生效；确认凭证跨进程校验要求 `TOOL_CONFIRMATION_BACKEND=redis`，否则 AI 服务与 server 进程各自持有独立确认存储，工单确认会失败）。启动：`cd projects/ai-service && uv run python -m app.mcp_servers.product_server`。配置：`MCP_PRODUCT_BASE_URL` / `MCP_PRODUCT_AUTH_TOKEN` / `TOOL_CONFIRMATION_BACKEND` / `AGENT_MCP_TOOLS_ENABLED`。工具调用会透传已认证用户的 `X-User-Id`/`X-Tenant-Id` 到 Java 业务服务（经 MCP 工具参数注入业务上下文），订单/工单归属按真实调用者校验。 |
-| LangSmith/OTEL | `app/agents/langsmith_tracing.py`、`otel_tracing.py` | 有适配/学习实现；未配置外部平台。 |
+| LangSmith/OTEL | `app/core/telemetry.py`、`app/agents/tracing_spans.py`（真实接入）；`app/agents/langsmith_tracing.py`、`otel_tracing.py`（plan 数据类，学习/测试保留） | 真实 OTEL 已接入（本机 Collector :4317，span 树 http→agent→llm→tool→java）；LangSmith 条件启用（配 key 即上报）。 |
 | LangChain 学习接口 | `langchain_chat` 等服务和路由 | 仍可学习/验证；产品主 Agent 使用 LangGraph 和直接 OpenAI-compatible 调用。 |
 | Docker Compose 整体部署 | 无项目级 Compose 文件 | 各依赖容器已使用 Docker；三服务仍分别本地启动。 |
 | CI/CD、云部署、HTTPS、Kubernetes | 无 | 尚未进入当前项目运行形态。 |
@@ -671,7 +673,7 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | 候选方向 | 内容 | 优先级理由 |
 | --- | --- | --- |
 | **生产化部署** | Docker Compose 三服务一键编排（Java 18004 / Python 8000 / MCP 9100 + 依赖容器）+ CI/CD | 交接文档第 9 节明确列为未实现；最接近真实交付形态，作品展示价值高 |
-| **可观测性真实接入** | LangSmith / OTEL Collector（`app/agents/langsmith_tracing.py`、`otel_tracing.py` 已有适配） | 目前 trace 数据只在本地日志，未接真实平台；补齐后联调排障更高效 |
+| **可观测性真实接入** | OTEL 本机 Collector 已接入（`docker-compose.otel.yml` + `app/core/telemetry.py`，span 树 http→agent→llm→tool→java 实时可见）；剩余 LangSmith 真实上报（配 `LANGSMITH_TRACING=true` 与 `LANGSMITH_API_KEY` 即上报）与远端/云平台对接 | 本地联调排障已提效；补齐 LangSmith/远端平台后跨端排障更高效 |
 | **业务功能扩展** | 退款工具解禁（`refund_order` 当前 enabled=False）、新增业务工具/页面 | 有 MCP + 多 Agent 基础，扩展成本低，丰富作品展示面 |
 | **评测体系深化** | Bad Case 扩展、断言类型增强、回归覆盖加深 | 已有闭环（Stage 11），可进一步提升 Agent 行为质量证明 |
 
