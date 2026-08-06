@@ -232,28 +232,30 @@ def register_ticket_confirmation(
     fields: TicketFields,
     *,
     settings: Settings | None = None,
+    is_refund_execution: bool = False,
 ) -> str:
     """Register the agent's pending confirmation as confirmed in the shared store.
 
     Returns the confirmation_id that the MCP server will verify.
 
-    The registered tool_name follows the draft's issue_type: a refund draft
-    (issue_type=refund) registers under ``refund_order`` so the confirmation is
-    semantically attributed to the refund tool, while every other draft keeps
-    ``create_ticket``.  The shared store's require_confirmed gate only checks
-    confirmation_id + actor_id, so this is an audit/attribution concern rather
-    than a functional one.
+    The registered tool_name reflects the path the agent will actually execute:
+    ``refund_order`` when the confirmation belongs to the refund *execution*
+    flow (refund_request intent → execute_refund_request), and ``create_ticket``
+    otherwise — including refund-typed tickets created through the ordinary
+    ticket flow (ticket_request intent → create_ticket, issue_type=refund).
+    ``is_refund_execution`` is derived by the console agent service from the
+    graph snapshot's ``refund_request_active`` flag; it cannot be inferred from
+    the draft fields alone because a refund-typed ticket draft and a refund
+    execution draft share the same TicketFields shape.  The shared store's
+    require_confirmed gate only checks confirmation_id + actor_id, so this is
+    an audit/attribution concern rather than a functional one.
     """
     from app.agents.ticket_agent import build_pending_ticket_confirmation
 
     resolved_settings = settings or get_settings()
     confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
     store = create_tool_confirmation_store(resolved_settings)
-    tool_name = (
-        REFUND_ORDER_TOOL_NAME
-        if isinstance(fields, dict) and fields.get("issue_type") == "refund"
-        else CREATE_TICKET_TOOL_NAME
-    )
+    tool_name = REFUND_ORDER_TOOL_NAME if is_refund_execution else CREATE_TICKET_TOOL_NAME
     store.register_confirmed(
         confirmation_id=confirmation_id,
         actor_id=actor_id,

@@ -210,6 +210,7 @@ def test_register_ticket_confirmation_registers_confirmed_record() -> None:
         actor_id="user_001",
         fields=fields,
         settings=_settings(),
+        is_refund_execution=True,
     )
     expected_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
     assert confirmation_id == expected_id
@@ -219,8 +220,8 @@ def test_register_ticket_confirmation_registers_confirmed_record() -> None:
     store = create_tool_confirmation_store(_settings())
     record = store.require_confirmed(confirmation_id, actor_id="user_001")
     assert record.status.value == "confirmed"
-    # A refund draft registers under refund_order so the confirmation is
-    # attributed to the refund tool rather than create_ticket.
+    # A refund *execution* draft registers under refund_order so the
+    # confirmation is attributed to the refund tool rather than create_ticket.
     assert record.tool_name == "refund_order"
 
 
@@ -242,6 +243,32 @@ def test_register_ticket_confirmation_uses_create_ticket_for_non_refund_draft() 
     )
     expected_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
     assert confirmation_id == expected_id
+
+    from app.tools.tool_confirmation import create_tool_confirmation_store
+
+    store = create_tool_confirmation_store(_settings())
+    record = store.require_confirmed(confirmation_id, actor_id="user_001")
+    assert record.tool_name == "create_ticket"
+
+
+def test_register_ticket_confirmation_refund_draft_without_execution_uses_create_ticket() -> None:
+    """A refund-typed ticket draft (ticket flow, not refund execution) keeps
+    create_ticket: only is_refund_execution=True registers under refund_order."""
+    from app.agents.ticket_agent import build_pending_ticket_confirmation
+
+    fields = {
+        "issue_type": "refund",
+        "order_id": "A1001",
+        "description": "订单破损，需要建退款工单跟进",
+        "user_request": "创建工单",
+        "urgency": "high",
+        "need_human_review": True,
+    }
+    confirmation_id = register_ticket_confirmation(
+        actor_id="user_001",
+        fields=fields,
+        settings=_settings(),
+    )
 
     from app.tools.tool_confirmation import create_tool_confirmation_store
 

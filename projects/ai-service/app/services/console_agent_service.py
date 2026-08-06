@@ -542,10 +542,19 @@ class ConsoleAgentService:
                 # Java service instead, so registering here would be a dead write.
                 from app.agents.mcp_tool_adapters import register_ticket_confirmation
 
+                # A refund *execution* draft (refund_request intent) sets
+                # refund_request_active on the graph state; refund-typed tickets
+                # created through the ordinary ticket flow do not. The snapshot
+                # flag is the reliable discriminator (the draft fields alone are
+                # identical for both paths).
+                is_refund_execution = (
+                    snapshot.values.get("refund_request_active") is True
+                )
                 register_ticket_confirmation(
                     actor_id=actor.user_id,
                     fields=fields,
                     settings=self.settings,
+                    is_refund_execution=is_refund_execution,
                 )
             state = resume_ticket_confirmation_interrupt(
                 self.graph,
