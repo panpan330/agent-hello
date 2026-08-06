@@ -42,7 +42,7 @@
 ### 3.1 must_ask_for / must_not_reveal 断言实现
 
 **语义**：
-- `must_ask_for: list[str]`：Agent 回复中必须包含对指定字段的追问（如 `["order_id"]` 表示必须追问订单号）。判定：回复文本明确询问该字段（字段名或其中文别名）。
+- `must_ask_for: list[str]`：Agent 回复中必须包含对指定字段的追问（如 `["order_id"]` 表示必须追问订单号）。判定：回复文本出现该字段的字段名或其中文别名（别名表：order_id→"订单号"、description→"描述/原因"、reason→"原因"、issue_type→"问题类型"；实现时内置别名映射），任一命中即视为已追问。
 - `must_not_reveal: list[str]`：Agent 回复文本不得包含指定敏感内容（如系统提示词片段、密钥、内部配置）。判定：子串/关键词匹配，任一命中即失败。
 
 **实现位置**：
