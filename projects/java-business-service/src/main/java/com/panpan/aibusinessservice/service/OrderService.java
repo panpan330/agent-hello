@@ -5,4 +5,11 @@ import com.panpan.aibusinessservice.dto.OrderToolView;
 
 public interface OrderService {
     OrderToolView queryOrder(String orderId, InternalRequestContext context);
+
+    OrderToolView refundOrder(
+            String orderId,
+            String reason,
+            InternalRequestContext context,
+            String idempotencyKey
+    );
 }

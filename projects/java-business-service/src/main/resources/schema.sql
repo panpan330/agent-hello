@@ -75,6 +75,24 @@ CREATE TABLE IF NOT EXISTS tickets (
   KEY idx_tickets_tenant_order_category (tenant_id, related_order_id, category)
 );
 
+CREATE TABLE IF NOT EXISTS order_events (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id VARCHAR(64) NOT NULL,
+  event_id VARCHAR(64) NOT NULL,
+  order_id VARCHAR(64) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  event_payload JSON NOT NULL,
+  operator_type VARCHAR(32) NOT NULL,
+  operator_id VARCHAR(64) NOT NULL,
+  trace_id VARCHAR(128) NOT NULL,
+  idempotency_key VARCHAR(128) NULL,
+  request_fingerprint VARCHAR(64) NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uk_order_events_tenant_event (tenant_id, event_id),
+  UNIQUE KEY uk_order_events_tenant_idempotency (tenant_id, idempotency_key),
+  KEY idx_order_events_tenant_order_created (tenant_id, order_id, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS ticket_events (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   tenant_id VARCHAR(64) NOT NULL,

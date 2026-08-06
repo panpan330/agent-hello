@@ -61,4 +61,76 @@
         WHERE tenant_id = #{tenantId}
         ORDER BY updated_at DESC, order_id ASC
     </select>
+
+    <update id="updateRefundState">
+        UPDATE orders
+        SET payment_status = #{paymentStatus},
+            refund_amount = #{refundAmount},
+            refunded_at = #{refundedAt},
+            refund_reason = #{refundReason},
+            latest_event = #{latestEvent},
+            updated_at = #{updatedAt}
+        WHERE tenant_id = #{tenantId}
+          AND order_id = #{orderId}
+    </update>
+
+    <resultMap id="OrderEventResultMap" type="com.panpan.aibusinessservice.entity.OrderEvent">
+        <id column="event_id" property="eventId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="order_id" property="orderId"/>
+        <result column="event_type" property="eventType"/>
+        <result column="event_payload" property="eventPayload"/>
+        <result column="operator_type" property="operatorType"/>
+        <result column="operator_id" property="operatorId"/>
+        <result column="trace_id" property="traceId"/>
+        <result column="idempotency_key" property="idempotencyKey"/>
+        <result column="request_fingerprint" property="requestFingerprint"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="selectEventByTenantIdAndIdempotencyKey" resultMap="OrderEventResultMap">
+        SELECT
+          event_id,
+          tenant_id,
+          order_id,
+          event_type,
+          event_payload,
+          operator_type,
+          operator_id,
+          trace_id,
+          idempotency_key,
+          request_fingerprint,
+          created_at
+        FROM order_events
+        WHERE tenant_id = #{tenantId}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insertOrderEvent">
+        INSERT INTO order_events (
+          tenant_id,
+          event_id,
+          order_id,
+          event_type,
+          event_payload,
+          operator_type,
+          operator_id,
+          trace_id,
+          idempotency_key,
+          request_fingerprint,
+          created_at
+        ) VALUES (
+          #{tenantId},
+          #{eventId},
+          #{orderId},
+          #{eventType},
+          #{eventPayload},
+          #{operatorType},
+          #{operatorId},
+          #{traceId},
+          #{idempotencyKey},
+          #{requestFingerprint},
+          #{createdAt}
+        )
+    </insert>
 </mapper>
