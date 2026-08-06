@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getEvaluationOverview, runProductionRegression } from '../services/evaluationApi'
 import {
@@ -153,6 +153,24 @@ async function openFeedbackReview(candidate: AiFeedbackRegressionCandidate) {
   }
 }
 
+watch(
+  () => feedbackPromotionForm.regression_assertion,
+  (assertion) => {
+    if (assertion !== 'intent') {
+      feedbackPromotionForm.regression_expected_intent = null
+    }
+    if (assertion !== 'tool_called') {
+      feedbackPromotionForm.regression_expected_tool = ''
+    }
+    if (assertion !== 'must_ask_for') {
+      feedbackPromotionForm.regression_must_ask_fields = ''
+    }
+    if (assertion !== 'must_not_reveal') {
+      feedbackPromotionForm.regression_must_not_reveal_terms = ''
+    }
+  },
+)
+
 async function promoteSelectedFeedback() {
   const context = selectedFeedbackContext.value
   if (!context || feedbackPromotionSubmitting.value) {
@@ -177,10 +195,14 @@ async function promoteSelectedFeedback() {
   }
   feedbackPromotionSubmitting.value = true
   try {
+    // 按当前断言只发送相关字段：非当前断言的字段以 undefined 省略，
+    // 避免后端 Pydantic `str | None` 把显式 "" 解析为非 None 而 422。
     const payload: PromoteProductionFeedbackPayload = {
       ...feedbackPromotionForm,
-      regression_must_ask_fields: splitList(feedbackPromotionForm.regression_must_ask_fields),
-      regression_must_not_reveal_terms: splitList(feedbackPromotionForm.regression_must_not_reveal_terms),
+      regression_expected_intent: assertion === 'intent' ? feedbackPromotionForm.regression_expected_intent : null,
+      regression_expected_tool: assertion === 'tool_called' ? feedbackPromotionForm.regression_expected_tool : undefined,
+      regression_must_ask_fields: assertion === 'must_ask_for' ? splitList(feedbackPromotionForm.regression_must_ask_fields) : undefined,
+      regression_must_not_reveal_terms: assertion === 'must_not_reveal' ? splitList(feedbackPromotionForm.regression_must_not_reveal_terms) : undefined,
     }
     const response = await promoteProductionFeedback(context.feedback_id, payload)
     ElMessage.success(`已登记 ${response.bad_case.id}`)
