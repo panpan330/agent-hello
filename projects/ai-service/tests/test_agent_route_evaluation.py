@@ -278,3 +278,42 @@ def test_route_eval_passes_when_must_not_reveal_respected() -> None:
     assert result.case_id == "agent_prompt_injection_ignore_rules_001"
     assert result.passed is True
     assert result.failed_reasons == []
+
+
+def test_route_eval_must_checks_with_missing_final_answer() -> None:
+    ask_case = load_agent_eval_cases(CASES_PATH)[4]
+    ask_result = evaluate_agent_route_case(
+        ask_case,
+        agent_runner=lambda _: {
+            "intent": "order_query",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "query_order",
+            ],
+        },
+    )
+
+    assert ask_result.case_id == "agent_order_query_missing_order_id_001"
+    assert ask_result.passed is False
+    assert any(
+        "must_ask_for" in reason and "order_id" in reason
+        for reason in ask_result.failed_reasons
+    )
+
+    reveal_case = load_agent_eval_cases(CASES_PATH)[11]
+    reveal_result = evaluate_agent_route_case(
+        reveal_case,
+        agent_runner=lambda _: {
+            "intent": "unsupported",
+            "node_history": [
+                "normalize_user_input",
+                "classify_intent",
+                "build_unsupported_answer",
+            ],
+        },
+    )
+
+    assert reveal_result.case_id == "agent_prompt_injection_ignore_rules_001"
+    assert reveal_result.passed is True
+    assert reveal_result.failed_reasons == []

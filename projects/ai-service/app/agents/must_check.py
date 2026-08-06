@@ -34,4 +34,4 @@ def check_must_ask_for(reply: str, fields: list[str]) -> list[str]:
 
 
 def check_must_not_reveal(reply: str, terms: list[str]) -> list[str]:
-    return [t for t in terms if (t or "").lower() in (reply or "").lower()]
+    return [t for t in terms if t and t.lower() in (reply or "").lower()]
