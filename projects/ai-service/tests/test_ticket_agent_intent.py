@@ -243,6 +243,22 @@ def test_classify_refund_request_intent() -> None:
     assert classify_ticket_intent("申请退款")["intent"] == "refund_request"
 
 
+def test_classify_refund_action_with_query_word_and_order_still_refund() -> None:
+    # 动作短语优先于疑问词：明确退款动作 + 具体订单号仍是退款诉求，
+    # 不得因句末疑问词被降级到 order_query/policy。
+    assert (
+        classify_ticket_intent("帮我退款，订单 A1002 可以吗？")["intent"]
+        == "refund_request"
+    )
+
+
+def test_classify_refund_with_order_id_no_word_boundary() -> None:
+    # "退A1002" 无空格：中文与 ASCII 之间不构成 \b 单词边界，
+    # 必须由显式订单号字符类匹配，不得漏判。
+    assert classify_ticket_intent("退A1002")["intent"] == "refund_request"
+    assert classify_ticket_intent("退一下 A1002")["intent"] == "refund_request"
+
+
 def test_classify_refund_policy_question_still_policy() -> None:
     assert classify_ticket_intent("退款政策是什么")["intent"] == "policy_question"
     assert classify_ticket_intent("退款规则是什么？")["intent"] == "policy_question"
@@ -1527,6 +1543,9 @@ def test_interrupting_graph_resumes_approved_refund_to_execute_refund_order() ->
     ]
     assert resumed["refund_status"] == "succeeded"
     assert resumed["refund_result"]["order_id"] == "A1002"
+    # 退款执行完成即流程终止：refund_request_active 必须被清除，否则同线程
+    # 后续对话会被 route_by_ticket_confirmation 误路由回退款执行。
+    assert resumed["refund_request_active"] is False
     assert resumed["node_history"] == [
         "normalize_user_input",
         "classify_intent",
@@ -1537,6 +1556,59 @@ def test_interrupting_graph_resumes_approved_refund_to_execute_refund_order() ->
     assert len(refund_executor.calls) == 1
     assert refund_executor.calls[0].order_id == "A1002"
     assert refund_executor.idempotency_keys == [payload["confirmation_id"]]
+
+
+def test_interrupting_graph_clears_refund_flag_after_rejection_before_ticket_creation() -> None:
+    """Blocking 回归：退款确认被拒后同线程创建工单，不得被误路由到退款执行。
+
+    修复前 refund_request_active 无清除点，拒绝后标志残留 True；同一线程改口
+    创建含订单号的工单并确认时，route_by_ticket_confirmation 会误判为退款执行，
+    真实执行 refund_order（用工单字段的 order_id），绕过"退款须以退款意图确认"
+    的确认门。本测试在修复前会失败（refund_executor 被误调用）。
+    """
+    refund_executor = FakeRefundExecutor()
+    creator = FakeTicketCreator()
+    graph = build_interrupting_ticket_agent_graph(
+        refund_executor=refund_executor,
+        ticket_creator=creator,
+    )
+    thread_id = "ticket-refund-reject-then-ticket"
+
+    # 1) 发起退款 → 确认被拒 → 标志清除，且未执行任何退款
+    run_ticket_agent_in_thread(
+        graph,
+        "我要退 A1002 的款",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    rejected = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=False,
+        actor_id="demo_user_001",
+    )
+    assert rejected["refund_request_active"] is False
+    assert refund_executor.calls == []
+
+    # 2) 同线程改口创建工单（含订单号）→ 确认 → 必须执行 create_ticket
+    run_ticket_agent_in_thread(
+        graph,
+        "我要投诉订单 A1001，物流一直不动",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    resumed = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=True,
+        actor_id="demo_user_001",
+    )
+
+    assert resumed["ticket_creation_status"] == "created"
+    assert resumed["created_ticket"]["ticket_id"] == "T1001"
+    assert len(creator.calls) == 1
+    assert resumed.get("refund_status") is None
+    assert refund_executor.calls == []
 
 
 def test_run_ticket_agent_safely_returns_normal_result_when_graph_succeeds(

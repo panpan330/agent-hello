@@ -553,9 +553,12 @@ REFUND_ACTION_PHRASES = (
 )
 # 退款关键词 + 具体订单号：如 "订单 A1002 我要退款"、"A1002 退钱"。
 REFUND_KEYWORDS = ("退款", "退钱", "退货款", "退货退款")
-# 单独动作表达：如 "退 A1002 的款"、"退一下 A1002"——"退" 后跟订单号。
+# 单独动作表达：如 "退 A1002 的款"、"退一下 A1002"、"退A1002"——"退" 后直接跟
+# 订单号。注意不能依赖 \b：Python re 的 \w 在 Unicode 模式下包含中文，中文字符
+# 与 ASCII 字母之间不构成单词边界，会漏判 "退A1002"；改用显式订单号字符类。
+# 同时排除 "退货 A1002" 这类政策句（"退" 后不允许跨过"货"字再接订单号）。
 REFUND_WITH_ORDER_PATTERN = re.compile(
-    r"退\s*[^。！？\n]{0,8}?\b[A-Za-z]\d{3,}\b",
+    r"退(?:一下|掉|了)?\s*(?:订单|单)?\s*[:：#-]?\s*(?:[A-Za-z][A-Za-z0-9_-]{3,}|\d{4,})",
     re.IGNORECASE,
 )
 # 疑问句式：用户是在咨询退款政策/流程，而不是要执行退款。命中后不判
@@ -1452,19 +1455,20 @@ def normalize_user_input_node(state: TicketAgentState) -> TicketAgentState:
 def _is_refund_request(lowered_message: str, normalized_message: str) -> bool:
     """Detect an explicit refund action versus a passive policy question.
 
-    Action phrases like 申请退款/直接退款 are clear refund requests.  A refund
-    keyword combined with a concrete order id (订单 A1002 我要退款) or a bare
-    退 + order id (退 A1002 的款) also implies an action.  Pure policy
-    questions (退款政策是什么/退款规则) contain no order id and no action
-    phrase, so they fall through to policy_question.
+    Action phrases like 申请退款/直接退款 are clear refund requests — and take
+    priority over query words, so "帮我退款，订单 A1002 可以吗？" still routes to
+    refund_request (explicit action + concrete order id).  Query words only
+    demote a bare policy consultation ("怎么申请退款") that carries no order id.
+    A refund keyword combined with a concrete order id (订单 A1002 我要退款) or a
+    bare 退 + order id (退 A1002 的款 / 退A1002) also implies an action.  Pure
+    policy questions (退款政策是什么/退款规则) fall through to policy_question.
     """
-    if _contains_any(lowered_message, REFUND_QUERY_WORDS):
-        return False
+    has_order_id = _extract_order_id(normalized_message) is not None
+    querying = _contains_any(lowered_message, REFUND_QUERY_WORDS)
+
     if _contains_any(lowered_message, REFUND_ACTION_PHRASES):
-        return True
-    if _contains_any(lowered_message, REFUND_KEYWORDS) and _extract_order_id(
-        normalized_message
-    ) is not None:
+        return not querying or has_order_id
+    if has_order_id and _contains_any(lowered_message, REFUND_KEYWORDS):
         return True
     if REFUND_WITH_ORDER_PATTERN.search(lowered_message) is not None:
         return True
@@ -2402,6 +2406,11 @@ def request_ticket_confirmation_interrupt_node(
         ),
         "node_history": ["request_ticket_confirmation"],
     }
+    if not approved:
+        # 退款流程被拒绝即流程终止：清除 refund_request_active，防止同一线程
+        # 后续改口创建工单时被 route_by_ticket_confirmation 误路由到
+        # execute_refund_request 而真实执行退款。
+        update["refund_request_active"] = False
     actor_id = get_ticket_confirmation_resume_actor_id(resume_value)
     if actor_id is not None:
         update["ticket_actor_id"] = actor_id
@@ -2625,6 +2634,7 @@ def build_refund_failure_state(
             "refund_status": "failed",
             "refund_error_code": code,
             "refund_error_message": message,
+            "refund_request_active": False,
         }
     )
     return update
@@ -2645,6 +2655,7 @@ def execute_refund_request_node(
             "refund_status": "blocked",
             "refund_error_code": "REFUND_CONFIRMATION_REQUIRED",
             "refund_error_message": message,
+            "refund_request_active": False,
             "final_answer": message,
             "node_history": ["execute_refund_request"],
         }
@@ -2736,6 +2747,9 @@ def execute_refund_request_node(
         "refund_error_code": None,
         "refund_error_message": None,
         "refund_result": dict(result),
+        # 退款执行完成即流程终止：清除 refund_request_active，避免同一线程
+        # 后续对话被 route_by_ticket_confirmation 误路由回退款执行。
+        "refund_request_active": False,
         "final_answer": (
             f"退款已申请成功，订单号 {arguments.order_id}。"
             "退款会按订单支付渠道原路退回。"
