@@ -1,6 +1,10 @@
+from typing import Generator
+
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from app.agents.tracing_spans import (
     set_span_attributes,
@@ -9,8 +13,8 @@ from app.agents.tracing_spans import (
     start_llm_span,
     start_tool_span,
 )
-from app.core.config import Settings
-from app.core.telemetry import setup_telemetry, shutdown_telemetry
+from app.core.trace import reset_trace_id, set_trace_id
+from app.core.telemetry import shutdown_telemetry
 
 
 def _reset_tracer_provider() -> None:
@@ -34,20 +38,21 @@ def reset_tracer_provider() -> None:
 
 
 @pytest.fixture()
-def otel_enabled() -> None:
-    setup_telemetry(
-        Settings(
-            _env_file=None,
-            otel_exporter_otlp_endpoint="http://localhost:4317",
-        )
-    )
-    yield
+def otel_enabled() -> Generator[InMemorySpanExporter, None, None]:
+    # Standalone in-memory environment: no real Collector / no OTLP export at
+    # all (zero network dependency). Simulate a business request by setting an
+    # X-Trace-Id, like the request middleware does in production.
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    token = set_trace_id("test-trace-123")
+    yield exporter
+    reset_trace_id(token)
     shutdown_telemetry()
 
 
-def test_start_agent_span_creates_span_with_attributes(otel_enabled: None) -> None:
-    from opentelemetry import trace
-
+def test_start_agent_span_creates_span_with_attributes(otel_enabled: InMemorySpanExporter) -> None:
     with start_agent_span(intent="order_query", thread_id="t-1", conversation_id="c-1"):
         span = trace.get_current_span()
         assert span is not None
@@ -55,13 +60,14 @@ def test_start_agent_span_creates_span_with_attributes(otel_enabled: None) -> No
         assert attrs["intent"] == "order_query"
         assert attrs["thread_id"] == "t-1"
         assert attrs["conversation_id"] == "c-1"
-        assert "trace_id" in attrs
+        assert attrs["x_trace_id"] == "test-trace-123"
+        assert "otel_trace_id" in attrs
+    # span 一定结束（with 语义保证）
+    assert len(otel_enabled.get_finished_spans()) == 1
 
 
-def test_start_llm_span_records_token_usage(otel_enabled: None) -> None:
-    from opentelemetry import trace
-
-    with start_llm_span(model="qwen3.7-plus", provider="aliyun-compatible", prompt_name="intent") as span_ctx:
+def test_start_llm_span_records_token_usage(otel_enabled: InMemorySpanExporter) -> None:
+    with start_llm_span(model="qwen3.7-plus", provider="aliyun-compatible", prompt_name="intent"):
         set_span_attributes(
             {
                 "prompt_tokens": 100,
@@ -72,14 +78,14 @@ def test_start_llm_span_records_token_usage(otel_enabled: None) -> None:
         span = trace.get_current_span()
         assert dict(span.attributes)["model"] == "qwen3.7-plus"
         assert dict(span.attributes)["total_tokens"] == 150
+    assert len(otel_enabled.get_finished_spans()) == 1
 
 
-def test_start_tool_span_sets_status(otel_enabled: None) -> None:
-    from opentelemetry import trace
-
+def test_start_tool_span_sets_status(otel_enabled: InMemorySpanExporter) -> None:
     with start_tool_span(tool_name="query_order"):
         span = trace.get_current_span()
         assert dict(span.attributes)["tool_name"] == "query_order"
+    assert len(otel_enabled.get_finished_spans()) == 1
 
 
 def test_spans_are_noop_when_telemetry_disabled() -> None:
@@ -94,22 +100,13 @@ def test_spans_are_noop_when_telemetry_disabled() -> None:
         pass
 
 
-def test_span_ends_on_exception(otel_enabled: None) -> None:
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-
-    # 用 SimpleSpanProcessor + 内存 exporter 验证异常时 span 仍结束
-    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-    provider = trace.get_tracer_provider()
-    exporter = InMemorySpanExporter()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-
+def test_span_ends_on_exception(otel_enabled: InMemorySpanExporter) -> None:
     with pytest.raises(RuntimeError):
         with start_tool_span(tool_name="boom"):
             raise RuntimeError("boom")
 
-    spans = exporter.get_finished_spans()
+    spans = otel_enabled.get_finished_spans()
     assert len(spans) == 1
     assert spans[0].name == "tool.call"
     assert spans[0].status.status_code == trace.StatusCode.ERROR  # STATUS_ERROR
-    exporter.clear()
+    otel_enabled.clear()

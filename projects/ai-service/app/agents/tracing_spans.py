@@ -18,8 +18,15 @@ def _current_span() -> Any:
 
 
 def _set_common_attributes() -> None:
-    """Attach the app's X-Trace-Id to the current span for log/span correlation."""
-    set_span_attributes({"trace_id": get_trace_id()})
+    """Attach the app's X-Trace-Id to the current span for log/span correlation.
+
+    Mirrors build_trace_headers(): skip when the X-Trace-Id is the default "-".
+    The attribute is named ``x_trace_id`` to avoid clashing with the native OTEL
+    ``trace_id`` span attribute (the OTEL trace id is stored as ``otel_trace_id``).
+    """
+    x_trace_id = get_trace_id()
+    if x_trace_id and x_trace_id != "-":
+        set_span_attributes({"x_trace_id": x_trace_id})
     otel_trace_id = get_otel_trace_id()
     if otel_trace_id:
         set_span_attributes({"otel_trace_id": otel_trace_id})
