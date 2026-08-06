@@ -249,8 +249,14 @@ def evaluation_overview(
 
     # 基线语义：自动取最近一次保存的快照（先 load_latest 得 baseline，再保存本次）。
     # 只有 dataset/version 一致才做回归对比，否则跳过对比，避免陈旧快照让看板 500。
+    # 快照是附属数据：历史快照损坏（JSON 解析/model_validate 失败）只降级为告警，
+    # 本次跳过基线对比，看板仍正常返回。
     snapshot_store = SnapshotStore(snapshot_store_path)
-    baseline = snapshot_store.load_latest()
+    try:
+        baseline = snapshot_store.load_latest()
+    except (OSError, ValueError) as exc:
+        logger.warning("snapshot_load_failed path=%s error=%s", snapshot_store_path, exc)
+        baseline = None
     baseline_comparison = (
         compare_eval_run_snapshots(baseline, snapshot)
         if baseline is not None
@@ -258,10 +264,10 @@ def evaluation_overview(
         and baseline.context.dataset_version == snapshot.context.dataset_version
         else None
     )
-    # 快照是附属数据：写盘失败只降级为告警日志，不影响看板响应。
+    # 快照是附属数据：写盘失败（含读历史损坏文件失败）只降级为告警日志，不影响看板响应。
     try:
         snapshot_store.save(snapshot)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         logger.warning("snapshot_save_failed path=%s error=%s", snapshot_store_path, exc)
 
     bad_case_registry = BadCaseRegistry(

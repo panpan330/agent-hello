@@ -338,3 +338,28 @@ def test_overview_degrades_gracefully_when_snapshot_save_fails(
     assert response.json()["baseline_comparison"] is None
     assert response.json()["latest_run"]["run_id"] == "local-agent-eval-latest"
     assert "snapshot_save_failed" in caplog.text
+
+
+def test_overview_degrades_gracefully_when_snapshot_load_fails(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    state = {"passed": True}
+    _override_snapshot_store_and_builder(app, tmp_path, monkeypatch, state)
+    # 历史快照文件内容损坏：load_latest 抛错时应降级，看板仍 200。
+    snapshot_path = tmp_path / "agent_eval_snapshots.json"
+    snapshot_path.write_text('{"broken": "json"', encoding="utf-8")
+    caplog.set_level(logging.WARNING)
+
+    response = client.get(
+        "/api/ai/evaluation/overview",
+        headers={TRACE_ID_HEADER: "trace-load-failure"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["baseline_comparison"] is None
+    assert response.json()["latest_run"]["run_id"] == "local-agent-eval-latest"
+    assert "snapshot_load_failed" in caplog.text
