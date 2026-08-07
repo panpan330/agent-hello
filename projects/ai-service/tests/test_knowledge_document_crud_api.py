@@ -170,6 +170,20 @@ def test_list_documents_merges_local_and_java_metadata(
         "# Existing Doc\n\n内容。\n文档类型: policy\n业务领域: refund\n权限组: public\n",
         encoding="utf-8",
     )
+    # java 元数据预置一条（本地无对应文件 → exists_local=False）
+    fake_java.docs.append(
+        {
+            "document_id": "java-only-doc",
+            "title": "Java Only Doc",
+            "business_domain": "account",
+            "permission_group": "customer_service",
+            "doc_type": "faq",
+            "status": "enabled",
+            "source_file_name": "java-only-doc.md",
+            "chunk_count": 7,
+            "updated_at": "2026-08-07T00:00:00",
+        }
+    )
 
     response = client.get(
         "/api/knowledge-base/documents",
@@ -178,6 +192,12 @@ def test_list_documents_merges_local_and_java_metadata(
     assert response.status_code == 200
     data = response.json()
     assert data["document_count"] >= 1
+    java_only = next(
+        (d for d in data["documents"] if d["document_id"] == "java-only-doc"), None
+    )
+    assert java_only is not None
+    assert java_only["chunk_count"] == 7
+    assert java_only["exists_local"] is False
     assert any(d["source_file_name"] == "existing.md" for d in data["documents"])
     assert data["trace_id"] == "trace-kb-list"
 

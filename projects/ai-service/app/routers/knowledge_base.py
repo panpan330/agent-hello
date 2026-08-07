@@ -19,7 +19,11 @@ from app.rag.ingestion import (
     update_single_document,
 )
 from app.rag.knowledge_routing import default_rag_knowledge_bases
-from app.rag.loaders import load_document, load_documents_from_directory
+from app.rag.loaders import (
+    METADATA_KEY_MAP,
+    load_document,
+    load_documents_from_directory,
+)
 from app.rag.vector_store import QdrantVectorStore
 from app.schemas.knowledge_base import (
     KnowledgeBaseCollectionStatus,
@@ -234,6 +238,24 @@ def build_java_document_client(settings: Settings):
     return KnowledgeDocumentClient.from_settings(settings)
 
 
+def _strip_document_boilerplate(text: str) -> str:
+    """剥离 _render_document_markdown 生成的首行标题与元数据行，得到纯正文。"""
+    lines = text.splitlines()
+    body_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            continue
+        if any(
+            stripped.startswith(f"{key}:")
+            or stripped.startswith(f"> {key}:")
+            for key in METADATA_KEY_MAP
+        ):
+            continue
+        body_lines.append(line)
+    return "\n".join(body_lines).strip()
+
+
 def _render_document_markdown(
     title: str,
     content: str,
@@ -430,7 +452,7 @@ def create_knowledge_base_document(
         business_domain=request.business_domain,
         permission_group=request.permission_group,
         doc_type=request.doc_type,
-        collection_name=request.collection_name,
+        collection_name=result.collection_name,
         chunk_count=result.chunk_count,
         source_file_name=file_path.name,
         exists_local=True,
@@ -460,7 +482,9 @@ def update_knowledge_base_document(
     metadata = existing.metadata
     new_title = request.title or str(metadata.get("title") or document_id)
     new_content = (
-        request.content if request.content and request.content.strip() else existing.content
+        request.content
+        if request.content and request.content.strip()
+        else _strip_document_boilerplate(existing.content)
     )
     business_domain = request.business_domain or _optional_str(metadata.get("business_domain")) or "general"
     permission_group = request.permission_group or _optional_str(metadata.get("permission_group")) or "public"
