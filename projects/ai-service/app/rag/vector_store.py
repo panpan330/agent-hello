@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import logging
 from time import perf_counter
 from typing import Any
@@ -167,6 +167,32 @@ class QdrantVectorStore:
         self._raise_for_bad_response(response, "delete points")
         self._assert_qdrant_ok(response, "delete points")
         self._log_finished("qdrant_points_deleted", start_time)
+
+    def scroll_all(self, *, batch_size: int = 100) -> Iterable[RetrievedChunk]:
+        """Scroll every point in the collection (used to build keyword indexes)."""
+        path = f"/collections/{self.collection_name}/points/scroll"
+        next_offset: Any = None
+        while True:
+            request_body: dict[str, Any] = {
+                "limit": batch_size,
+                "with_payload": True,
+                "with_vector": False,
+            }
+            if next_offset is not None:
+                request_body["offset"] = next_offset
+            try:
+                with self._client() as client:
+                    response = client.post(path, json=request_body)
+            except httpx.RequestError as exc:
+                raise QdrantVectorStoreError("failed to connect to Qdrant") from exc
+            self._raise_for_bad_response(response, "scroll points")
+            data = response.json().get("result", {})
+            points = data.get("points", [])
+            for point in points:
+                yield _build_retrieved_chunk(point)
+            next_offset = data.get("next_page_offset")
+            if next_offset is None or not points:
+                break
 
     def query_similar(
         self,

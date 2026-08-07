@@ -121,3 +121,56 @@ def test_hybrid_enabled_calls_hybrid(monkeypatch) -> None:
     )
     pipeline_module.enhanced_rag_answer("退款政策是什么", settings=settings)
     assert called["hybrid"] is True
+
+
+def test_hybrid_uses_real_store_scroll(monkeypatch) -> None:
+    """hybrid 开启时 _hybrid_retrieve 用真实 store 的 scroll_all（非 mock 路径验证）。"""
+    from app.rag.documents import RetrievedChunk
+
+    class FakeStore:
+        def __init__(self):
+            self.chunks = [
+                RetrievedChunk(
+                    point_id="p1",
+                    chunk_id="c1",
+                    content="退货运费由商家承担",
+                    metadata={"source": "refund-return-policy.md"},
+                    score=0.9,
+                )
+            ]
+
+        def scroll_all(self, *, batch_size=100):
+            yield from self.chunks
+
+        def query_similar(self, query_vector, **kw):
+            return self.chunks
+
+    store = FakeStore()
+    import app.rag.pipeline as pipe
+
+    monkeypatch.setattr(pipe, "_vector_store", lambda s, collection_name=None: store)
+    monkeypatch.setattr(
+        pipe,
+        "_embedding_model",
+        lambda s: type("E", (), {"embed_texts": lambda self, texts: [[0.1] * 8 for _ in texts], "dimension": 8})(),
+    )
+    chunks = pipe._hybrid_retrieve("退货运费", settings=_settings(rag_enable_hybrid=True))
+    assert chunks and chunks[0].chunk_id == "c1"
+
+
+def test_enhanced_pipeline_reroutes_config_missing(monkeypatch) -> None:
+    """配置缺失（无 embedding key）时提升为 AppException 而非裸 ValueError。"""
+    from app.core.exceptions import AppException
+
+    import app.rag.pipeline as pipe
+
+    def boom(*a, **kw):
+        raise ValueError("embedding api key is missing")
+
+    monkeypatch.setattr(pipe, "_retrieve", boom)
+    try:
+        pipe.enhanced_rag_answer("退款政策", settings=_settings())
+    except AppException as exc:
+        assert exc.code == "RAG_EMBEDDING_CONFIG_MISSING"
+        return
+    raise AssertionError("expected AppException for missing embedding config")

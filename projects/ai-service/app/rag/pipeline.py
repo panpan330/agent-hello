@@ -87,7 +87,7 @@ def _hybrid_retrieve(query, *, settings, collection_name: str | None = None) -> 
             chunk_id=r.chunk_id,
             content=r.content,
             metadata=r.metadata,
-            score=r.score,
+            score=r.hybrid_score,
         )
         for r in results
     ]
@@ -100,6 +100,28 @@ def enhanced_rag_answer(
     access_scope=None,
 ) -> RagAnswer:
     """Run the RAG pipeline with optional advanced modules (feature switches)."""
+    from app.core.exceptions import AppException
+
+    try:
+        return _enhanced_rag_answer_inner(query, settings=settings, access_scope=access_scope)
+    except ValueError as exc:
+        message = str(exc)
+        if "embedding" in message.lower() or "api key" in message.lower():
+            raise AppException(
+                code="RAG_EMBEDDING_CONFIG_MISSING",
+                message="RAG embedding configuration is incomplete.",
+                status_code=500,
+            ) from exc
+        if "rerank" in message.lower():
+            raise AppException(
+                code="RAG_RERANK_CONFIG_MISSING",
+                message="RAG rerank configuration is incomplete.",
+                status_code=500,
+            ) from exc
+        raise
+
+
+def _enhanced_rag_answer_inner(query, *, settings, access_scope=None) -> RagAnswer:
     working_query = query.strip()
 
     # 1. rewrite

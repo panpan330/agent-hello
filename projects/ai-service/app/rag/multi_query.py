@@ -292,6 +292,7 @@ class LLMMultiQueryGenerator:
                     reason="llm expansion",
                 )
                 for v in variants[:max_queries]
+                if isinstance(v, str) and v.strip()
             ],
             expanded=len(variants) > 1,
         )
