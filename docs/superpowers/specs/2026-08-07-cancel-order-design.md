@@ -103,7 +103,7 @@ ALTER TABLE orders ADD COLUMN cancel_reason VARCHAR(255) NULL;
 4. `classify_ticket_intent` 关键词规则：加 CANCEL_KEYWORDS（"取消订单"/"退单"/"取消购物"），**优先级在 refund 之前**（"取消"语义先判 cancel，避免与退款混淆）；从 UNSUPPORTED_KEYWORDS 移除取消相关
 5. 节点：`handle_cancel_request`（收集 order_id+reason → 确认中断）+ `execute_cancel_request`（确认后调 cancel_order）+ `cancel_request_active` 标志（仿 refund_request_active：拒绝/执行后清除防跨流误路由，仿 026a362 的修复）
 6. 确认中断：worker 子图 `request_ticket_confirmation_interrupt_node` 写 `is_cancel_execution`（仿 is_refund_execution 26bf252 修复）
-7. 结构化抽取意图（schemas/structured.py）：issue_type 需支持 'cancel'（实现时确认 Literal 是否需加）
+7. 结构化抽取意图（schemas/structured.py）：issue_type Literal 加 `'cancel'`（必须——否则 Agent 收集字段时无法生成 cancel 类型确认，前端 isCancelConfirmation 判别失效）
 
 ### 4.5 supervisor 路由
 - `SupervisorRoute.CANCEL_REQUEST = "cancel_request"`；`TICKET_INTENT_TO_SUPERVISOR_ROUTE["cancel_request"]=CANCEL_REQUEST`；`SUPERVISOR_ROUTE_TABLE[CANCEL_REQUEST]="ticket_agent"`；intent→route 双映射（supervisor_graph.py）；ticket_worker 入口条件分流（仿 route_ticket_worker_entry 的 refund 分支加 cancel）
@@ -162,6 +162,6 @@ ALTER TABLE orders ADD COLUMN cancel_reason VARCHAR(255) NULL;
 
 ## 8. 风险与开放点
 - **cancel_request 与 refund_request 关键词歧义**：实现时规则分类器里 cancel 优先于 refund（"取消订单"不含退款语义；若用户说"取消订单并退款"需澄清或选 cancel——设计约定 cancel 优先，报告说明）
-- **issue_type 结构化抽取**：schemas/structured.py 的 issue_type Literal 需加 'cancel'——实现时确认
+- **issue_type 结构化抽取**：schemas/structured.py 的 issue_type Literal 必须加 'cancel'（规格 4.4 第 7 点已明确）
 - **迁移 SQL**：本机 MySQL 需手动跑 ALTER（canceled_at/cancel_reason 2 列）；schema.sql 同步更新
 - **AI 对话确认弹窗判别**：is_cancel_execution 标志需 worker 中断 payload 写入（仿 is_refund_execution 的跨进程链路）
