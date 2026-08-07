@@ -43,6 +43,41 @@ class SimpleKeywordRetriever:
     def __init__(self, chunks: Sequence[RagChunk]) -> None:
         self.chunks = list(chunks)
 
+    @classmethod
+    def from_retrieved_chunks(cls, chunks: Sequence[RetrievedChunk]) -> "SimpleKeywordRetriever":
+        """从检索结果构建关键词索引（真库 chunk 来源）。"""
+        rag_chunks = [
+            RagChunk(
+                chunk_id=chunk.chunk_id,
+                content=chunk.content,
+                metadata=chunk.metadata,
+            )
+            for chunk in chunks
+        ]
+        return cls(rag_chunks)
+
+    @classmethod
+    def from_vector_store(
+        cls,
+        vector_store: VectorStoreReader,
+        *,
+        top_k: int = 1000,
+        score_threshold: float | None = None,
+    ) -> "SimpleKeywordRetriever":
+        """从向量库拉取全量 chunk 构建关键词索引（供 hybrid 使用）。
+
+        依赖 VectorStoreReader 提供拉全量能力；若实现不支持则通过大 top_k 查询。
+        """
+        collector = getattr(vector_store, "scroll_all", None)
+        if callable(collector):
+            chunks = list(collector())
+        else:
+            raise ValueError(
+                "vector_store must provide scroll_all() to build keyword index; "
+                "fall back to vector-only retrieval when unsupported"
+            )
+        return cls.from_retrieved_chunks(chunks)
+
     def search(
         self,
         query: str,

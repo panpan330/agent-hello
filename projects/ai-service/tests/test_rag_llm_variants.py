@@ -120,3 +120,74 @@ class TestFactories:
         assert isinstance(create_knowledge_router(_settings(advanced_mode="llm")), LLMRagKnowledgeRouter)
         rule_router = create_knowledge_router(_settings(advanced_mode="rule"))
         assert rule_router.__class__.__name__ == "RuleBasedRagKnowledgeRouter"
+
+
+class TestKeywordRetrieverUpgrade:
+    def test_from_retrieved_chunks_builds_index(self) -> None:
+        from app.rag.documents import RetrievedChunk
+        from app.rag.hybrid import SimpleKeywordRetriever
+
+        chunks = [
+            RetrievedChunk(
+                point_id="p1",
+                chunk_id="c1",
+                content="退货运费由商家承担",
+                metadata={"source": "refund-return-policy.md"},
+                score=0.9,
+            ),
+            RetrievedChunk(
+                point_id="p2",
+                chunk_id="c2",
+                content="订单发货后不可取消",
+                metadata={"source": "order-shipping-policy.md"},
+                score=0.8,
+            ),
+        ]
+        retriever = SimpleKeywordRetriever.from_retrieved_chunks(chunks)
+        results = retriever.search("退货运费", top_k=3, min_score=0.0)
+        assert results and results[0].chunk_id == "c1"
+
+    def test_from_vector_store_uses_scroll_all(self) -> None:
+        from app.rag.documents import RetrievedChunk
+        from app.rag.hybrid import SimpleKeywordRetriever
+
+        class FakeStore:
+            def scroll_all(self):
+                yield RetrievedChunk(
+                    point_id="p1",
+                    chunk_id="c1",
+                    content="退款政策：七天无理由",
+                    metadata={"source": "refund-return-policy.md"},
+                    score=0.9,
+                )
+
+        retriever = SimpleKeywordRetriever.from_vector_store(FakeStore())
+        results = retriever.search("退款政策", top_k=3, min_score=0.0)
+        assert results and results[0].chunk_id == "c1"
+
+    def test_from_vector_store_rejects_unsupported_store(self) -> None:
+        from app.rag.hybrid import SimpleKeywordRetriever
+
+        class FakeStore:
+            pass
+
+        try:
+            SimpleKeywordRetriever.from_vector_store(FakeStore())
+        except ValueError as exc:
+            assert "scroll_all" in str(exc)
+            return
+        raise AssertionError("unsupported store should raise ValueError")
+
+
+class TestRagFeatureSwitches:
+    def test_rag_enable_settings_default_off(self) -> None:
+        from app.core.config import Settings
+
+        settings = Settings(_env_file=None)
+        assert settings.rag_enable_rewrite is False
+        assert settings.rag_enable_multi_query is False
+        assert settings.rag_enable_routing is False
+        assert settings.rag_enable_hybrid is False
+        assert settings.rag_enable_context_compression is False
+        assert settings.rag_enable_citation_verify is False
+        assert settings.rag_advanced_mode == "rule"
