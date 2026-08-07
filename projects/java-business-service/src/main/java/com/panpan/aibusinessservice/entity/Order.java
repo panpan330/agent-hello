@@ -17,6 +17,8 @@ public class Order {
     private BigDecimal refundAmount;
     private LocalDateTime refundedAt;
     private String refundReason;
+    private LocalDateTime canceledAt;
+    private String cancelReason;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -141,6 +143,22 @@ public class Order {
 
     public void setRefundReason(String refundReason) {
         this.refundReason = refundReason;
+    }
+
+    public LocalDateTime getCanceledAt() {
+        return canceledAt;
+    }
+
+    public void setCanceledAt(LocalDateTime canceledAt) {
+        this.canceledAt = canceledAt;
+    }
+
+    public String getCancelReason() {
+        return cancelReason;
+    }
+
+    public void setCancelReason(String cancelReason) {
+        this.cancelReason = cancelReason;
     }
 
     public Instant getCreatedAt() {

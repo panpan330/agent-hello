@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS orders (
   refund_amount DECIMAL(10,2) NULL,
   refunded_at DATETIME(6) NULL,
   refund_reason VARCHAR(255) NULL,
+  canceled_at DATETIME(6) NULL,
+  cancel_reason VARCHAR(255) NULL,
   created_at DATETIME(6) NOT NULL,
   updated_at DATETIME(6) NOT NULL,
   UNIQUE KEY uk_orders_tenant_order (tenant_id, order_id),

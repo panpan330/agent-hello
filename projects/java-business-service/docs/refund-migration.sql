@@ -22,3 +22,7 @@ CREATE TABLE IF NOT EXISTS order_events (
   UNIQUE KEY uk_order_events_tenant_idempotency (tenant_id, idempotency_key),
   KEY idx_order_events_tenant_order_created (tenant_id, order_id, created_at)
 );
+
+-- 订单取消状态列（Task 1 新增，生产库需补建；新建库由 schema.sql 自动生效）
+ALTER TABLE orders ADD COLUMN canceled_at DATETIME(6) NULL;
+ALTER TABLE orders ADD COLUMN cancel_reason VARCHAR(255) NULL;

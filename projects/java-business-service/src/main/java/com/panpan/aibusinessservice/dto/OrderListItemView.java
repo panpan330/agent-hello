@@ -15,6 +15,8 @@ public record OrderListItemView(
         boolean canCreateTicket,
         BigDecimal refundAmount,
         LocalDateTime refundedAt,
+        LocalDateTime canceledAt,
+        String cancelReason,
         Instant updatedAt
 ) {
     public static OrderListItemView from(Order order) {
@@ -28,6 +30,8 @@ public record OrderListItemView(
                 order.isCanCreateTicket(),
                 order.getRefundAmount(),
                 order.getRefundedAt(),
+                order.getCanceledAt(),
+                order.getCancelReason(),
                 order.getUpdatedAt()
         );
     }

@@ -16,6 +16,8 @@
         <result column="refund_amount" property="refundAmount"/>
         <result column="refunded_at" property="refundedAt"/>
         <result column="refund_reason" property="refundReason"/>
+        <result column="canceled_at" property="canceledAt"/>
+        <result column="cancel_reason" property="cancelReason"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -33,6 +35,8 @@
         refund_amount,
         refunded_at,
         refund_reason,
+        canceled_at,
+        cancel_reason,
         created_at,
         updated_at
     </sql>

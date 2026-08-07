@@ -14,6 +14,8 @@ public record OrderToolView(
         BigDecimal refundAmount,
         LocalDateTime refundedAt,
         String refundReason,
+        LocalDateTime canceledAt,
+        String cancelReason,
         String userVisibleSummary
 ) {
     public static OrderToolView from(Order order) {
@@ -27,6 +29,8 @@ public record OrderToolView(
                 order.getRefundAmount(),
                 order.getRefundedAt(),
                 order.getRefundReason(),
+                order.getCanceledAt(),
+                order.getCancelReason(),
                 buildSummary(order)
         );
     }
