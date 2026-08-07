@@ -281,8 +281,14 @@ async function downloadReport(type: EvaluationReportType) {
     const link = document.createElement('a')
     link.href = url
     link.download = filename
-    link.click()
-    URL.revokeObjectURL(url)
+    document.body.appendChild(link)
+    try {
+      link.click()
+    } finally {
+      link.remove()
+    }
+    // 延迟到下一个宏任务再释放，避免部分浏览器异步触发下载时被中断。
+    setTimeout(() => URL.revokeObjectURL(url), 0)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '报告下载失败')
   } finally {
