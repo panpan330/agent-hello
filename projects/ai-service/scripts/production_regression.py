@@ -97,7 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         f"total={run.total_case_count}"
     )
     print(f"report: {report_path}")
-    return 0
+    # 空 run（registry 中无 production regression_added 记录）视为通过，返回 0；
+    # 非空但 failed/not_ready/error 时返回 1，让 CI 的 eval-regression job 变红。
+    exit_code = 0 if (run.passed or run.total_case_count == 0) else 1
+    print(f"exit_code: {exit_code} (0 = pass, 1 = regression failed)")
+    return exit_code
 
 
 if __name__ == "__main__":
