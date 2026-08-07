@@ -44,3 +44,18 @@ class KnowledgeBaseIngestResponse(BaseModel):
     collection_name: str = Field(min_length=1)
     replaced_source_count: int = Field(ge=0)
     trace_id: str = Field(min_length=1)
+
+
+class KnowledgeBaseCollectionStatus(BaseModel):
+    collection_name: str = Field(min_length=1)
+    knowledge_base_ids: list[str] = Field(default_factory=list)
+    display_name: str = ""
+    point_count: int = Field(default=0, ge=0)
+    exists: bool = False
+    is_legacy: bool = False
+
+
+class KnowledgeBaseCollectionsResponse(BaseModel):
+    collections: list[KnowledgeBaseCollectionStatus] = Field(default_factory=list)
+    legacy_collections: list[KnowledgeBaseCollectionStatus] = Field(default_factory=list)
+    trace_id: str = Field(min_length=1)

@@ -15,9 +15,12 @@ from app.rag.ingestion import (
     ingest_directory_to_vector_store,
     refresh_directory_in_vector_store,
 )
+from app.rag.knowledge_routing import default_rag_knowledge_bases
 from app.rag.loaders import load_documents_from_directory
 from app.rag.vector_store import QdrantVectorStore
 from app.schemas.knowledge_base import (
+    KnowledgeBaseCollectionStatus,
+    KnowledgeBaseCollectionsResponse,
     KnowledgeBaseDocumentStatus,
     KnowledgeBaseIngestRequest,
     KnowledgeBaseIngestResponse,
@@ -37,6 +40,16 @@ def get_vector_store(settings: Settings = Depends(get_settings)) -> VectorStoreU
     return QdrantVectorStore.from_settings(settings)
 
 
+def build_collection_vector_store(
+    settings: Settings,
+    *,
+    collection_name: str | None = None,
+) -> QdrantVectorStore:
+    return QdrantVectorStore.from_settings(
+        settings, collection_name=collection_name
+    )
+
+
 def build_embedding_model(
     request: KnowledgeBaseIngestRequest,
     settings: Settings,
@@ -51,6 +64,63 @@ def build_embedding_model(
             message="Embedding API key 未配置，无法执行真实 embedding 入库。",
             status_code=500,
         ) from exc
+
+
+@router.get("/collections", response_model=KnowledgeBaseCollectionsResponse)
+def knowledge_base_collections(
+    settings: Settings = Depends(get_settings),
+) -> KnowledgeBaseCollectionsResponse:
+    definitions = default_rag_knowledge_bases()
+    managed: dict[str, list] = {}
+    for definition in definitions:
+        managed.setdefault(definition.collection_name, []).append(definition)
+
+    legacy_name = settings.qdrant_collection_name
+    all_names = set(build_collection_vector_store(settings).list_collections())
+
+    collections: list[KnowledgeBaseCollectionStatus] = []
+    for collection_name in sorted(managed):
+        defs = managed[collection_name]
+        exists = collection_name in all_names
+        point_count = 0
+        if exists:
+            point_count = build_collection_vector_store(
+                settings, collection_name=collection_name
+            ).count_points()
+        collections.append(
+            KnowledgeBaseCollectionStatus(
+                collection_name=collection_name,
+                knowledge_base_ids=[d.knowledge_base_id for d in defs],
+                display_name=" / ".join(d.display_name for d in defs),
+                point_count=point_count,
+                exists=exists,
+                is_legacy=False,
+            )
+        )
+
+    legacy: list[KnowledgeBaseCollectionStatus] = []
+    if legacy_name and legacy_name not in managed:
+        legacy_exists = legacy_name in all_names
+        legacy.append(
+            KnowledgeBaseCollectionStatus(
+                collection_name=legacy_name,
+                knowledge_base_ids=[],
+                display_name="Legacy single collection",
+                point_count=(
+                    build_collection_vector_store(settings).count_points()
+                    if legacy_exists
+                    else 0
+                ),
+                exists=legacy_exists,
+                is_legacy=True,
+            )
+        )
+
+    return KnowledgeBaseCollectionsResponse(
+        collections=collections,
+        legacy_collections=legacy,
+        trace_id=get_trace_id(),
+    )
 
 
 @router.get("/status", response_model=KnowledgeBaseStatusResponse)
