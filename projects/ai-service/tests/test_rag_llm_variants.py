@@ -107,9 +107,11 @@ class TestFactories:
         assert isinstance(create_query_rewriter(_settings(advanced_mode="llm")), LLMQueryRewriter)
 
     def test_create_multi_query_generator_respects_advanced_mode(self) -> None:
+        from app.rag.multi_query import RuleBasedMultiQueryGenerator
+
         assert isinstance(
             create_multi_query_generator(_settings(advanced_mode="rule")),
-            RuleBasedMultiQueryGenerator if False else type(create_multi_query_generator(_settings(advanced_mode="rule"))),
+            RuleBasedMultiQueryGenerator,
         )
         assert isinstance(
             create_multi_query_generator(_settings(advanced_mode="llm")),

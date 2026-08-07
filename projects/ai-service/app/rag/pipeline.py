@@ -8,7 +8,6 @@ off (default), the pipeline degrades to the basic path (retrieve_top_k + rerank
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from app.rag.context_compression import compress_retrieved_context
 from app.rag.citation_verification import verify_rag_answer_sources

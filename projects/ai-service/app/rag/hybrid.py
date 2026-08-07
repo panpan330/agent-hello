@@ -60,13 +60,11 @@ class SimpleKeywordRetriever:
     def from_vector_store(
         cls,
         vector_store: VectorStoreReader,
-        *,
-        top_k: int = 1000,
-        score_threshold: float | None = None,
     ) -> "SimpleKeywordRetriever":
         """从向量库拉取全量 chunk 构建关键词索引（供 hybrid 使用）。
 
-        依赖 VectorStoreReader 提供拉全量能力；若实现不支持则通过大 top_k 查询。
+        依赖 VectorStoreReader 提供 scroll_all() 拉全量能力；
+        实现不支持时抛 ValueError（调用方应降级为纯向量检索）。
         """
         collector = getattr(vector_store, "scroll_all", None)
         if callable(collector):
