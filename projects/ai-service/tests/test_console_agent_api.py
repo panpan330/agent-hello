@@ -6,8 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.agents.mcp_tool_adapters import (
+    McpCancelExecutor,
     McpRefundExecutor,
     McpTicketCreator,
+    create_mcp_cancel_executor,
     mcp_order_query_executor,
 )
 from app.agents.ticket_agent import (
@@ -518,6 +520,75 @@ def test_console_agent_pending_confirmation_exposes_refund_execution_flag() -> N
     )
 
 
+def test_console_agent_pending_confirmation_exposes_cancel_execution_flag() -> None:
+    """取消执行确认必须暴露 is_cancel_execution，取消类型工单不得误标。
+
+    draft 字段（issue_type=cancel）对取消执行和普通工单流程完全一致，只有
+    worker 中断 payload 的 is_cancel_execution 能区分；前端依赖该标志选择
+    取消/工单文案，序列化必须原样透出。
+    """
+    service = ConsoleAgentService(Settings(_env_file=None), graph=object())
+    pending_draft = {
+        "confirmation_id": "confirmation-cancel-001",
+        "status": "pending",
+        "title": "Pending cancel",
+        "summary": "Cancel for A1002",
+        "message": "Please confirm the cancellation.",
+        "ticket_fields": {
+            "issue_type": "cancel",
+            "order_id": "A1002",
+            "description": "不想要了取消订单",
+            "user_request": "订单取消处理",
+            "urgency": "normal",
+            "need_human_review": True,
+        },
+    }
+
+    def make_interrupt(is_cancel_execution: bool | None) -> list[SimpleNamespace]:
+        value: dict[str, object] = {
+            "kind": "ticket_confirmation",
+            "confirmation_id": "confirmation-cancel-001",
+            "message": "Please confirm the cancellation.",
+            "pending_ticket_confirmation": pending_draft,
+        }
+        if is_cancel_execution is not None:
+            value["is_cancel_execution"] = is_cancel_execution
+        return [SimpleNamespace(value=value)]
+
+    # 取消执行流程（payload 标志 True）→ is_cancel_execution=True
+    cancel_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(True)}
+    )
+    assert cancel_pending is not None
+    assert cancel_pending.is_cancel_execution is True
+
+    # 普通工单流程 LLM 填 cancel 类型（payload 标志 False）→ False
+    ticket_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(False)}
+    )
+    assert ticket_pending is not None
+    assert ticket_pending.is_cancel_execution is False
+
+    # 旧版 payload 无标志 → 默认 False（向后兼容）
+    legacy_pending = service._pending_confirmation_from_state(
+        {"__interrupt__": make_interrupt(None)}
+    )
+    assert legacy_pending is not None
+    assert legacy_pending.is_cancel_execution is False
+
+    # 响应序列化后字段必须存在（默认 False）
+    response = service._to_response(
+        {"__interrupt__": make_interrupt(None)},
+        conversation_id="conversation-001",
+    )
+    assert response.pending_ticket_confirmation is not None
+    assert response.pending_ticket_confirmation.is_cancel_execution is False
+    assert (
+        response.pending_ticket_confirmation.model_dump()["is_cancel_execution"]
+        is False
+    )
+
+
 def test_console_agent_response_hides_resolved_confirmation_draft() -> None:
     service = ConsoleAgentService(Settings(_env_file=None), graph=object())
     state = {
@@ -742,6 +813,17 @@ def _install_fake_mcp_caller(
                     "refund_status": "succeeded",
                 },
             },
+            "cancel_order": {
+                "ok": True,
+                "confirmation_checked": True,
+                "confirmation_id": "c" * 16,
+                "error_code": None,
+                "message": "取消成功。",
+                "cancel": {
+                    "order_id": "A1002",
+                    "order_status": "cancelled",
+                },
+            },
         }
     )
     store = create_tool_confirmation_store(settings)
@@ -749,14 +831,15 @@ def _install_fake_mcp_caller(
 
     class ConfirmationGatedCaller:
         def call_tool(self, tool_name: str, arguments: dict) -> dict:
-            if tool_name in {"create_ticket", "refund_order"}:
+            if tool_name in {"create_ticket", "refund_order", "cancel_order"}:
                 captured["confirmation_id"] = arguments["confirmation_id"]
                 captured["user_confirmed"] = arguments["user_confirmed"]
                 if check_confirmation_store:
                     # Mirror the MCP server's confirmation gate: when create_ticket
-                    # / refund_order execute, the shared store must already hold a
-                    # confirmed record. This fails (TOOL_CONFIRMATION_NOT_FOUND) if
-                    # registration happens after resume instead of before it.
+                    # / refund_order / cancel_order execute, the shared store must
+                    # already hold a confirmed record. This fails
+                    # (TOOL_CONFIRMATION_NOT_FOUND) if registration happens after
+                    # resume instead of before it.
                     record = store.require_confirmed(
                         arguments["confirmation_id"],
                         actor_id="U1001",
@@ -777,6 +860,10 @@ def _install_fake_mcp_caller(
     monkeypatch.setattr(
         "app.agents.mcp_tool_adapters.create_mcp_refund_executor",
         lambda resolved: McpRefundExecutor(gated_caller, settings=resolved),
+    )
+    monkeypatch.setattr(
+        "app.agents.mcp_tool_adapters.create_mcp_cancel_executor",
+        lambda resolved: McpCancelExecutor(gated_caller, settings=resolved),
     )
     return fake_caller, context
 
@@ -1072,6 +1159,85 @@ def test_mcp_mode_refund_confirmation_registers_refund_order_and_executes(
 
     assert "退款已申请成功" in response.reply
     assert response.created_ticket is None
+
+    resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" not in resolved.next
+
+
+def test_mcp_mode_cancel_confirmation_registers_cancel_order_and_executes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP 模式下取消执行确认必须注册到 cancel_order 并真正执行取消。
+
+    Task 6 遗留缺口回归：cancel 确认此前被当作 create_ticket 注册/记录
+    （审计与文案错误），本次接线 is_cancel_execution 后应注册 cancel_order，
+    transcript 用户消息为"确认取消订单"。
+    """
+    settings = Settings(
+        _env_file=None,
+        agent_mcp_tools_enabled=True,
+        ticket_agent_model_mode="rule_based",
+        tool_confirmation_backend="memory",
+    )
+    _install_fake_redis_checkpointer(monkeypatch)
+    fake_caller, _ = _install_fake_mcp_caller(
+        monkeypatch,
+        check_confirmation_store=True,
+    )
+    store = create_tool_confirmation_store(settings)
+
+    service = ConsoleAgentService(
+        settings,
+        conversation_store=FakeConversationStore(),
+    )
+    actor = ConsoleAgentActor(
+        user_id="U1001",
+        tenant_id="default",
+        roles=("customer",),
+    )
+    conversation_id = "conversation-cancel-001"
+    thread_id = f"console-{actor.tenant_id}-{actor.user_id}-{conversation_id}"
+
+    service.reply(
+        actor=actor,
+        conversation_id=conversation_id,
+        message="取消订单 A1002，不想要了",
+    )
+
+    snapshot = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
+    assert "request_ticket_confirmation" in snapshot.next
+    fields = snapshot.values["ticket_fields"]
+    assert fields["issue_type"] == "cancel"
+    confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
+
+    response = service.decide_ticket_confirmation(
+        actor=actor,
+        conversation_id=conversation_id,
+        confirmation_id=confirmation_id,
+        approved=True,
+    )
+
+    cancel_calls = [
+        call for call in fake_caller.calls if call[0] == "cancel_order"
+    ]
+    assert len(cancel_calls) == 1
+    assert cancel_calls[0][1]["order_id"] == "A1002"
+    assert cancel_calls[0][1]["confirmation_id"] == confirmation_id
+    assert cancel_calls[0][1]["user_confirmed"] is True
+    assert cancel_calls[0][1]["requester_id"] == "U1001"
+    assert cancel_calls[0][1]["user_id"] == "U1001"
+    assert cancel_calls[0][1]["tenant_id"] == "default"
+
+    # The confirmation was pre-registered under cancel_order before resume.
+    record = store.require_confirmed(confirmation_id, actor_id="U1001")
+    assert record.status.value == "confirmed"
+    assert record.tool_name == "cancel_order"
+
+    assert "已成功取消" in response.reply
+    assert response.created_ticket is None
+
+    # 与前端 AiChatView 对齐的 transcript 文案：确认取消订单
+    assert service.conversation_store.exchanges[-1]["user_message"] == "确认取消订单"
 
     resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
     assert "request_ticket_confirmation" not in resolved.next

@@ -17,6 +17,7 @@ from app.agents.ticket_agent import (
     build_pending_ticket_confirmation,
     build_ticket_agent_graph_for_model_mode,
     build_ticket_agent_thread_config,
+    create_java_cancel_executor,
     create_java_refund_executor,
     get_ticket_confirmation_interrupt_payload,
     find_missing_ticket_fields,
@@ -74,10 +75,12 @@ AGENT_PROGRESS_BY_NODE: dict[str, tuple[str, str]] = {
     "query_order": ("order_lookup", "正在查询订单信息"),
     "extract_ticket_fields": ("ticket_draft", "正在整理工单信息"),
     "handle_refund_request": ("refund_draft", "正在整理退款信息"),
+    "handle_cancel_request": ("cancel_draft", "正在整理取消订单信息"),
     "ask_missing_ticket_fields": ("need_details", "正在确认需要补充的信息"),
     "request_ticket_confirmation": ("confirmation", "正在准备工单确认"),
     "create_ticket": ("ticket_creation", "正在创建工单"),
     "execute_refund_request": ("refund_execution", "正在执行退款"),
+    "execute_cancel_request": ("cancel_execution", "正在执行取消订单"),
     "build_direct_answer": ("answering", "正在整理回复"),
     "build_unsupported_answer": ("answering", "正在整理回复"),
     "ask_clarifying_question": ("need_details", "正在确认需要补充的信息"),
@@ -273,7 +276,7 @@ class ConsoleAgentService:
         return self._graph
 
     def _build_graph(self) -> Any:
-        ticket_creator, order_query_executor, refund_executor = (
+        ticket_creator, order_query_executor, refund_executor, cancel_executor = (
             self._build_tool_dependencies()
         )
         if self.settings.agent_multi_agent_enabled:
@@ -284,6 +287,7 @@ class ConsoleAgentService:
                 order_query_executor=order_query_executor,
                 ticket_creator=ticket_creator,
                 refund_executor=refund_executor,
+                cancel_executor=cancel_executor,
                 checkpointer=self._create_redis_checkpointer(),
                 interrupt_confirmation=True,
             )
@@ -292,15 +296,17 @@ class ConsoleAgentService:
             policy_rag_service=ProductionPolicyRagService(self.settings),
             order_query_executor=order_query_executor,
             refund_executor=refund_executor,
+            cancel_executor=cancel_executor,
             mode=self.settings.ticket_agent_model_mode,
             settings=self.settings,
             checkpointer=self._create_redis_checkpointer(),
             interrupt_confirmation=True,
         )
 
-    def _build_tool_dependencies(self) -> tuple[Any, Any, Any]:
+    def _build_tool_dependencies(self) -> tuple[Any, Any, Any, Any]:
         if self.settings.agent_mcp_tools_enabled:
             from app.agents.mcp_tool_adapters import (
+                create_mcp_cancel_executor,
                 create_mcp_order_query_executor,
                 create_mcp_refund_executor,
                 create_mcp_ticket_creator,
@@ -310,6 +316,7 @@ class ConsoleAgentService:
                 create_mcp_ticket_creator(self.settings),
                 create_mcp_order_query_executor(self.settings),
                 create_mcp_refund_executor(self.settings),
+                create_mcp_cancel_executor(self.settings),
             )
         from app.tools.fake_order_tool import query_order
 
@@ -317,6 +324,7 @@ class ConsoleAgentService:
             JavaTicketClient.from_settings(self.settings),
             lambda arguments: query_order(arguments, settings=self.settings),
             create_java_refund_executor(),
+            create_java_cancel_executor(),
         )
 
     def close(self) -> None:
@@ -536,10 +544,14 @@ class ConsoleAgentService:
             )
 
         # The reliable discriminator lives in the confirmation interrupt
-        # payload (written by the worker graph where refund_request_active is
-        # visible): the top-level supervisor snapshot.values never receives the
-        # worker flag, and the draft fields alone are identical for both paths.
+        # payload (written by the worker graph where refund_request_active /
+        # cancel_request_active are visible): the top-level supervisor
+        # snapshot.values never receives the worker flag, and the draft fields
+        # alone are identical for both paths.
         is_refund_execution = self._snapshot_confirmation_is_refund_execution(
+            snapshot
+        )
+        is_cancel_execution = self._snapshot_confirmation_is_cancel_execution(
             snapshot
         )
 
@@ -557,6 +569,7 @@ class ConsoleAgentService:
                     fields=fields,
                     settings=self.settings,
                     is_refund_execution=is_refund_execution,
+                    is_cancel_execution=is_cancel_execution,
                 )
             state = resume_ticket_confirmation_interrupt(
                 self.graph,
@@ -567,14 +580,16 @@ class ConsoleAgentService:
         finally:
             reset_business_context(tokens)
         response = self._to_response(state, conversation_id=conversation_id)
+        if is_cancel_execution:
+            decision_copy = "确认取消订单" if approved else "取消取消"
+        elif is_refund_execution:
+            decision_copy = "确认退款" if approved else "取消退款"
+        else:
+            decision_copy = "确认创建工单" if approved else "取消创建工单"
         self._record_exchange(
             actor=actor,
             conversation_id=conversation_id,
-            user_message=(
-                ("确认退款" if is_refund_execution else "确认创建工单")
-                if approved
-                else ("取消退款" if is_refund_execution else "取消创建工单")
-            ),
+            user_message=decision_copy,
             response=response,
         )
         return response
@@ -593,6 +608,9 @@ class ConsoleAgentService:
         is_refund_execution = self._snapshot_confirmation_is_refund_execution(
             snapshot
         )
+        is_cancel_execution = self._snapshot_confirmation_is_cancel_execution(
+            snapshot
+        )
         corrected_fields = self._validate_corrected_ticket_fields(ticket_fields)
         tokens = set_business_context(user_id=actor.user_id, tenant_id=actor.tenant_id)
         try:
@@ -606,14 +624,16 @@ class ConsoleAgentService:
         finally:
             reset_business_context(tokens)
         response = self._to_response(state, conversation_id=conversation_id)
+        if is_cancel_execution:
+            correction_copy = "修改取消信息并重新确认"
+        elif is_refund_execution:
+            correction_copy = "修改退款信息并重新确认"
+        else:
+            correction_copy = "修改工单草稿并重新确认"
         self._record_exchange(
             actor=actor,
             conversation_id=conversation_id,
-            user_message=(
-                "修改退款信息并重新确认"
-                if is_refund_execution
-                else "修改工单草稿并重新确认"
-            ),
+            user_message=correction_copy,
             response=response,
         )
         return response
@@ -921,6 +941,23 @@ class ConsoleAgentService:
                 return value.get("is_refund_execution") is True
         return False
 
+    def _snapshot_confirmation_is_cancel_execution(self, snapshot: Any) -> bool:
+        """Whether the pending confirmation interrupt is a cancel execution.
+
+        The flag is written into the interrupt payload by the worker graph
+        (where cancel_request_active is visible).  The top-level supervisor
+        snapshot.values never carries the worker flag, so the interrupt payload
+        is the only reliable source for both single- and multi-agent graphs.
+        """
+        for interrupt in getattr(snapshot, "interrupts", ()) or ():
+            value = getattr(interrupt, "value", None)
+            if (
+                isinstance(value, dict)
+                and value.get("kind") == TICKET_CONFIRMATION_INTERRUPT_KIND
+            ):
+                return value.get("is_cancel_execution") is True
+        return False
+
     def _pending_confirmation_from_state(
         self,
         state: dict[str, Any],
@@ -942,6 +979,9 @@ class ConsoleAgentService:
                 "summary": pending.get("summary"),
                 "is_refund_execution": (
                     interrupt_payload.get("is_refund_execution") is True
+                ),
+                "is_cancel_execution": (
+                    interrupt_payload.get("is_cancel_execution") is True
                 ),
                 "ticket_fields": pending.get("ticket_fields"),
             }

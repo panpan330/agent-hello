@@ -15,6 +15,7 @@ from app.agents.supervisor.supervisor_router import (
 from app.core.exceptions import AppException
 from tests.rag_fakes import make_retrieved_chunk
 from tests.tool_fakes import (
+    FakeCancelExecutor,
     FakeNoContextPolicyRagService,
     FakePolicyRagService,
     FakeRefundExecutor,
@@ -325,6 +326,55 @@ def test_supervisor_refund_pending_change_mind_to_ticket_creates_ticket_not_refu
     assert second.get("refund_status") is None
     assert refund_executor.calls == []
     assert "工单已创建" in (second.get("final_answer") or "")
+
+
+def test_supervisor_routes_cancel_request_executes_cancel() -> None:
+    """多 Agent 下 cancel_request 必须走到 ticket_agent（ticket_worker 子图内
+    取消链）并真正执行取消——与单 Agent 语义一致，而非退化为创建取消工单。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        cancel_executor=FakeCancelExecutor(),
+        interrupt_confirmation=False,
+    )
+    result = graph.invoke(
+        {
+            "user_message": "取消订单 A1002，不想要了",
+            "ticket_confirmation_approved": True,
+        }
+    )
+    assert result["intent"] == "cancel_request"
+    assert result["cancel_status"] == "succeeded"
+    assert "A1002" in (result.get("final_answer") or "")
+
+
+def test_supervisor_cancel_request_multi_turn_collects_order_id_then_executes() -> None:
+    """多 Agent 多轮取消：第一轮缺订单号追问，第二轮补充后不得被 ORDER_KEYWORDS
+    带到 order_agent，必须经 active-cancel-collection 强制回取消链并执行取消。"""
+    graph = build_supervisor_graph(
+        router=RuleSupervisorRouter(),
+        ticket_creator=FakeTicketCreator(),
+        cancel_executor=FakeCancelExecutor(),
+        checkpointer=MemorySaver(),
+        interrupt_confirmation=False,
+    )
+    config = {"configurable": {"thread_id": "supervisor-cancel-multi-turn-001"}}
+
+    first = graph.invoke(
+        {"user_message": "我要取消订单"},
+        config=config,
+    )
+    assert first["intent"] == "cancel_request"
+    assert first["missing_ticket_fields"] == ["order_id"]
+    assert "订单号" in (first.get("final_answer") or "")
+
+    second = graph.invoke(
+        {"user_message": "订单号是 A1002，不想要了", "ticket_confirmation_approved": True},
+        config=config,
+    )
+    assert second["intent"] == "cancel_request"
+    assert second["cancel_status"] == "succeeded"
+    assert "A1002" in (second.get("final_answer") or "")
 
 
 def test_supervisor_multi_turn_rule_ticket_request_collects_missing_fields() -> None:

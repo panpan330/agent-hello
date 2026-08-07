@@ -11,7 +11,7 @@ from app.schemas.ticket import CreatedTicket
 class ConsoleAgentTicketFields(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    issue_type: Literal["refund", "logistics", "complaint", "policy_gap"]
+    issue_type: Literal["cancel", "refund", "logistics", "complaint", "policy_gap"]
     order_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     description: str = Field(min_length=1, max_length=1000)
     user_request: str = Field(min_length=1, max_length=200)
@@ -30,6 +30,11 @@ class ConsoleAgentTicketConfirmation(BaseModel):
     # through the ordinary ticket flow leaves this False; the browser uses the
     # flag (not the draft fields alone) to pick refund-vs-ticket copy.
     is_refund_execution: bool = False
+    # True only when this confirmation belongs to a cancel *execution* flow
+    # (graph state cancel_request_active).  A cancel-typed ticket created
+    # through the ordinary ticket flow leaves this False; the browser uses the
+    # flag (not the draft fields alone) to pick cancel-vs-ticket copy.
+    is_cancel_execution: bool = False
     ticket_fields: ConsoleAgentTicketFields
 
 
