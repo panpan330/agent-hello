@@ -3638,6 +3638,11 @@ def stream_ticket_agent_updates(user_message: str) -> list[TicketAgentStreamPart
 
 
 def create_policy_rag_service() -> PolicyRagService:
+    """⚠️ deprecated: 仅测试/兜底使用（FakePolicyRagService）。
+
+    生产对话链路由 ConsoleAgentService 注入 ProductionPolicyRagService（真实 RAG）；
+    此函数仅在被显式注入 None 时兜底，新代码不应依赖。
+    """
     return FakePolicyRagService()
 
 

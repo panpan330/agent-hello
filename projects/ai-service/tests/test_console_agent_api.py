@@ -1241,3 +1241,29 @@ def test_mcp_mode_cancel_confirmation_registers_cancel_order_and_executes(
 
     resolved = service.graph.get_state(build_ticket_agent_thread_config(thread_id))
     assert "request_ticket_confirmation" not in resolved.next
+
+
+def test_production_policy_rag_service_passes_permission_filters(monkeypatch):
+    """ProductionPolicyRagService 调 retrieve_top_k 时透传权限过滤参数。"""
+    import app.services.console_agent_service as cas_module
+    from app.services.console_agent_service import ProductionPolicyRagService
+    from app.core.config import get_settings
+
+    captured = {}
+
+    def fake_retrieve_top_k(query, *, embedding_model, vector_store, top_k=20, **kwargs):
+        captured["query"] = query
+        captured["kwargs"] = kwargs
+        return []
+
+    monkeypatch.setattr(cas_module, "retrieve_top_k", fake_retrieve_top_k)
+    service = ProductionPolicyRagService(get_settings())
+    result = service.answer_policy_question("退款政策是什么")
+    # retrieve_top_k 被调用且传了权限过滤参数（None 语义，显式传参）
+    assert captured["query"] == "退款政策是什么"
+    assert "access_scope" in captured["kwargs"]
+    assert "permission_group" in captured["kwargs"]
+    assert "business_domain" in captured["kwargs"]
+    assert "doc_type" in captured["kwargs"]
+    assert "source" in captured["kwargs"]
+    assert result is not None

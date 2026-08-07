@@ -238,6 +238,13 @@ class ProductionPolicyRagService:
             embedding_model=embedding_model,
             vector_store=QdrantVectorStore.from_settings(self.settings),
             top_k=self.settings.rerank_candidate_count,
+            # 对话场景默认不限权限（None 语义，与 ask_rag 端点传参模式一致）；
+            # 阶段 2 enhanced pipeline 可传真实 access_scope。
+            access_scope=None,
+            permission_group=None,
+            business_domain=None,
+            doc_type=None,
+            source=None,
         )
         rerank_result = rerank_with_fallback(
             query,
