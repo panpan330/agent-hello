@@ -882,3 +882,62 @@ def test_reports_latest_rejects_unknown_type(
 
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_history_keeps_point_when_snapshot_missing_check_pass_rate(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    # 历史快照缺 check_pass_rate 指标（schema 演进遗留）：history 应保留该点、
+    # check_pass_rate 为 None，不触发 KeyError/500。
+    snapshot_path = tmp_path / "agent_eval_snapshots.json"
+    app.dependency_overrides[get_eval_snapshot_store_path] = lambda: snapshot_path
+    app.dependency_overrides[get_production_regression_history_path] = (
+        lambda: tmp_path / "missing-history.json"
+    )
+    SnapshotStore(snapshot_path).save(
+        EvalRunSnapshot(
+            context=EvalRunContext(
+                run_id="legacy-run",
+                dataset_name="agent_eval",
+                dataset_version="stage6-v0",
+                candidate_version="legacy",
+                started_at=datetime(2026, 8, 7, 9, 0, 0, tzinfo=timezone.utc),
+            ),
+            evaluated_check_count=20,
+            passed_check_count=20,
+            failed_check_count=0,
+            passed=True,
+            metrics=[EvalMetric(name="suite_pass_rate", value=1.0)],
+        )
+    )
+
+    response = client.get("/api/ai/evaluation/history")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["agent_eval"]) == 1
+    assert data["agent_eval"][0]["started_at"] == "2026-08-07T09:00:00+00:00"
+    assert data["agent_eval"][0]["check_pass_rate"] is None
+
+
+def test_reports_latest_agent_not_found_when_cases_missing(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    # cases 文件缺失：与 regression 分支一致返回 404，而非裸 500。
+    app.dependency_overrides[get_agent_cases_path] = (
+        lambda: tmp_path / "missing-agent-cases.json"
+    )
+
+    response = client.get(
+        "/api/ai/evaluation/reports/latest",
+        params={"type": "agent"},
+        headers={TRACE_ID_HEADER: "trace-report-agent-missing"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "EVALUATION_DATA_NOT_FOUND"
+

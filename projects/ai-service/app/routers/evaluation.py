@@ -343,17 +343,25 @@ def get_evaluation_history(
     except (OSError, ValueError) as exc:
         logger.warning("history_load_failed path=%s error=%s", snapshot_store_path, exc)
         snapshots = []
-    agent_eval = [
-        EvaluationHistoryPoint(
-            started_at=(
-                snapshot.context.started_at.isoformat()
-                if snapshot.context.started_at is not None
-                else None
-            ),
-            check_pass_rate=snapshot.metric_map()["check_pass_rate"].value,
+    agent_eval = []
+    for snapshot in snapshots:
+        # 历史快照可能缺 check_pass_rate 指标（schema 演进遗留）：
+        # 缺指标时该点保留、check_pass_rate 为 None，由前端过滤，不触发 500。
+        check_pass_rate_metric = snapshot.metric_map().get("check_pass_rate")
+        agent_eval.append(
+            EvaluationHistoryPoint(
+                started_at=(
+                    snapshot.context.started_at.isoformat()
+                    if snapshot.context.started_at is not None
+                    else None
+                ),
+                check_pass_rate=(
+                    check_pass_rate_metric.value
+                    if check_pass_rate_metric is not None
+                    else None
+                ),
+            )
         )
-        for snapshot in snapshots
-    ]
     try:
         regression_runs = load_production_regression_runs(regression_history_path)
     except (OSError, ValueError) as exc:
@@ -386,7 +394,14 @@ def get_latest_evaluation_report(
 ) -> EvaluationReportView:
     """Return the latest evaluation report as Markdown (Task 3 download consumer)."""
     if type == "agent":
-        run_report = run_agent_eval_suites(cases_path)
+        try:
+            run_report = run_agent_eval_suites(cases_path)
+        except FileNotFoundError as exc:
+            raise AppException(
+                code="EVALUATION_DATA_NOT_FOUND",
+                message="本地评估数据文件不存在，无法生成评估报告。",
+                status_code=404,
+            ) from exc
         report = build_agent_eval_markdown_report(run_report)
     else:
         run = load_latest_production_regression_run(regression_history_path)
