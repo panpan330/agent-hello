@@ -134,11 +134,15 @@ export interface EvaluationHistoryPoint {
   passed: number | null
   total: number | null
   pass_rate: number | null
+  hit_rate: number | null
+  recall: number | null
+  mrr: number | null
 }
 
 export interface EvaluationHistory {
   agent_eval: EvaluationHistoryPoint[]
   production_regression: EvaluationHistoryPoint[]
+  rag_retrieval: EvaluationHistoryPoint[]
 }
 
 export type EvaluationReportType = 'agent' | 'regression'

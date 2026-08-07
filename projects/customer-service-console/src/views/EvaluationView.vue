@@ -177,7 +177,30 @@ const trendRegressionPoints = computed<[number, number][]>(() =>
     .sort((left, right) => left[0] - right[0]),
 )
 
-const trendEmpty = computed(() => trendAgentPoints.value.length === 0 && trendRegressionPoints.value.length === 0)
+function toRagTrendPoint(point: EvaluationHistoryPoint): [number, number] | null {
+  if (!point.started_at || point.hit_rate == null) {
+    return null
+  }
+  const timestamp = Date.parse(point.started_at)
+  if (Number.isNaN(timestamp)) {
+    return null
+  }
+  return [timestamp, point.hit_rate]
+}
+
+const trendRagPoints = computed<[number, number][]>(() =>
+  (trendHistory.value?.rag_retrieval || [])
+    .map(toRagTrendPoint)
+    .filter((point): point is [number, number] => point !== null)
+    .sort((left, right) => left[0] - right[0]),
+)
+
+const trendEmpty = computed(
+  () =>
+    trendAgentPoints.value.length === 0 &&
+    trendRegressionPoints.value.length === 0 &&
+    trendRagPoints.value.length === 0,
+)
 
 function renderTrendChart() {
   if (!trendChartEl.value) {
@@ -206,12 +229,13 @@ function renderTrendChart() {
           .map((item) => {
             const [timestamp, value] = item.value
             const time = new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
-            return `${item.marker}${item.seriesName}（${time}）<br/>通过率 ${(value * 100).toFixed(1)}%`
+            const label = item.seriesName.includes('RAG') ? '命中率' : '通过率'
+            return `${item.marker}${item.seriesName}（${time}）<br/>${label} ${(value * 100).toFixed(1)}%`
           })
           .join('<br/>')
       },
     },
-    legend: { data: ['Agent 通过率', '回归通过率'] },
+    legend: { data: ['Agent 通过率', '回归通过率', 'RAG 检索命中率'] },
     grid: { left: 52, right: 20, top: 40, bottom: 32 },
     xAxis: { type: 'time' },
     yAxis: {
@@ -240,6 +264,15 @@ function renderTrendChart() {
         lineStyle: { color: '#67C23A', width: 2 },
         itemStyle: { color: '#67C23A' },
         data: trendRegressionPoints.value,
+      },
+      {
+        name: 'RAG 检索命中率',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#E6A23C', width: 2 },
+        itemStyle: { color: '#E6A23C' },
+        data: trendRagPoints.value,
       },
     ],
   })
