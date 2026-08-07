@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class TicketIntent(StrEnum):
+    CANCEL = "cancel"
     REFUND = "refund"
     ORDER_QUERY = "order_query"
     LOGISTICS = "logistics"

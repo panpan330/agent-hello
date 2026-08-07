@@ -28,12 +28,14 @@ from app.agents.ticket_agent import (
     classify_ticket_intent,
     decide_ticket_need,
     decide_ticket_need_node,
+    execute_cancel_request_node,
     execute_refund_request_node,
     extract_ticket_fields,
     extract_ticket_fields_node,
     find_missing_ticket_fields,
     get_ticket_confirmation_interrupt_payload,
     get_ticket_agent_thread_state,
+    handle_cancel_request_node,
     handle_refund_request_node,
     is_ticket_confirmation_resume_approved,
     normalize_user_input_node,
@@ -66,6 +68,7 @@ from app.core.trace import reset_trace_id, set_trace_id
 from app.rag.generator import RAG_NO_CONTEXT_REPLY
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
 from tests.tool_fakes import (
+    FakeCancelExecutor,
     FakeNoContextPolicyRagService,
     FakePolicyRagService,
     FakeRefundExecutor,
@@ -91,6 +94,17 @@ def make_refund_ticket_fields() -> dict[str, object]:
         "description": "我要退 A1001 的款，商品有质量问题",
         "user_request": "售后退款处理",
         "urgency": "high",
+        "need_human_review": True,
+    }
+
+
+def make_cancel_ticket_fields() -> dict[str, object]:
+    return {
+        "issue_type": "cancel",
+        "order_id": "A1002",
+        "description": "取消订单 A1002，不想要了",
+        "user_request": "订单取消处理",
+        "urgency": "normal",
         "need_human_review": True,
     }
 
@@ -175,6 +189,7 @@ def test_ticket_agent_fixed_edges_define_entry_and_finish_points() -> None:
         ("ask_missing_ticket_fields", END),
         ("create_ticket", END),
         ("execute_refund_request", END),
+        ("execute_cancel_request", END),
         ("build_direct_answer", END),
         ("build_unsupported_answer", END),
         ("ask_clarifying_question", END),
@@ -187,6 +202,7 @@ def test_ticket_agent_intent_routes_map_intent_to_next_node() -> None:
         "order_query": "query_order",
         "ticket_request": "decide_ticket_need",
         "refund_request": "handle_refund_request",
+        "cancel_request": "handle_cancel_request",
         "smalltalk": "build_direct_answer",
         "unsupported": "build_unsupported_answer",
         "unclear": "ask_clarifying_question",
@@ -211,6 +227,7 @@ def test_ticket_agent_confirmation_routes_map_decision_to_next_node() -> None:
     assert TICKET_AGENT_CONFIRMATION_ROUTES == {
         "execute_create_ticket": "create_ticket",
         "execute_refund_request": "execute_refund_request",
+        "execute_cancel_request": "execute_cancel_request",
         "request_confirmation": "request_ticket_confirmation",
         "finish": END,
     }
@@ -275,9 +292,30 @@ def test_classify_order_refund_policy_query_stays_policy() -> None:
     assert classify_ticket_intent("查订单 A1001 的退款规则")["intent"] == "policy_question"
 
 
-def test_classify_cancel_order_still_unsupported() -> None:
-    assert classify_ticket_intent("取消订单")["intent"] == "unsupported"
-    assert classify_ticket_intent("我要取消订单 A1002")["intent"] == "unsupported"
+def test_classify_cancel_order_routes_to_cancel_request() -> None:
+    # Task 6：取消诉求从 UNSUPPORTED 移除，"取消订单"现在进入 cancel_request 流程。
+    assert classify_ticket_intent("取消订单")["intent"] == "cancel_request"
+    assert classify_ticket_intent("我要取消订单 A1002")["intent"] == "cancel_request"
+
+
+def test_classify_cancel_request_intent() -> None:
+    assert classify_ticket_intent("取消订单 A1002")["intent"] == "cancel_request"
+    assert classify_ticket_intent("退单")["intent"] == "cancel_request"
+    assert classify_ticket_intent("我要取消购物")["intent"] == "cancel_request"
+
+
+def test_classify_cancel_policy_question_still_policy() -> None:
+    # 咨询取消政策/流程（无订单号 + 疑问句式）不得被误判为取消动作。
+    assert classify_ticket_intent("取消政策是什么")["intent"] == "policy_question"
+    assert classify_ticket_intent("取消订单的政策是什么")["intent"] == "policy_question"
+    assert classify_ticket_intent("怎么取消订单")["intent"] == "policy_question"
+    assert classify_ticket_intent("取消多久生效？")["intent"] == "policy_question"
+
+
+def test_classify_refund_still_refund_with_cancel_priority() -> None:
+    # cancel 优先不混淆："我要退 A1002 的款" 是退款诉求，不得因 cancel 规则误判。
+    assert classify_ticket_intent("我要退 A1002 的款")["intent"] == "refund_request"
+    assert classify_ticket_intent("申请退款")["intent"] == "refund_request"
 
 
 def test_normalize_user_input_node_returns_clean_message() -> None:
@@ -1617,6 +1655,247 @@ def test_interrupting_graph_clears_refund_flag_after_rejection_before_ticket_cre
     assert len(creator.calls) == 1
     assert resumed.get("refund_status") is None
     assert refund_executor.calls == []
+
+
+def test_handle_cancel_request_node_collects_fields_and_asks_missing_order_id() -> None:
+    update = handle_cancel_request_node({"normalized_message": "取消订单"})
+
+    assert update["cancel_request_active"] is True
+    assert update["needs_ticket"] is True
+    assert update["missing_ticket_fields"] == ["order_id"]
+    assert update["ticket_fields"]["issue_type"] == "cancel"
+    assert update["ticket_fields"]["order_id"] is None
+    assert "订单号" in update["final_answer"]
+    assert update["node_history"] == ["handle_cancel_request"]
+
+
+def test_handle_cancel_request_node_marks_complete_with_order_and_reason() -> None:
+    update = handle_cancel_request_node(
+        {"normalized_message": "取消订单 A1002，不想要了"}
+    )
+
+    assert update["cancel_request_active"] is True
+    assert update["missing_ticket_fields"] == []
+    assert update["ticket_fields"]["issue_type"] == "cancel"
+    assert update["ticket_fields"]["order_id"] == "A1002"
+    assert "不想要了" in update["ticket_fields"]["description"]
+    assert update["node_history"] == ["handle_cancel_request"]
+
+
+def test_execute_cancel_request_node_blocks_without_user_confirmation() -> None:
+    cancel_executor = FakeCancelExecutor()
+    update = execute_cancel_request_node(
+        {"ticket_fields": make_cancel_ticket_fields()},
+        cancel_executor=cancel_executor,
+    )
+
+    assert update["cancel_status"] == "blocked"
+    assert update["cancel_error_code"] == "CANCEL_CONFIRMATION_REQUIRED"
+    assert update["final_answer"] == "执行取消订单前需要先得到用户确认。"
+    assert update["node_history"] == ["execute_cancel_request"]
+    assert cancel_executor.calls == []
+
+
+def test_execute_cancel_request_node_calls_cancel_executor_after_confirmation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.agents.ticket_agent")
+    fields = make_cancel_ticket_fields()
+    pending_confirmation = build_pending_ticket_confirmation(fields)
+    cancel_executor = FakeCancelExecutor()
+
+    update = execute_cancel_request_node(
+        {
+            "ticket_actor_id": "demo_user_001",
+            "ticket_confirmation_approved": True,
+            "cancel_request_active": True,
+            "pending_ticket_confirmation": pending_confirmation,
+        },
+        cancel_executor=cancel_executor,
+    )
+
+    assert update["cancel_status"] == "succeeded"
+    assert update["cancel_result"]["order_id"] == "A1002"
+    assert update["cancel_result"]["order_status"] == "canceled"
+    assert "已成功取消" in update["final_answer"]
+    assert update["node_history"] == ["execute_cancel_request"]
+    assert len(cancel_executor.calls) == 1
+    assert cancel_executor.calls[0].order_id == "A1002"
+    assert cancel_executor.calls[0].requester_id == "demo_user_001"
+    assert cancel_executor.idempotency_keys == [pending_confirmation["confirmation_id"]]
+    assert "ticket_agent_cancel_started order_id=A1002" in caplog.text
+    assert "ticket_agent_cancel_finished status=succeeded" in caplog.text
+
+
+def test_interrupting_graph_pauses_for_cancel_confirmation() -> None:
+    graph = build_interrupting_ticket_agent_graph(
+        cancel_executor=FakeCancelExecutor(),
+        ticket_creator=FakeTicketCreator(),
+    )
+
+    result = run_ticket_agent_in_thread(
+        graph,
+        "取消订单 A1002",
+        thread_id="ticket-cancel-001",
+        actor_id="demo_user_001",
+    )
+    payload = get_ticket_confirmation_interrupt_payload(result)
+    snapshot = graph.get_state(
+        build_ticket_agent_thread_config("ticket-cancel-001")
+    )
+
+    assert payload["kind"] == "ticket_confirmation"
+    assert payload["is_cancel_execution"] is True
+    assert payload["pending_ticket_confirmation"]["status"] == "pending"
+    assert "确认" in payload["message"]
+    assert snapshot.next == ("request_ticket_confirmation",)
+    assert snapshot.values["node_history"] == [
+        "normalize_user_input",
+        "classify_intent",
+        "handle_cancel_request",
+    ]
+
+
+def test_interrupting_graph_resumes_approved_cancel_to_execute_cancel_order() -> None:
+    cancel_executor = FakeCancelExecutor()
+    graph = build_interrupting_ticket_agent_graph(
+        cancel_executor=cancel_executor,
+        ticket_creator=FakeTicketCreator(),
+    )
+    thread_id = "ticket-cancel-002"
+    result = run_ticket_agent_in_thread(
+        graph,
+        "取消订单 A1002",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    payload = get_ticket_confirmation_interrupt_payload(result)
+
+    resumed = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=True,
+        actor_id="demo_user_001",
+    )
+
+    assert resumed["ticket_confirmation_approved"] is True
+    assert resumed["pending_ticket_confirmation"]["confirmation_id"] == payload[
+        "confirmation_id"
+    ]
+    assert resumed["cancel_status"] == "succeeded"
+    assert resumed["cancel_result"]["order_id"] == "A1002"
+    # 取消执行完成即流程终止：cancel_request_active 必须被清除，否则同线程
+    # 后续对话会被 route_by_ticket_confirmation 误路由回取消执行。
+    assert resumed["cancel_request_active"] is False
+    assert resumed["node_history"] == [
+        "normalize_user_input",
+        "classify_intent",
+        "handle_cancel_request",
+        "request_ticket_confirmation",
+        "execute_cancel_request",
+    ]
+    assert len(cancel_executor.calls) == 1
+    assert cancel_executor.calls[0].order_id == "A1002"
+    assert cancel_executor.idempotency_keys == [payload["confirmation_id"]]
+
+
+def test_interrupting_graph_clears_cancel_flag_after_rejection_before_ticket_creation() -> None:
+    """Blocking 回归：取消确认被拒后同线程创建工单，不得被误路由到取消执行。
+
+    修复前 cancel_request_active 无清除点，拒绝后标志残留 True；同一线程改口
+    创建含订单号的工单并确认时，route_by_ticket_confirmation 会误判为取消执行，
+    真实执行 cancel_order（用工单字段的 order_id）。本测试在修复前会失败
+    （cancel_executor 被误调用）。
+    """
+    cancel_executor = FakeCancelExecutor()
+    creator = FakeTicketCreator()
+    graph = build_interrupting_ticket_agent_graph(
+        cancel_executor=cancel_executor,
+        ticket_creator=creator,
+    )
+    thread_id = "ticket-cancel-reject-then-ticket"
+
+    # 1) 发起取消 → 确认被拒 → 标志清除，且未执行任何取消
+    run_ticket_agent_in_thread(
+        graph,
+        "取消订单 A1002",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    rejected = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=False,
+        actor_id="demo_user_001",
+    )
+    assert rejected["cancel_request_active"] is False
+    assert cancel_executor.calls == []
+
+    # 2) 同线程改口创建工单（含订单号）→ 确认 → 必须执行 create_ticket
+    run_ticket_agent_in_thread(
+        graph,
+        "我要投诉订单 A1001，物流一直不动",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    resumed = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=True,
+        actor_id="demo_user_001",
+    )
+
+    assert resumed["ticket_creation_status"] == "created"
+    assert resumed["created_ticket"]["ticket_id"] == "T1001"
+    assert len(creator.calls) == 1
+    assert resumed.get("cancel_status") is None
+    assert cancel_executor.calls == []
+
+
+def test_interrupting_graph_cancel_paused_then_refund_switch_executes_refund() -> None:
+    """Blocking 回归：取消暂停在确认时用户改口退款，不得执行取消。
+
+    修复前 handle_refund_request_node 不清 cancel_request_active，取消停在确认后
+    同线程改口退款并确认时，route_by_ticket_confirmation 先命中残留的 cancel 标志，
+    会用退款字段的 order_id 真实执行 cancel_order。本测试在修复前会失败
+    （cancel_executor 被误调用、refund_executor 未被调用）。
+    """
+    cancel_executor = FakeCancelExecutor()
+    refund_executor = FakeRefundExecutor()
+    graph = build_interrupting_ticket_agent_graph(
+        cancel_executor=cancel_executor,
+        refund_executor=refund_executor,
+        ticket_creator=FakeTicketCreator(),
+    )
+    thread_id = "ticket-cancel-then-refund"
+
+    # 1) 发起取消 → 停在确认（未批准，标志保留）
+    run_ticket_agent_in_thread(
+        graph,
+        "取消订单 A1002",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+
+    # 2) 同线程改口退款 → 收集退款字段 → 确认 → 必须执行 refund_order
+    run_ticket_agent_in_thread(
+        graph,
+        "帮我退款 A1002",
+        thread_id=thread_id,
+        actor_id="demo_user_001",
+    )
+    resumed = resume_ticket_confirmation_interrupt(
+        graph,
+        thread_id=thread_id,
+        approved=True,
+        actor_id="demo_user_001",
+    )
+
+    assert resumed["refund_status"] == "succeeded"
+    assert len(refund_executor.calls) == 1
+    assert refund_executor.calls[0].order_id == "A1002"
+    assert resumed.get("cancel_status") is None
+    assert cancel_executor.calls == []
 
 
 def test_run_ticket_agent_safely_returns_normal_result_when_graph_succeeds(

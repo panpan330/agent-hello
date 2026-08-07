@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.multi_agent_states import SupervisorState
 from app.agents.supervisor.supervisor_router import SupervisorRoute, SupervisorRouter
 from app.agents.ticket_agent import (
+    CancelExecutor,
     OrderQueryExecutor,
     PolicyRagService,
     RefundExecutor,
@@ -15,6 +16,7 @@ from app.agents.ticket_agent import (
     ask_clarifying_question_node,
     build_direct_answer_node,
     build_unsupported_answer_node,
+    has_active_cancel_collection,
     has_active_refund_collection,
     has_active_ticket_field_collection,
     normalize_user_input_node,
@@ -31,6 +33,7 @@ SUPERVISOR_ROUTE_TABLE: dict[SupervisorRoute, str] = {
     SupervisorRoute.ORDER_QUERY: "order_agent",
     SupervisorRoute.TICKET_REQUEST: "ticket_agent",
     SupervisorRoute.REFUND_REQUEST: "ticket_agent",
+    SupervisorRoute.CANCEL_REQUEST: "ticket_agent",
     SupervisorRoute.SMALLTALK: "build_direct_answer",
     SupervisorRoute.UNSUPPORTED: "build_unsupported_answer",
     SupervisorRoute.UNCLEAR: "ask_clarifying_question",
@@ -44,6 +47,7 @@ def build_supervisor_graph(
     order_query_executor: OrderQueryExecutor | None = None,
     ticket_creator: TicketCreator | None = None,
     refund_executor: RefundExecutor | None = None,
+    cancel_executor: CancelExecutor | None = None,
     checkpointer: Any | None = None,
     interrupt_confirmation: bool = False,
 ) -> Any:
@@ -56,6 +60,7 @@ def build_supervisor_graph(
     ticket_graph = build_ticket_worker_graph(
         ticket_creator,
         refund_executor=refund_executor,
+        cancel_executor=cancel_executor,
         interrupt_confirmation=interrupt_confirmation,
     )
 
@@ -63,6 +68,23 @@ def build_supervisor_graph(
     builder.add_node("normalize_user_input", normalize_user_input_node)
 
     def supervisor_route_node(state: SupervisorState) -> SupervisorState:
+        # active-cancel-collection 检查：上一轮取消流程进行中（cancel_request_active
+        # =True 且已抽取部分字段但仍有缺失）时，强制回到取消链继续收集，不经过
+        # supervisor 路由判定。优先级最高：取消/退款草稿同样写
+        # needs_ticket/ticket_fields/missing_ticket_fields，若不先判会把取消/退款
+        # 流程误当工单收集。
+        if has_active_cancel_collection(state):
+            logger.info(
+                "supervisor_active_cancel_collection forcing cancel_request "
+                "missing_fields=%s",
+                state.get("missing_ticket_fields"),
+            )
+            return {
+                "intent": "cancel_request",
+                "intent_reason": "用户正在补充上一轮取消订单流程缺少的信息。",
+                "node_history": ["supervisor_route"],
+            }
+
         # active-refund-collection 检查：上一轮退款流程进行中（refund_request_active
         # =True 且已抽取部分字段但仍有缺失）时，强制回到退款链继续收集，不经过
         # supervisor 路由判定——否则"订单号是 A1001"这类补充消息会被 ORDER_KEYWORDS
@@ -111,6 +133,7 @@ def build_supervisor_graph(
             SupervisorRoute.ORDER_QUERY: "order_query",
             SupervisorRoute.TICKET_REQUEST: "ticket_request",
             SupervisorRoute.REFUND_REQUEST: "refund_request",
+            SupervisorRoute.CANCEL_REQUEST: "cancel_request",
             SupervisorRoute.SMALLTALK: "smalltalk",
             SupervisorRoute.UNSUPPORTED: "unsupported",
             SupervisorRoute.UNCLEAR: "unclear",
@@ -126,11 +149,12 @@ def build_supervisor_graph(
             "intent_reason": f"supervisor routed to {route.value} (source={source})",
             "node_history": ["supervisor_route"],
         }
-        if intent in ("ticket_request", "refund_request"):
-            # 标记工单/退款流程激活，与单 Agent decide_ticket_need 对
-            # ticket_request、handle_refund_request 对 refund_request 的输出一致：
-            # 让 has_active_ticket_field_collection / has_active_refund_collection
-            # 能在多轮中生效。
+        if intent in ("ticket_request", "refund_request", "cancel_request"):
+            # 标记工单/退款/取消流程激活，与单 Agent decide_ticket_need 对
+            # ticket_request、handle_refund_request 对 refund_request、
+            # handle_cancel_request 对 cancel_request 的输出一致：让
+            # has_active_ticket_field_collection / has_active_refund_collection /
+            # has_active_cancel_collection 能在多轮中生效。
             update["needs_ticket"] = True
             update["ticket_need_source"] = "explicit_user_request"
         return update
@@ -153,6 +177,7 @@ def build_supervisor_graph(
             "order_query": SupervisorRoute.ORDER_QUERY,
             "ticket_request": SupervisorRoute.TICKET_REQUEST,
             "refund_request": SupervisorRoute.REFUND_REQUEST,
+            "cancel_request": SupervisorRoute.CANCEL_REQUEST,
             "smalltalk": SupervisorRoute.SMALLTALK,
             "unsupported": SupervisorRoute.UNSUPPORTED,
             "unclear": SupervisorRoute.UNCLEAR,

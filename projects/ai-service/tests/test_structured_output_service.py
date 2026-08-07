@@ -70,7 +70,7 @@ def test_parse_ticket_extraction_json_rejects_schema_mismatch() -> None:
         parse_ticket_extraction_json(
             """
             {
-              "intent": "cancel",
+              "intent": "hack",
               "summary": "用户想取消订单",
               "urgency": "normal",
               "need_human_review": false

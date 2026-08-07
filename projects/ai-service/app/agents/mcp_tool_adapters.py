@@ -7,11 +7,12 @@ from app.core.business_context import get_business_context
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.mcp_clients.product_client import McpToolCaller, create_product_mcp_client
+from app.schemas.cancel import CancelOrderArgs
 from app.schemas.refund import RefundOrderArgs
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
 from app.schemas.tool import QueryOrderArgs, QueryOrderResult
 from app.tools.tool_confirmation import create_tool_confirmation_store
-from app.tools.tool_registry import REFUND_ORDER_TOOL_NAME
+from app.tools.tool_registry import CANCEL_ORDER_TOOL_NAME, REFUND_ORDER_TOOL_NAME
 
 
 CREATE_TICKET_TOOL_NAME = "create_ticket"
@@ -227,35 +228,109 @@ def create_mcp_refund_executor(
     )
 
 
+class McpCancelExecutor:
+    """CancelExecutor that executes cancel_order through the product MCP client."""
+
+    def __init__(
+        self,
+        caller: McpToolCaller,
+        *,
+        settings: Settings | None = None,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> None:
+        self._caller = caller
+        self._settings = settings or get_settings()
+        self._user_id = user_id
+        self._tenant_id = tenant_id
+
+    def cancel_order(
+        self,
+        arguments: CancelOrderArgs,
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        # The requester id is the agent's ticket_actor_id (the authenticated
+        # user). The tenant comes from the injected value or the business
+        # context; both are forwarded to the standalone MCP server so Java
+        # ownership checks see the real caller, not the default fallback.
+        user_id = self._user_id or arguments.requester_id
+        tenant_id = _resolve_tenant_id(injected=self._tenant_id)
+        payload = self._caller.call_tool(
+            CANCEL_ORDER_TOOL_NAME,
+            {
+                "order_id": arguments.order_id,
+                "reason": arguments.reason,
+                "confirmation_id": idempotency_key,
+                "requester_id": arguments.requester_id,
+                "user_confirmed": True,
+                "user_id": user_id,
+                "tenant_id": tenant_id,
+            },
+        )
+        _require_ok(payload, fallback_code="CANCEL_TOOL_ERROR")
+        cancel_payload = payload.get("cancel")
+        if not isinstance(cancel_payload, dict):
+            raise AppException(
+                code="MCP_RESULT_INVALID",
+                message="AI 工具服务返回了无法解析的取消订单结果。",
+                status_code=502,
+            )
+        return cancel_payload
+
+
+def create_mcp_cancel_executor(
+    settings: Settings | None = None,
+    *,
+    caller: McpToolCaller | None = None,
+    user_id: str | None = None,
+    tenant_id: str | None = None,
+) -> McpCancelExecutor:
+    resolved_settings = settings or get_settings()
+    return McpCancelExecutor(
+        caller or create_product_mcp_client(resolved_settings),
+        settings=resolved_settings,
+        user_id=user_id,
+        tenant_id=tenant_id,
+    )
+
+
 def register_ticket_confirmation(
     actor_id: str,
     fields: TicketFields,
     *,
     settings: Settings | None = None,
     is_refund_execution: bool = False,
+    is_cancel_execution: bool = False,
 ) -> str:
     """Register the agent's pending confirmation as confirmed in the shared store.
 
     Returns the confirmation_id that the MCP server will verify.
 
     The registered tool_name reflects the path the agent will actually execute:
-    ``refund_order`` when the confirmation belongs to the refund *execution*
-    flow (refund_request intent → execute_refund_request), and ``create_ticket``
-    otherwise — including refund-typed tickets created through the ordinary
-    ticket flow (ticket_request intent → create_ticket, issue_type=refund).
-    ``is_refund_execution`` is derived by the console agent service from the
-    graph snapshot's ``refund_request_active`` flag; it cannot be inferred from
-    the draft fields alone because a refund-typed ticket draft and a refund
-    execution draft share the same TicketFields shape.  The shared store's
-    require_confirmed gate only checks confirmation_id + actor_id, so this is
-    an audit/attribution concern rather than a functional one.
+    ``cancel_order`` when the confirmation belongs to the cancel *execution*
+    flow (cancel_request intent → execute_cancel_request), ``refund_order`` when
+    it belongs to the refund *execution* flow (refund_request intent →
+    execute_refund_request), and ``create_ticket`` otherwise — including
+    cancel/refund-typed tickets created through the ordinary ticket flow
+    (ticket_request intent → create_ticket).  ``is_cancel_execution`` /
+    ``is_refund_execution`` are derived by the console agent service from the
+    graph snapshot's ``cancel_request_active`` / ``refund_request_active`` flags;
+    they cannot be inferred from the draft fields alone because a typed ticket
+    draft and an execution draft share the same TicketFields shape.  The shared
+    store's require_confirmed gate only checks confirmation_id + actor_id, so
+    this is an audit/attribution concern rather than a functional one.
     """
     from app.agents.ticket_agent import build_pending_ticket_confirmation
 
     resolved_settings = settings or get_settings()
     confirmation_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
     store = create_tool_confirmation_store(resolved_settings)
-    tool_name = REFUND_ORDER_TOOL_NAME if is_refund_execution else CREATE_TICKET_TOOL_NAME
+    tool_name = (
+        CANCEL_ORDER_TOOL_NAME
+        if is_cancel_execution
+        else REFUND_ORDER_TOOL_NAME if is_refund_execution else CREATE_TICKET_TOOL_NAME
+    )
     store.register_confirmed(
         confirmation_id=confirmation_id,
         actor_id=actor_id,

@@ -21,6 +21,7 @@ class SupervisorRoute(StrEnum):
     ORDER_QUERY = "order_query"
     TICKET_REQUEST = "ticket_request"
     REFUND_REQUEST = "refund_request"
+    CANCEL_REQUEST = "cancel_request"
     SMALLTALK = "smalltalk"
     UNSUPPORTED = "unsupported"
     UNCLEAR = "unclear"
@@ -31,6 +32,7 @@ TICKET_INTENT_TO_SUPERVISOR_ROUTE: dict[str, SupervisorRoute] = {
     "order_query": SupervisorRoute.ORDER_QUERY,
     "ticket_request": SupervisorRoute.TICKET_REQUEST,
     "refund_request": SupervisorRoute.REFUND_REQUEST,
+    "cancel_request": SupervisorRoute.CANCEL_REQUEST,
     "smalltalk": SupervisorRoute.SMALLTALK,
     "unsupported": SupervisorRoute.UNSUPPORTED,
     "unclear": SupervisorRoute.UNCLEAR,

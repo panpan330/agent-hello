@@ -8,6 +8,7 @@ from app.rag.generator import (
     build_grounded_rag_answer,
     build_no_context_rag_answer,
 )
+from app.schemas.cancel import CancelOrderArgs
 from app.schemas.refund import RefundOrderArgs
 from app.schemas.structured import TicketExtraction, TicketIntent, TicketUrgency
 from app.schemas.ticket import CreateTicketArgs, CreatedTicket
@@ -198,6 +199,36 @@ class FakeRefundExecutor:
         return self.result or {
             "order_id": arguments.order_id,
             "refund_status": "succeeded",
+        }
+
+
+class FakeCancelExecutor:
+    """In-memory CancelExecutor used to test the cancel flow without Java/MCP."""
+
+    def __init__(
+        self,
+        *,
+        result: Mapping[str, Any] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.calls: list[CancelOrderArgs] = []
+        self.idempotency_keys: list[str] = []
+
+    def cancel_order(
+        self,
+        arguments: CancelOrderArgs,
+        *,
+        idempotency_key: str,
+    ) -> Mapping[str, Any]:
+        self.calls.append(arguments)
+        self.idempotency_keys.append(idempotency_key)
+        if self.error is not None:
+            raise self.error
+        return self.result or {
+            "order_id": arguments.order_id,
+            "order_status": "canceled",
         }
 
 

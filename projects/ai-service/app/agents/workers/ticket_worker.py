@@ -1,15 +1,18 @@
-"""Ticket worker subgraph: ticket creation and refund execution worker paths.
+"""Ticket worker subgraph: ticket creation, refund and cancel worker paths.
 
-Task 8：工单 worker 子图同时承载两条 worker 链——
-1. 工单创建链（intent=ticket_request / 非退款）：extract_ticket_fields → 缺字段追问/
+Task 8：工单 worker 子图同时承载三条 worker 链——
+1. 工单创建链（intent=ticket_request / 非退款非取消）：extract_ticket_fields → 缺字段追问/
    确认 → create_ticket；
 2. 退款执行链（intent=refund_request 或 active-refund-collection）：handle_refund_request
-   → 缺字段追问/确认 → execute_refund_request。
+   → 缺字段追问/确认 → execute_refund_request；
+3. 取消执行链（intent=cancel_request 或 active-cancel-collection）：handle_cancel_request
+   → 缺字段追问/确认 → execute_cancel_request。
 
-退款执行链复用 ticket_agent 主图的 handle_refund_request_node /
-execute_refund_request_node，使多 Agent supervisor 下 refund_request 的行为与单
-Agent 主图一致（收集 order_id+reason → 确认 → 执行 refund_order），而非退化为仅
-创建退款工单（规格 4.4：工单 worker 子图原不支持退款意图，故新增退款节点）。
+退款/取消执行链复用 ticket_agent 主图的 handle_refund_request_node / handle_cancel_request_node /
+execute_refund_request_node / execute_cancel_request_node，使多 Agent supervisor 下
+refund_request/cancel_request 的行为与单 Agent 主图一致（收集 order_id+reason → 确认 → 执行
+refund_order/cancel_order），而非退化为仅创建对应工单（规格 4.4：工单 worker 子图原不支持
+退款/取消意图，故新增对应节点）。
 """
 
 from typing import Any
@@ -20,34 +23,40 @@ from app.agents.multi_agent_states import TicketWorkerState
 from app.agents.ticket_agent import (
     TICKET_AGENT_CONFIRMATION_ROUTES,
     TICKET_AGENT_FIELD_COMPLETION_ROUTES,
+    CancelExecutor,
     RefundExecutor,
     TicketCreator,
     ask_missing_ticket_fields_node,
     create_ticket_node,
+    execute_cancel_request_node,
     execute_refund_request_node,
     extract_ticket_fields_node,
+    handle_cancel_request_node,
     handle_refund_request_node,
+    has_active_cancel_collection,
     has_active_refund_collection,
     request_ticket_confirmation_interrupt_node,
     request_ticket_confirmation_node,
+    route_by_cancel_fields,
     route_by_refund_fields,
     route_by_ticket_confirmation,
 )
 
 
 def route_ticket_worker_entry(state: TicketWorkerState) -> str:
-    """入口分流：退款请求走 handle_refund_request 链，其余走工单字段提取链。
+    """入口分流：取消/退款请求走对应 handle 链，其余走工单字段提取链。
 
-    双判别点（intent 或 active-refund-collection 任一命中即退款）：
-    - 第一轮：supervisor 已分类 intent=refund_request；
-    - 后续轮：supervisor_route_node 的 active-refund-collection 强制
-      intent=refund_request，同时顶层 refund_request_active=True + 仍缺字段
-      （has_active_refund_collection）兜底，防止 LLM 路由误判偏离退款流程。
-    第二判别刻意要求"仍缺字段"：退款字段完整、待确认（missing 为空）时
-    refund_request_active 仍为 True，若仅凭裸标志判断会把用户改口的工单诉求
-    （如"帮我建个报修工单"）劫持进退款链；与 supervisor 两处 active-collection
-    守卫语义一致。
+    双判别点（intent 或 active-collection 任一命中即对应链）：
+    - 第一轮：supervisor 已分类 intent=cancel_request / refund_request；
+    - 后续轮：supervisor_route_node 的 active-collection 强制对应 intent，同时顶层
+      cancel_request_active / refund_request_active=True + 仍缺字段兜底，防止
+      LLM 路由误判偏离取消/退款流程。
+    第二判别刻意要求"仍缺字段"：字段完整、待确认（missing 为空）时 active 标志仍为
+    True，若仅凭裸标志判断会把用户改口的工单诉求（如"帮我建个报修工单"）劫持进
+    取消/退款链；与 supervisor 各处 active-collection 守卫语义一致。
     """
+    if state.get("intent") == "cancel_request" or has_active_cancel_collection(state):
+        return "handle_cancel_request"
     if (
         state.get("intent") == "refund_request"
         or has_active_refund_collection(state)
@@ -56,25 +65,27 @@ def route_ticket_worker_entry(state: TicketWorkerState) -> str:
     return "extract_ticket_fields"
 
 
-def _extract_ticket_fields_reset_refund_flag(
+def _extract_ticket_fields_reset_flags(
     state: TicketWorkerState,
 ) -> TicketWorkerState:
-    """进入工单创建链前的字段抽取：清除残留的退款活动标志。
+    """进入工单创建链前的字段抽取：清除残留的退款/取消活动标志。
 
-    退款流程停在待确认时 refund_request_active 仍为 True（handle_refund_request
-    写入，工单链不清除）。若用户随后改口建工单，抽取出的工单字段走
-    request_ticket_confirmation → route_by_ticket_confirmation 时会因该残留标志
-    被误路由到 execute_refund_request（真实执行退款，用工单 description 当退款
-    原因）。入口路由已保证走到本节点的都是非退款链（intent != refund_request 且
-    无 active-refund-collection），因此在此显式归零标志，使确认路由正确分流到
-    execute_create_ticket。退款链走 handle_refund_request，不受影响。
+    退款/取消流程停在待确认时 refund_request_active / cancel_request_active 仍为
+    True（handle_*_request_node 写入，工单链不清除）。若用户随后改口建工单，抽取
+    出的工单字段走 request_ticket_confirmation → route_by_ticket_confirmation 时会
+    因该残留标志被误路由到 execute_refund_request / execute_cancel_request（真实
+    执行退款/取消，用工单 description 当原因）。入口路由已保证走到本节点的都是非
+    退款/取消链，因此在此显式归零标志，使确认路由正确分流到 execute_create_ticket。
+    退款/取消链走 handle_*_request_node，不受影响。
     """
     update = extract_ticket_fields_node(state)
     update["refund_request_active"] = False
+    update["cancel_request_active"] = False
     return update
 
 
 TICKET_WORKER_ENTRY_ROUTES = {
+    "handle_cancel_request": "handle_cancel_request",
     "handle_refund_request": "handle_refund_request",
     "extract_ticket_fields": "extract_ticket_fields",
 }
@@ -87,6 +98,7 @@ def build_ticket_worker_graph(
     ticket_creator: TicketCreator | None = None,
     *,
     refund_executor: RefundExecutor | None = None,
+    cancel_executor: CancelExecutor | None = None,
     checkpointer: Any | None = None,
     interrupt_confirmation: bool = False,
 ) -> Any:
@@ -98,11 +110,15 @@ def build_ticket_worker_graph(
     )
     builder.add_node(
         "extract_ticket_fields",
-        _extract_ticket_fields_reset_refund_flag,
+        _extract_ticket_fields_reset_flags,
     )
     builder.add_node(
         "handle_refund_request",
         lambda state: handle_refund_request_node(state),
+    )
+    builder.add_node(
+        "handle_cancel_request",
+        lambda state: handle_cancel_request_node(state),
     )
     builder.add_node("ask_missing_ticket_fields", ask_missing_ticket_fields_node)
     builder.add_node(
@@ -124,6 +140,13 @@ def build_ticket_worker_graph(
             refund_executor=refund_executor,
         ),
     )
+    builder.add_node(
+        "execute_cancel_request",
+        lambda state: execute_cancel_request_node(
+            state,
+            cancel_executor=cancel_executor,
+        ),
+    )
     builder.add_conditional_edges(
         "extract_ticket_fields",
         lambda state: (
@@ -138,9 +161,15 @@ def build_ticket_worker_graph(
         route_by_refund_fields,
         TICKET_AGENT_FIELD_COMPLETION_ROUTES,
     )
+    builder.add_conditional_edges(
+        "handle_cancel_request",
+        route_by_cancel_fields,
+        TICKET_AGENT_FIELD_COMPLETION_ROUTES,
+    )
     builder.add_edge("ask_missing_ticket_fields", END)
     builder.add_edge("create_ticket", END)
     builder.add_edge("execute_refund_request", END)
+    builder.add_edge("execute_cancel_request", END)
     builder.add_conditional_edges(
         "request_ticket_confirmation",
         route_by_ticket_confirmation,

@@ -31,6 +31,13 @@ class SupervisorState(TypedDict, total=False):
     refund_error_code: str | None
     refund_error_message: str | None
     refund_result: dict | None
+    # cancel 执行字段（ticket worker 取消链输出，顶层读取供监督层编排与
+    # console 确认分流 is_cancel_execution；active 标志用于多轮 active-collection）
+    cancel_request_active: bool | None
+    cancel_status: str | None
+    cancel_error_code: str | None
+    cancel_error_message: str | None
+    cancel_result: dict | None
     # order worker 子图输出（顶层读取失败状态，供转人工/错误处理编排）
     order_query_order_id: str | None
     order_query_status: str
@@ -112,6 +119,11 @@ class TicketWorkerState(TypedDict, total=False):
     refund_error_code: str | None
     refund_error_message: str | None
     refund_result: dict | None
+    cancel_request_active: bool | None
+    cancel_status: str | None
+    cancel_error_code: str | None
+    cancel_error_message: str | None
+    cancel_result: dict | None
     final_answer: str | None
     node_history: Annotated[list[str], add]
 
@@ -132,6 +144,11 @@ SUPERVISOR_OUTPUT_KEYS = frozenset(
         "refund_error_code",
         "refund_error_message",
         "refund_result",
+        "cancel_request_active",
+        "cancel_status",
+        "cancel_error_code",
+        "cancel_error_message",
+        "cancel_result",
         "agent_error_code",
         "agent_error_message",
         "order_query_order_id",

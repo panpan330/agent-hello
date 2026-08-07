@@ -57,7 +57,7 @@ def test_ticket_extraction_turns_blank_order_id_into_none() -> None:
 def test_ticket_extraction_rejects_unknown_intent() -> None:
     with pytest.raises(ValidationError) as exc_info:
         TicketExtraction(
-            intent="cancel",
+            intent="hack",
             order_id=None,
             summary="用户想取消订单",
             urgency="normal",

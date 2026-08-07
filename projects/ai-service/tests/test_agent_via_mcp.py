@@ -277,6 +277,36 @@ def test_register_ticket_confirmation_refund_draft_without_execution_uses_create
     assert record.tool_name == "create_ticket"
 
 
+def test_register_ticket_confirmation_cancel_execution_uses_cancel_order() -> None:
+    """A cancel *execution* draft registers under cancel_order so the
+    confirmation is attributed to the cancel tool rather than create_ticket."""
+    from app.agents.ticket_agent import build_pending_ticket_confirmation
+
+    fields = {
+        "issue_type": "cancel",
+        "order_id": "A1002",
+        "description": "不想要了，取消订单 A1002",
+        "user_request": "订单取消处理",
+        "urgency": "normal",
+        "need_human_review": True,
+    }
+    confirmation_id = register_ticket_confirmation(
+        actor_id="user_001",
+        fields=fields,
+        settings=_settings(),
+        is_cancel_execution=True,
+    )
+    expected_id = build_pending_ticket_confirmation(fields)["confirmation_id"]
+    assert confirmation_id == expected_id
+
+    from app.tools.tool_confirmation import create_tool_confirmation_store
+
+    store = create_tool_confirmation_store(_settings())
+    record = store.require_confirmed(confirmation_id, actor_id="user_001")
+    assert record.status.value == "confirmed"
+    assert record.tool_name == "cancel_order"
+
+
 def test_create_mcp_ticket_creator_builds_from_settings() -> None:
     creator = create_mcp_ticket_creator(
         Settings(
