@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -78,6 +79,7 @@ class EvalRunContext(BaseModel):
     code_version: str = "local"
     evaluator_version: str = "eval-platform-v1"
     notes: str = ""
+    started_at: datetime | None = None
 
     @field_validator(
         "run_id",
@@ -206,6 +208,8 @@ def build_agent_eval_run_snapshot(
     *,
     context: EvalRunContext,
 ) -> EvalRunSnapshot:
+    if context.started_at is None:
+        context = context.model_copy(update={"started_at": datetime.now(timezone.utc)})
     evaluated_checks = sum(suite.case_count for suite in report.suite_reports)
     failed_checks = sum(suite.failed_case_count for suite in report.suite_reports)
     passed_checks = evaluated_checks - failed_checks

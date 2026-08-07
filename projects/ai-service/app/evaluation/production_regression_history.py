@@ -17,11 +17,17 @@ class ProductionRegressionRunHistory(BaseModel):
     runs: list[ProductionRegressionRun] = Field(default_factory=list)
 
 
-def load_latest_production_regression_run(path: Path) -> ProductionRegressionRun | None:
+def load_production_regression_runs(path: Path) -> list[ProductionRegressionRun]:
+    """Return all stored production regression runs in saved order (oldest first), or [] if none exist."""
     if not path.exists():
-        return None
+        return []
     history = ProductionRegressionRunHistory.model_validate_json(path.read_text(encoding="utf-8"))
-    return history.runs[-1] if history.runs else None
+    return history.runs
+
+
+def load_latest_production_regression_run(path: Path) -> ProductionRegressionRun | None:
+    runs = load_production_regression_runs(path)
+    return runs[-1] if runs else None
 
 
 def append_production_regression_run(path: Path, run: ProductionRegressionRun) -> ProductionRegressionRun:

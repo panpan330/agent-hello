@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import logging
+from datetime import datetime, timezone
 
 import pytest
 
@@ -25,7 +26,9 @@ from app.evaluation.eval_platform import (
 )
 from app.evaluation.snapshot_store import SnapshotStore
 from app.agents.eval_suite import run_agent_eval_suites
+from app.evaluation.production_regression import ProductionRegressionRun
 from app.evaluation.production_regression import run_production_bad_case_regression
+from app.evaluation.production_regression_history import append_production_regression_run
 from app.services.console_agent_service import ConsoleAgentActor
 
 
@@ -686,3 +689,87 @@ def test_promote_degrades_when_registry_relink_fails(
     assert response.status_code == 200
     assert response.json()["written_case_id"]
     assert "bad_case_relink_failed" in caplog.text
+
+
+def test_history_returns_agent_and_regression_sequences(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    snapshot_path = tmp_path / "agent_eval_snapshots.json"
+    history_path = tmp_path / "production_regression_runs.json"
+    app.dependency_overrides[get_eval_snapshot_store_path] = lambda: snapshot_path
+    app.dependency_overrides[get_production_regression_history_path] = lambda: history_path
+
+    store = SnapshotStore(snapshot_path)
+    store.save(
+        _overview_snapshot(
+            EvalRunContext(
+                run_id="run-001",
+                dataset_name="agent_eval",
+                dataset_version="stage6-v1",
+                candidate_version="prompt-v1",
+                started_at=datetime(2026, 8, 7, 10, 0, 0, tzinfo=timezone.utc),
+            ),
+            passed=True,
+        )
+    )
+    store.save(
+        _overview_snapshot(
+            EvalRunContext(
+                run_id="run-002",
+                dataset_name="agent_eval",
+                dataset_version="stage6-v1",
+                candidate_version="prompt-v2",
+                started_at=datetime(2026, 8, 7, 11, 0, 0, tzinfo=timezone.utc),
+            ),
+            passed=False,
+        )
+    )
+    append_production_regression_run(
+        history_path,
+        ProductionRegressionRun(
+            run_id="reg-001",
+            started_at=datetime(2026, 8, 7, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2026, 8, 7, 12, 0, 5, tzinfo=timezone.utc),
+            total_case_count=2,
+            passed_case_count=2,
+            failed_case_count=0,
+            not_ready_case_count=0,
+            error_case_count=0,
+            passed=True,
+            results=[],
+        ),
+    )
+
+    response = client.get("/api/ai/evaluation/history")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["agent_eval"]) == 2
+    assert [point["check_pass_rate"] for point in data["agent_eval"]] == [1.0, 0.9]
+    assert all(point["started_at"] for point in data["agent_eval"])
+    assert len(data["production_regression"]) == 1
+    point = data["production_regression"][0]
+    assert point["started_at"] == "2026-08-07T12:00:00+00:00"
+    assert point["passed"] == 2
+    assert point["total"] == 2
+    assert point["pass_rate"] == 1.0
+
+
+def test_history_returns_empty_arrays_when_no_data(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    app.dependency_overrides[get_eval_snapshot_store_path] = (
+        lambda: tmp_path / "missing-snapshots.json"
+    )
+    app.dependency_overrides[get_production_regression_history_path] = (
+        lambda: tmp_path / "missing-history.json"
+    )
+
+    response = client.get("/api/ai/evaluation/history")
+
+    assert response.status_code == 200
+    assert response.json() == {"agent_eval": [], "production_regression": []}

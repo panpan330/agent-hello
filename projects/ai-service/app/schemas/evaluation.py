@@ -68,6 +68,19 @@ class ProductionRegressionRunView(BaseModel):
     results: list[ProductionRegressionCaseResultView] = Field(default_factory=list)
 
 
+class EvaluationHistoryPoint(BaseModel):
+    started_at: str | None = None
+    check_pass_rate: float | None = None
+    passed: int | None = None
+    total: int | None = None
+    pass_rate: float | None = None
+
+
+class EvaluationHistoryView(BaseModel):
+    agent_eval: list[EvaluationHistoryPoint] = Field(default_factory=list)
+    production_regression: list[EvaluationHistoryPoint] = Field(default_factory=list)
+
+
 class BadCaseSummaryView(BaseModel):
     record_count: int
     open_count: int

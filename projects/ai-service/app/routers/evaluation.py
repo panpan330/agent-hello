@@ -32,6 +32,7 @@ from app.evaluation.production_regression import (
 from app.evaluation.production_regression_history import (
     append_production_regression_run,
     load_latest_production_regression_run,
+    load_production_regression_runs,
 )
 from app.evaluation.eval_platform import (
     EvalDatasetManifest,
@@ -47,6 +48,8 @@ from app.schemas.evaluation import (
     BadCaseItemView,
     BadCaseSummaryView,
     EvaluationDatasetView,
+    EvaluationHistoryPoint,
+    EvaluationHistoryView,
     EvaluationMetricView,
     EvaluationOverviewResponse,
     EvaluationRunOverview,
@@ -317,6 +320,44 @@ def evaluation_overview(
         ),
         baseline_comparison=baseline_comparison,
         trace_id=get_trace_id(),
+    )
+
+
+@router.get("/history", response_model=EvaluationHistoryView)
+def get_evaluation_history(
+    snapshot_store_path: Path = Depends(get_eval_snapshot_store_path),
+    regression_history_path: Path = Depends(get_production_regression_history_path),
+) -> EvaluationHistoryView:
+    """Return per-run metric history for the trend chart (Task 3 consumer)."""
+    snapshots = SnapshotStore(snapshot_store_path).load_all()
+    agent_eval = [
+        EvaluationHistoryPoint(
+            started_at=(
+                snapshot.context.started_at.isoformat()
+                if snapshot.context.started_at is not None
+                else None
+            ),
+            check_pass_rate=snapshot.metric_map()["check_pass_rate"].value,
+        )
+        for snapshot in snapshots
+    ]
+    regression_runs = load_production_regression_runs(regression_history_path)
+    production_regression = [
+        EvaluationHistoryPoint(
+            started_at=run.started_at.isoformat(),
+            passed=run.passed_case_count,
+            total=run.total_case_count,
+            pass_rate=(
+                round(run.passed_case_count / run.total_case_count, 6)
+                if run.total_case_count > 0
+                else 0.0
+            ),
+        )
+        for run in regression_runs
+    ]
+    return EvaluationHistoryView(
+        agent_eval=agent_eval,
+        production_regression=production_regression,
     )
 
 

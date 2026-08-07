@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 
 import json
@@ -307,4 +308,37 @@ def _suite_report(
         passed=failed_case_count == 0,
         summary_lines=[],
         bad_case_lines=[],
+    )
+
+
+def test_eval_run_context_carries_started_at() -> None:
+    report = _agent_report(passed=True, intent_failed=0, route_failed=0)
+    context = _context(run_id="run-started-at", candidate_version="prompt-v1")
+    assert context.started_at is None
+
+    snapshot = build_agent_eval_run_snapshot(report, context=context)
+
+    assert snapshot.context.started_at is not None
+    assert snapshot.context.started_at.utcoffset() == timedelta(0)
+
+
+def test_snapshot_store_load_all_returns_ordered_snapshots(tmp_path: Path) -> None:
+    store = SnapshotStore(tmp_path / "snapshots.json")
+    for index in range(3):
+        store.save(
+            build_agent_eval_run_snapshot(
+                _agent_report(passed=True, intent_failed=0, route_failed=0),
+                context=_context(
+                    run_id=f"run-{index:03d}",
+                    candidate_version=f"prompt-v{index}",
+                ),
+            )
+        )
+
+    loaded = store.load_all()
+
+    assert [item.context.run_id for item in loaded] == ["run-000", "run-001", "run-002"]
+    assert all(
+        loaded[index].context.started_at <= loaded[index + 1].context.started_at
+        for index in range(len(loaded) - 1)
     )

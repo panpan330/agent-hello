@@ -32,15 +32,13 @@ class SnapshotStore:
 
     def load_latest(self) -> EvalRunSnapshot | None:
         """Return the most recently saved snapshot, or None if none exists."""
-        if not self._path.exists():
-            return None
-        snapshots = self._load_all()
+        snapshots = self.load_all()
         return snapshots[-1] if snapshots else None
 
     def save(self, snapshot: EvalRunSnapshot) -> None:
         """Atomically append ``snapshot``, trimming to the newest ``max_snapshots``."""
         with _store_lock:
-            snapshots = self._load_all() if self._path.exists() else []
+            snapshots = self.load_all()
             snapshots.append(snapshot)
             trimmed = snapshots[-self._max_snapshots :]
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,6 +53,9 @@ class SnapshotStore:
             )
             temporary.replace(self._path)
 
-    def _load_all(self) -> list[EvalRunSnapshot]:
+    def load_all(self) -> list[EvalRunSnapshot]:
+        """Return all saved snapshots in saved order (oldest first), or [] if none exist."""
+        if not self._path.exists():
+            return []
         raw_items = json.loads(self._path.read_text(encoding="utf-8"))
         return [EvalRunSnapshot.model_validate(item) for item in raw_items]
