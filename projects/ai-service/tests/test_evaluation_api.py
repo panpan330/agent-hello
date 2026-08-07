@@ -772,7 +772,7 @@ def test_history_returns_empty_arrays_when_no_data(
     response = client.get("/api/ai/evaluation/history")
 
     assert response.status_code == 200
-    assert response.json() == {"agent_eval": [], "production_regression": []}
+    assert response.json() == {"agent_eval": [], "production_regression": [], "rag_retrieval": []}
 
 
 def test_history_degrades_gracefully_when_data_files_corrupted(
@@ -793,7 +793,7 @@ def test_history_degrades_gracefully_when_data_files_corrupted(
     response = client.get("/api/ai/evaluation/history")
 
     assert response.status_code == 200
-    assert response.json() == {"agent_eval": [], "production_regression": []}
+    assert response.json() == {"agent_eval": [], "production_regression": [], "rag_retrieval": []}
     assert "history_load_failed" in caplog.text
 
 
