@@ -164,7 +164,7 @@ def _enhanced_rag_answer_inner(query, *, settings, access_scope=None) -> RagAnsw
     # 6. context compression
     if getattr(settings, "rag_enable_context_compression", False):
         compression = compress_retrieved_context(working_query, reranked)
-        reranked = [c for c in compression.kept_chunks if c is not None] if hasattr(compression, "kept_chunks") else reranked
+        reranked = list(compression.compressed_chunks)
 
     # 7. generate
     answer = create_rag_answer_service(settings).generate_answer_with_citations(

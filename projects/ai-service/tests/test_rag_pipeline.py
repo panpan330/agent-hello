@@ -174,3 +174,53 @@ def test_enhanced_pipeline_reroutes_config_missing(monkeypatch) -> None:
         assert exc.code == "RAG_EMBEDDING_CONFIG_MISSING"
         return
     raise AssertionError("expected AppException for missing embedding config")
+
+
+def test_context_compression_enabled_uses_compressed_chunks(monkeypatch) -> None:
+    """RAG_ENABLE_CONTEXT_COMPRESSION=true：压缩结果传给生成器。"""
+    from app.rag.documents import RetrievedChunk
+    from app.rag.context_compression import ContextCompressionReport
+
+    import app.rag.pipeline as pipe
+
+    settings = _settings(rag_enable_context_compression=True)
+    chunk = RetrievedChunk(
+        point_id="p1",
+        chunk_id="c1",
+        content="退款政策七天无理由",
+        metadata={"source": "refund-return-policy.md"},
+        score=0.9,
+    )
+    monkeypatch.setattr(pipe, "_retrieve", lambda q, **kw: [chunk])
+    monkeypatch.setattr(pipe, "_rerank", lambda q, chunks, settings: chunks)
+
+    captured = {}
+
+    def fake_compress(query, chunks, *, policy=None):
+        captured["n_in"] = len(chunks)
+        return ContextCompressionReport(
+            query=query,
+            budget_chars=1800,
+            original_total_chars=10,
+            final_total_chars=10,
+            saved_chars=0,
+            input_chunk_count=len(chunks),
+            kept_chunk_count=len(chunks),
+            compressed_chunk_count=len(chunks),
+            dropped_chunk_count=0,
+            compressed_chunks=list(chunks),
+        )
+
+    monkeypatch.setattr(pipe, "compress_retrieved_context", fake_compress)
+    monkeypatch.setattr(
+        pipe,
+        "create_rag_answer_service",
+        lambda s: type(
+            "Svc",
+            (),
+            {"generate_answer_with_citations": lambda self, q, chunks: captured.__setitem__("n_out", len(chunks)) or (_fake_rag_answer())},
+        )(),
+    )
+    pipe.enhanced_rag_answer("退款政策", settings=settings)
+    assert captured["n_in"] == 1
+    assert captured["n_out"] == 1

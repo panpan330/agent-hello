@@ -29,17 +29,8 @@ from app.core.business_context import reset_business_context, set_business_conte
 from app.core.config import Settings
 from app.core.exceptions import AppException
 from app.core.trace import build_trace_headers, get_trace_id
-from app.rag.embeddings import OpenAICompatibleEmbeddingModel
 from app.rag.generator import RagAnswer, create_rag_answer_service
 from app.rag.pipeline import enhanced_rag_answer
-from app.rag.rerank import (
-    HttpReranker,
-    make_rerank_candidates_from_retrieved_chunks,
-    rerank_with_fallback,
-    reranked_chunks_to_retrieved_chunks,
-)
-from app.rag.retriever import retrieve_top_k
-from app.rag.vector_store import QdrantVectorStore
 from app.schemas.console_agent import (
     ConsoleAgentConversation,
     ConsoleAgentConversationSummary,
