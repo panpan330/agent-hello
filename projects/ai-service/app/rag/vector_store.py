@@ -71,13 +71,51 @@ class QdrantVectorStore:
         self.transport = transport
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "QdrantVectorStore":
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        collection_name: str | None = None,
+    ) -> "QdrantVectorStore":
         return cls(
             base_url=settings.resolved_qdrant_base_url,
-            collection_name=settings.qdrant_collection_name,
+            collection_name=collection_name or settings.qdrant_collection_name,
             timeout_seconds=settings.qdrant_timeout_seconds,
             api_key=settings.qdrant_api_key,
         )
+
+    def list_collections(self) -> list[str]:
+        path = "/collections"
+        try:
+            with self._client() as client:
+                response = client.get(path)
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            body = response.json()
+            return [
+                item["name"]
+                for item in body.get("result", {}).get("collections", [])
+            ]
+        except QdrantVectorStoreError:
+            raise
+        except Exception as exc:
+            raise QdrantVectorStoreError("failed to list collections") from exc
+
+    def count_points(self) -> int:
+        path = f"/collections/{self.collection_name}"
+        try:
+            with self._client() as client:
+                response = client.get(path)
+            if response.status_code == 404:
+                return 0
+            response.raise_for_status()
+            body = response.json()
+            return int(body.get("result", {}).get("points_count", 0))
+        except QdrantVectorStoreError:
+            raise
+        except Exception as exc:
+            raise QdrantVectorStoreError("failed to count points") from exc
 
     def ensure_collection(self, *, vector_size: int, distance: str = "Cosine") -> None:
         _validate_vector_size(vector_size)

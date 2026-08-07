@@ -589,3 +589,51 @@ def test_scroll_all_passes_offset_to_second_page() -> None:
     assert len(requests) == 2
     assert requests[0].get("offset") is None
     assert requests[1].get("offset") == 42
+
+
+def make_settings(**overrides) -> Settings:
+    base = {
+        "qdrant_base_url": "http://qdrant.test",
+        "qdrant_collection_name": "learning_rag_chunks_v4_1024",
+        "qdrant_timeout_seconds": 1.0,
+        "qdrant_api_key": None,
+    }
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_from_settings_accepts_collection_name_override() -> None:
+    store = QdrantVectorStore.from_settings(
+        make_settings(), collection_name="kb_customer_policy"
+    )
+    assert store.collection_name == "kb_customer_policy"
+
+
+def test_from_settings_defaults_to_settings_collection() -> None:
+    store = QdrantVectorStore.from_settings(make_settings())
+    assert store.collection_name == "learning_rag_chunks_v4_1024"
+
+
+def test_list_collections_returns_names() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/collections"
+        body = {
+            "result": {
+                "collections": [
+                    {"name": "kb_customer_policy"},
+                    {"name": "kb_account_security"},
+                ]
+            }
+        }
+        return httpx.Response(200, json=body)
+
+    store = make_store(handler)
+    assert store.list_collections() == ["kb_customer_policy", "kb_account_security"]
+
+
+def test_count_points_returns_zero_when_collection_missing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"status": {"error": "Not found"}})
+
+    store = make_store(handler)
+    assert store.count_points() == 0
