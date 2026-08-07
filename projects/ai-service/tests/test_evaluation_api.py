@@ -775,6 +775,28 @@ def test_history_returns_empty_arrays_when_no_data(
     assert response.json() == {"agent_eval": [], "production_regression": []}
 
 
+def test_history_degrades_gracefully_when_data_files_corrupted(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    snapshot_path = tmp_path / "agent_eval_snapshots.json"
+    history_path = tmp_path / "production_regression_runs.json"
+    app.dependency_overrides[get_eval_snapshot_store_path] = lambda: snapshot_path
+    app.dependency_overrides[get_production_regression_history_path] = lambda: history_path
+    # 快照文件与历史文件内容损坏（截断 JSON）：history 应降级为空序列，仍 200。
+    snapshot_path.write_text('{"broken": "json"', encoding="utf-8")
+    history_path.write_text('{"schema_version": "stage11.production_regression_runs.v1", "runs": [{"broken"', encoding="utf-8")
+    caplog.set_level(logging.WARNING)
+
+    response = client.get("/api/ai/evaluation/history")
+
+    assert response.status_code == 200
+    assert response.json() == {"agent_eval": [], "production_regression": []}
+    assert "history_load_failed" in caplog.text
+
+
 def test_reports_latest_agent_returns_markdown(
     app: FastAPI,
     client: TestClient,

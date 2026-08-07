@@ -333,8 +333,16 @@ def get_evaluation_history(
     snapshot_store_path: Path = Depends(get_eval_snapshot_store_path),
     regression_history_path: Path = Depends(get_production_regression_history_path),
 ) -> EvaluationHistoryView:
-    """Return per-run metric history for the trend chart (Task 3 consumer)."""
-    snapshots = SnapshotStore(snapshot_store_path).load_all()
+    """Return per-run metric history for the trend chart (Task 3 consumer).
+
+    历史文件是附属数据：快照/历史文件损坏（JSON 解析/model_validate 失败）
+    只降级为告警日志，端点仍返回 200 与空序列，不阻断趋势图。
+    """
+    try:
+        snapshots = SnapshotStore(snapshot_store_path).load_all()
+    except (OSError, ValueError) as exc:
+        logger.warning("history_load_failed path=%s error=%s", snapshot_store_path, exc)
+        snapshots = []
     agent_eval = [
         EvaluationHistoryPoint(
             started_at=(
@@ -346,7 +354,11 @@ def get_evaluation_history(
         )
         for snapshot in snapshots
     ]
-    regression_runs = load_production_regression_runs(regression_history_path)
+    try:
+        regression_runs = load_production_regression_runs(regression_history_path)
+    except (OSError, ValueError) as exc:
+        logger.warning("history_load_failed path=%s error=%s", regression_history_path, exc)
+        regression_runs = []
     production_regression = [
         EvaluationHistoryPoint(
             started_at=run.started_at.isoformat(),
