@@ -86,7 +86,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        String fingerprint = fingerprint(orderId, reason, context.userId());
+        String fingerprint = fingerprint(orderId, reason, context.userId(), "refund");
 
         Optional<Order> idempotent = findRefundedOrderByIdempotency(context, normalizedKey, fingerprint);
         if (idempotent.isPresent()) {
@@ -131,7 +131,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        String fingerprint = fingerprint(orderId, reason, context.userId());
+        String fingerprint = fingerprint(orderId, reason, context.userId(), "cancel");
 
         Optional<Order> idempotent = findCanceledOrderByIdempotency(context, normalizedKey, fingerprint);
         if (idempotent.isPresent()) {
@@ -391,8 +391,12 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private String fingerprint(String orderId, String reason, String userId) {
-        String source = orderId + "\n" + (reason == null ? "" : reason) + "\n" + userId;
+    // fingerprint 纳入操作类型：cancel/refund 共享同一幂等键命名空间
+    // （order_events.uk_order_events_tenant_idempotency 唯一键），不带 operation 会让
+    // 同一幂等键跨操作静默误命中，返回成功但实际未执行。带 operation 后同 key 跨操作
+    // fingerprint 不同 → IDEMPOTENCY_KEY_CONFLICT。
+    private String fingerprint(String orderId, String reason, String userId, String operation) {
+        String source = orderId + "\n" + (reason == null ? "" : reason) + "\n" + userId + "\n" + operation;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(source.getBytes(StandardCharsets.UTF_8));

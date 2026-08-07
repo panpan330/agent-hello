@@ -77,6 +77,7 @@
         WHERE tenant_id = #{tenantId}
           AND order_id = #{orderId}
           AND payment_status != 'refunded'
+          AND order_status != 'canceled'
     </update>
 
     <update id="updateCancelState">
@@ -88,7 +89,8 @@
             updated_at = #{updatedAt}
         WHERE tenant_id = #{tenantId}
           AND order_id = #{orderId}
-          AND order_status != 'canceled'
+          AND order_status = 'waiting_shipment'
+          AND payment_status != 'refunded'
     </update>
 
     <resultMap id="OrderEventResultMap" type="com.panpan.aibusinessservice.entity.OrderEvent">

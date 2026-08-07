@@ -455,10 +455,54 @@ class InternalOrderControllerTest {
         );
         assertThat(first).isEqualTo(1);
 
-        // WHERE order_status != 'canceled' 已挡住重复更新（模拟并发下另一请求已取消）
+        // WHERE order_status = 'waiting_shipment' 已挡住重复更新（模拟并发下另一请求已取消）
         int second = orderMapper.updateCancelState(
                 "default", "A1002", "canceled", canceledAt, "重复", "订单已取消", updatedAt
         );
         assertThat(second).isEqualTo(0);
+    }
+
+    @Test
+    void updateCancelStateSkipsRefundedRow() {
+        // 先置 refunded（模拟并发下退款先提交），取消 UPDATE 必须返回 0，
+        // 避免同一订单出现 canceled + refunded 双终态
+        LocalDateTime refundedAt = LocalDateTime.now();
+        Instant updatedAt = Instant.now();
+        orderMapper.updateRefundState(
+                "default", "A1002", "refunded", new BigDecimal("159.00"), refundedAt, "退款", "退款成功", updatedAt
+        );
+
+        LocalDateTime canceledAt = LocalDateTime.now();
+        int updated = orderMapper.updateCancelState(
+                "default", "A1002", "canceled", canceledAt, "取消", "订单已取消", updatedAt
+        );
+        assertThat(updated).isEqualTo(0);
+    }
+
+    @Test
+    void cancelThenRefundWithSameKeyIsIdempotencyConflict() throws Exception {
+        String idempotencyKey = "cancel-refund-conflict-001";
+
+        // 先 cancel 成功
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"先取消\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.order_status").value("canceled"));
+
+        // 同一幂等键换 refund 操作：fingerprint 含操作类型，必须 409 冲突
+        // 而不是静默误命中返回成功
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"先取消\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
     }
 }
