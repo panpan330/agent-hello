@@ -215,46 +215,11 @@ class ProductionPolicyRagService:
         self.settings = settings
 
     def answer_policy_question(self, query: str) -> RagAnswer:
-        try:
-            embedding_model = OpenAICompatibleEmbeddingModel.from_settings(self.settings)
-        except ValueError as exc:
-            raise AppException(
-                code="RAG_EMBEDDING_CONFIG_MISSING",
-                message="RAG embedding configuration is incomplete.",
-                status_code=500,
-            ) from exc
+        from app.rag.pipeline import enhanced_rag_answer
 
-        try:
-            reranker = HttpReranker.from_settings(self.settings)
-        except ValueError as exc:
-            raise AppException(
-                code="RAG_RERANK_CONFIG_MISSING",
-                message="RAG rerank configuration is incomplete.",
-                status_code=500,
-            ) from exc
-
-        retrieved_chunks = retrieve_top_k(
+        return enhanced_rag_answer(
             query,
-            embedding_model=embedding_model,
-            vector_store=QdrantVectorStore.from_settings(self.settings),
-            top_k=self.settings.rerank_candidate_count,
-            # 对话场景默认不限权限（None 语义，与 ask_rag 端点传参模式一致）；
-            # 阶段 2 enhanced pipeline 可传真实 access_scope。
-            access_scope=None,
-            permission_group=None,
-            business_domain=None,
-            doc_type=None,
-            source=None,
-        )
-        rerank_result = rerank_with_fallback(
-            query,
-            make_rerank_candidates_from_retrieved_chunks(retrieved_chunks),
-            primary_reranker=reranker,
-            top_k=self.settings.rerank_top_n,
-        )
-        return create_rag_answer_service(self.settings).generate_answer_with_citations(
-            query,
-            chunks=reranked_chunks_to_retrieved_chunks(rerank_result.results),
+            settings=self.settings,
         )
 
 

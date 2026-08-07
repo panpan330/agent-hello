@@ -529,7 +529,7 @@ class LLMRagKnowledgeRouter:
             raise ValueError("LLM returned no valid knowledge base ids")
         return _build_decision(
             normalized_query=query.strip(),
-            intent="policy_question",
+            intent="policy_lookup",
             should_use_rag=True,
             routes=routes,
         )
