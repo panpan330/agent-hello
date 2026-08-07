@@ -593,6 +593,89 @@ class PublicOrderTicketControllerTest {
                 .andExpect(jsonPath("$.code").value("ORDER_ACCESS_DENIED"));
     }
 
+    @Test
+    @Transactional
+    void customerCanCancelOwnUnshippedOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1002/cancel")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-cancel-own")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"七天无理由取消\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.order_id").value("A1002"))
+                .andExpect(jsonPath("$.data.order_status").value("canceled"))
+                .andExpect(jsonPath("$.data.payment_status").value("paid"))
+                .andExpect(jsonPath("$.data.cancel_reason").value("七天无理由取消"))
+                .andExpect(jsonPath("$.data.latest_event").value("订单已取消"));
+    }
+
+    @Test
+    @Transactional
+    void customerCannotCancelShippedOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1001/cancel")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-cancel-shipped")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"想取消\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_CANCELABLE"));
+    }
+
+    @Test
+    void customerCannotCancelWithoutToken() throws Exception {
+        mockMvc.perform(
+                        post("/api/orders/A1002/cancel")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-cancel-no-token")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"七天无理由取消\"}")
+                )
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("AUTH_REQUIRED"));
+    }
+
+    @Test
+    void customerCannotCancelWithoutReason() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A1002/cancel")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-cancel-no-reason")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("CANCEL_REASON_REQUIRED"));
+    }
+
+    @Test
+    @Transactional
+    void customerCannotCancelOthersOrder() throws Exception {
+        String token = loginAndExtractToken("customer");
+
+        mockMvc.perform(
+                        post("/api/orders/A2001/cancel")
+                                .header(TraceHeaders.TRACE_ID, "trace-stage11-cancel-other-order")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"想取消\"}")
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_ACCESS_DENIED"));
+    }
+
     private String loginAndExtractToken(String username) throws Exception {
         MvcResult result = mockMvc.perform(
                         post("/api/auth/login")

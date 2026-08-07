@@ -74,4 +74,32 @@ public class OrderController {
                 traceId
         );
     }
+
+    @PostMapping("/{orderId}/cancel")
+    public ApiResponse<OrderToolView> cancelOrder(
+            @PathVariable String orderId,
+            @RequestBody(required = false) Map<String, String> body,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            HttpServletRequest servletRequest
+    ) {
+        CurrentUserView currentUser = authService.currentUser(authorization);
+        if (body == null) {
+            throw new BusinessException(BusinessErrorCode.CANCEL_REASON_REQUIRED);
+        }
+        String reason = body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(BusinessErrorCode.CANCEL_REASON_REQUIRED);
+        }
+        String traceId = TraceFilter.currentTraceId(servletRequest);
+        InternalRequestContext context = new InternalRequestContext(
+                traceId,
+                "api",
+                currentUser.userId(),
+                currentUser.tenantId()
+        );
+        return ApiResponse.ok(
+                orderService.cancelOrder(orderId, reason, context, null),
+                traceId
+        );
+    }
 }
