@@ -1244,31 +1244,29 @@ def test_mcp_mode_cancel_confirmation_registers_cancel_order_and_executes(
 
 
 def test_production_policy_rag_service_passes_permission_filters(monkeypatch):
-    """ProductionPolicyRagService 调 retrieve_top_k 时透传权限过滤参数。"""
+    """ProductionPolicyRagService 走 enhanced_rag_answer 管线（含权限过滤）。"""
     import app.services.console_agent_service as cas_module
     from app.services.console_agent_service import ProductionPolicyRagService
     from app.core.config import get_settings
+    from app.rag.generator import RagAnswer
 
     captured = {}
 
-    def fake_retrieve_top_k(query, *, embedding_model, vector_store, top_k=20, **kwargs):
+    def fake_enhanced(query, *, settings, access_scope=None):
         captured["query"] = query
-        captured["kwargs"] = kwargs
-        return []
+        captured["access_scope"] = access_scope
+        return RagAnswer(
+            answer="退款政策：七天无理由退货",
+            status="answered",
+            citations=[],
+            no_context_reason=None,
+            suggestions=[],
+        )
 
-    def fake_from_settings(settings, **kwargs):
-        return object()
-
-    monkeypatch.setattr(cas_module, "retrieve_top_k", fake_retrieve_top_k)
-    monkeypatch.setattr(cas_module.OpenAICompatibleEmbeddingModel, "from_settings", staticmethod(fake_from_settings))
-    monkeypatch.setattr(cas_module.QdrantVectorStore, "from_settings", staticmethod(fake_from_settings))
+    monkeypatch.setattr(cas_module, "enhanced_rag_answer", fake_enhanced)
     service = ProductionPolicyRagService(get_settings())
     result = service.answer_policy_question("退款政策是什么")
-    # retrieve_top_k 被调用且传了权限过滤参数（None 语义，显式传参）
     assert captured["query"] == "退款政策是什么"
-    assert "access_scope" in captured["kwargs"]
-    assert "permission_group" in captured["kwargs"]
-    assert "business_domain" in captured["kwargs"]
-    assert "doc_type" in captured["kwargs"]
-    assert "source" in captured["kwargs"]
+    assert captured["access_scope"] is None  # 对话场景默认不限权限
     assert result is not None
+    assert result.answer

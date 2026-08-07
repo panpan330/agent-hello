@@ -31,6 +31,7 @@ from app.core.exceptions import AppException
 from app.core.trace import build_trace_headers, get_trace_id
 from app.rag.embeddings import OpenAICompatibleEmbeddingModel
 from app.rag.generator import RagAnswer, create_rag_answer_service
+from app.rag.pipeline import enhanced_rag_answer
 from app.rag.rerank import (
     HttpReranker,
     make_rerank_candidates_from_retrieved_chunks,
@@ -215,8 +216,6 @@ class ProductionPolicyRagService:
         self.settings = settings
 
     def answer_policy_question(self, query: str) -> RagAnswer:
-        from app.rag.pipeline import enhanced_rag_answer
-
         return enhanced_rag_answer(
             query,
             settings=self.settings,
