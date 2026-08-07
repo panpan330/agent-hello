@@ -4,6 +4,7 @@ import static com.panpan.aibusinessservice.InternalApiTestSupport.TRACE_ID;
 import static com.panpan.aibusinessservice.InternalApiTestSupport.withInternalHeaders;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -82,6 +83,19 @@ class InternalKnowledgeDocumentControllerTest {
                 .andExpect(jsonPath("$.data").value(true));
 
         assertThat(mapper.selectByTenantIdAndDocumentId("default", "doc-003")).isNull();
+    }
+
+    @Test
+    void listReturnsAllDocuments() throws Exception {
+        mockMvc.perform(withInternalHeaders(post("/internal/knowledge-documents"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload("doc-list-001", 2)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(withInternalHeaders(get("/internal/knowledge-documents")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data[?(@.document_id == 'doc-list-001')]").exists());
     }
 
     @Test

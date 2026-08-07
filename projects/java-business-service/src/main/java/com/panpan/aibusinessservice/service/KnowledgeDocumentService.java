@@ -9,6 +9,8 @@ import java.util.List;
 public interface KnowledgeDocumentService {
     List<KnowledgeDocumentView> listVisibleDocuments(CurrentUserView currentUser);
 
+    List<KnowledgeDocumentView> listAllDocuments(String tenantId);
+
     KnowledgeDocumentView upsertDocument(
             InternalRequestContext context,
             KnowledgeDocumentWriteRequest request,

@@ -171,3 +171,50 @@ def test_list_documents_merges_local_and_java_metadata(
     assert data["document_count"] >= 1
     assert any(d["source_file_name"] == "existing.md" for d in data["documents"])
     assert data["trace_id"] == "trace-kb-list"
+
+
+def test_ingest_document_syncs_single_document(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_java, vector_store, _ = _override_dependencies(app, tmp_path, client, monkeypatch)
+    (tmp_path / "doc-004.md").write_text(
+        "# Doc Four\n\n内容。\n文档类型: policy\n业务领域: refund\n权限组: public\n",
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/knowledge-base/documents/doc-004/ingest",
+        headers={TRACE_ID_HEADER: "trace-kb-ingest-doc"},
+        json={"embedding_mode": "fake"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["document_id"] == "doc-004"
+    assert data["chunk_count"] >= 1
+    assert fake_java.upsert_calls
+    assert fake_java.upsert_calls[-1]["document_id"] == "doc-004"
+
+
+def test_document_id_rejects_unsafe_characters(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, _, _ = _override_dependencies(app, tmp_path, client, monkeypatch)
+    # 分号不在白名单 → 422
+    response = client.delete(
+        "/api/knowledge-base/documents/evil;rm",
+        headers={TRACE_ID_HEADER: "trace-kb-traversal"},
+    )
+    assert response.status_code == 422
+    # 路径穿越字符（FastAPI 路由层 404 拦截，不进端点）
+    traversal = client.delete(
+        "/api/knowledge-base/documents/..%2F..%2Fevil",
+        headers={TRACE_ID_HEADER: "trace-kb-traversal"},
+    )
+    assert traversal.status_code in (404, 422)
+    assert traversal.status_code != 200

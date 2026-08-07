@@ -188,7 +188,7 @@ async function submitDocumentDialog() {
     ElMessage.warning('文档 ID 不能为空')
     return
   }
-  if (!form.content.trim()) {
+  if (dialogMode.value === 'create' && !form.content.trim()) {
     ElMessage.warning('文档内容不能为空')
     return
   }
@@ -415,12 +415,12 @@ onMounted(async () => {
           <el-form-item label="标题" required>
             <el-input v-model="dialogForm.title" placeholder="文档标题" />
           </el-form-item>
-          <el-form-item label="内容" required>
+          <el-form-item label="内容" :required="dialogMode === 'create'">
             <el-input
               v-model="dialogForm.content"
               type="textarea"
               :rows="8"
-              placeholder="文档正文（Markdown）"
+              :placeholder="dialogMode === 'edit' ? '留空则保留原文档内容' : '文档正文（Markdown）'"
             />
           </el-form-item>
           <el-form-item label="业务域">

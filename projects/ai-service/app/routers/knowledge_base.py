@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -14,7 +15,6 @@ from app.rag.ingestion import (
     VectorStoreUpdater,
     delete_document_from_vector_store,
     ingest_directory_to_vector_store,
-    ingest_single_document,
     refresh_directory_in_vector_store,
     update_single_document,
 )
@@ -268,9 +268,18 @@ def _build_single_embedding_model(settings: Settings, mode: str):
         ) from exc
 
 
+def _validate_document_id(document_id: str) -> None:
+    """限制 document_id 为安全字符，防止路径遍历。"""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", document_id):
+        raise AppException(
+            code="KNOWLEDGE_DOCUMENT_ID_INVALID",
+            message="文档 ID 只能包含字母、数字、下划线、点和连字符。",
+            status_code=422,
+        )
+
+
 def _document_view(
-    *,
-    document_id: str,
+    *,    document_id: str,
     title: str,
     business_domain: str,
     permission_group: str,
@@ -321,9 +330,7 @@ def knowledge_base_documents(
     java_client = build_java_document_client(settings)
     java_docs = []
     try:
-        from app.services.java_business_api_client import list_knowledge_documents
-
-        java_docs = list_knowledge_documents(settings) or []
+        java_docs = java_client.list_documents() or []
     except Exception:
         java_docs = []
 
@@ -382,6 +389,7 @@ def create_knowledge_base_document(
     settings: Settings = Depends(get_settings),
     directory: Path = Depends(get_knowledge_base_dir),
 ) -> KnowledgeBaseDocumentView:
+    _validate_document_id(request.document_id)
     file_path = directory / f"{request.document_id}.md"
     markdown = _render_document_markdown(
         request.title,
@@ -393,16 +401,12 @@ def create_knowledge_base_document(
     file_path.write_text(markdown, encoding="utf-8")
 
     embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
-    vector_store = build_collection_vector_store(
-        settings, collection_name=request.collection_name
-    )
-    result = ingest_single_document(
+    result = _sync_document_to_all_collections(
         file_path,
         embedding_model=embedding_model,
-        vector_store=vector_store,
+        settings=settings,
         chunk_size=request.chunk_size,
         chunk_overlap=request.chunk_overlap,
-        wait=True,
     )
 
     java_client = build_java_document_client(settings)
@@ -443,6 +447,7 @@ def update_knowledge_base_document(
     settings: Settings = Depends(get_settings),
     directory: Path = Depends(get_knowledge_base_dir),
 ) -> KnowledgeBaseDocumentView:
+    _validate_document_id(document_id)
     file_path = directory / f"{document_id}.md"
     if not file_path.exists():
         raise AppException(
@@ -512,6 +517,7 @@ def delete_knowledge_base_document(
     settings: Settings = Depends(get_settings),
     directory: Path = Depends(get_knowledge_base_dir),
 ) -> dict:
+    _validate_document_id(document_id)
     file_path = directory / f"{document_id}.md"
     if file_path.exists():
         _delete_source_from_all_collections(file_path.name, settings)
@@ -571,6 +577,7 @@ def ingest_knowledge_base_document(
     settings: Settings = Depends(get_settings),
     directory: Path = Depends(get_knowledge_base_dir),
 ) -> KnowledgeBaseDocumentView:
+    _validate_document_id(document_id)
     file_path = directory / f"{document_id}.md"
     if not file_path.exists():
         raise AppException(
@@ -611,7 +618,7 @@ def ingest_knowledge_base_document(
         business_domain=_optional_str(metadata.get("business_domain")) or "general",
         permission_group=_optional_str(metadata.get("permission_group")) or "public",
         doc_type=_optional_str(metadata.get("doc_type")) or "policy",
-        collection_name=vector_store.collection_name,
+        collection_name=result.collection_name,
         chunk_count=result.chunk_count,
         source_file_name=file_path.name,
         exists_local=True,

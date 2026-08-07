@@ -54,6 +54,14 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     @Override
+    public List<KnowledgeDocumentView> listAllDocuments(String tenantId) {
+        return knowledgeDocumentMapper.selectAllByTenantId(tenantId)
+                .stream()
+                .map(KnowledgeDocumentView::from)
+                .toList();
+    }
+
+    @Override
     public KnowledgeDocumentView upsertDocument(
             InternalRequestContext context,
             KnowledgeDocumentWriteRequest request,

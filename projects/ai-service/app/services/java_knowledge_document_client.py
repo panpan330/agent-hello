@@ -39,6 +39,45 @@ class KnowledgeDocumentClient:
             settings=settings,
         )
 
+    def list_documents(self) -> list[dict]:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.get(
+                    "/internal/knowledge-documents",
+                    headers=self._build_headers(),
+                )
+            if response.status_code != 200:
+                raise build_java_error_app_exception(
+                    response,
+                    operation="knowledge_document_list",
+                    fallback_code="TOOL_UPSTREAM_ERROR",
+                    fallback_message="知识文档列表加载失败，请稍后重试。",
+                    fallback_status_code=502,
+                )
+            payload = response.json()
+            if payload.get("success") is True:
+                data = payload.get("data")
+                return list(data) if isinstance(data, list) else []
+            raise build_java_error_app_exception(
+                response,
+                operation="knowledge_document_list",
+                fallback_code="TOOL_UPSTREAM_ERROR",
+                fallback_message="知识文档列表加载失败。",
+                fallback_status_code=502,
+            )
+        except AppException:
+            raise
+        except Exception as exc:
+            raise AppException(
+                code="TOOL_UPSTREAM_ERROR",
+                message="知识文档列表加载失败。",
+                status_code=502,
+            ) from exc
+
     def upsert_document(self, payload: dict) -> Mapping[str, Any]:
         try:
             with httpx.Client(

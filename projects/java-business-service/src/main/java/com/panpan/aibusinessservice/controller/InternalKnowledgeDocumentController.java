@@ -8,7 +8,9 @@ import com.panpan.aibusinessservice.dto.KnowledgeDocumentView;
 import com.panpan.aibusinessservice.dto.KnowledgeDocumentWriteRequest;
 import com.panpan.aibusinessservice.service.KnowledgeDocumentService;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,6 +29,15 @@ public class InternalKnowledgeDocumentController {
             KnowledgeDocumentService knowledgeDocumentService) {
         this.requestResolver = requestResolver;
         this.knowledgeDocumentService = knowledgeDocumentService;
+    }
+
+    @GetMapping
+    public ApiResponse<List<KnowledgeDocumentView>> list(
+            HttpServletRequest request) {
+        InternalRequestContext context = requestResolver.resolve(request);
+        return ApiResponse.ok(
+                knowledgeDocumentService.listAllDocuments(context.tenantId()),
+                context.traceId());
     }
 
     @PostMapping
