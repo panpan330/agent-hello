@@ -6,7 +6,7 @@ import httpx
 from app.core.exceptions import AppException
 
 
-JavaOperation = Literal["order_query", "ticket_creation", "order_refund"]
+JavaOperation = Literal["order_query", "ticket_creation", "order_refund", "order_cancel"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ ORDER_QUERY_UNAVAILABLE = "订单查询服务暂时不可用，请稍后重试�
 TICKET_CREATION_UNAVAILABLE = "工单业务服务暂时不可用，请稍后重试。"
 TICKET_CONTRACT_REJECTED = "工单业务服务拒绝了已经校验过的请求，请联系管理员排查接口契约。"
 REFUND_UNAVAILABLE = "退款服务暂时不可用，请稍后重试。"
+CANCEL_UNAVAILABLE = "取消订单服务暂时不可用，请稍后重试。"
 
 
 USER_SAFE_JAVA_ERROR_MAPPINGS: dict[str, JavaErrorMapping] = {
@@ -71,6 +72,26 @@ USER_SAFE_JAVA_ERROR_MAPPINGS: dict[str, JavaErrorMapping] = {
     "REFUND_REASON_TOO_LONG": JavaErrorMapping(
         code="REFUND_REASON_TOO_LONG",
         message="退款原因不能超过 200 字，请精简后重试。",
+        status_code=422,
+    ),
+    "ORDER_NOT_CANCELABLE": JavaErrorMapping(
+        code="ORDER_NOT_CANCELABLE",
+        message="当前订单状态不支持取消。",
+        status_code=409,
+    ),
+    "CANCEL_ALREADY_EXISTS": JavaErrorMapping(
+        code="CANCEL_ALREADY_EXISTS",
+        message="订单已取消，请勿重复操作。",
+        status_code=409,
+    ),
+    "CANCEL_REASON_REQUIRED": JavaErrorMapping(
+        code="CANCEL_REASON_REQUIRED",
+        message="取消原因不能为空，请补充取消原因后重试。",
+        status_code=422,
+    ),
+    "CANCEL_REASON_TOO_LONG": JavaErrorMapping(
+        code="CANCEL_REASON_TOO_LONG",
+        message="取消原因不能超过 200 字，请精简后重试。",
         status_code=422,
     ),
     "IDEMPOTENCY_KEY_CONFLICT": JavaErrorMapping(
@@ -151,4 +172,6 @@ def _unavailable_message_for(operation: JavaOperation) -> str:
         return TICKET_CREATION_UNAVAILABLE
     if operation == "order_refund":
         return REFUND_UNAVAILABLE
+    if operation == "order_cancel":
+        return CANCEL_UNAVAILABLE
     return ORDER_QUERY_UNAVAILABLE

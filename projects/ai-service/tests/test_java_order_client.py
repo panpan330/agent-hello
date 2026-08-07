@@ -380,3 +380,81 @@ def test_refund_order_maps_business_error() -> None:
     assert exc.code == "ORDER_NOT_REFUNDABLE"
     assert exc.message == "当前订单状态不支持退款。"
     assert exc.status_code == 409
+
+
+def make_canceled_order_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "order_id": "A1002",
+        "customer_id": "C9001",
+        "order_status": "canceled",
+        "payment_status": "paid",
+        "logistics_message": "订单已取消，商品未发出。",
+        "latest_event": "订单已取消",
+        "can_create_ticket": False,
+        "canceled_at": "2026-08-07T10:00:00",
+        "cancel_reason": "不想要了",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_cancel_order_sends_post_with_reason_and_idempotency_key() -> None:
+    received: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received["method"] = request.method
+        received["path"] = request.url.path
+        received["body"] = json.loads(request.content)
+        received["idempotency_key"] = request.headers.get("Idempotency-Key")
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "code": "OK",
+                "message": "OK",
+                "data": make_canceled_order_payload(),
+                "trace_id": "trace-cancel-001",
+            },
+            request=request,
+        )
+
+    client = make_client(handler)
+
+    result = client.cancel_order(
+        "A1002",
+        "不想要了",
+        idempotency_key="cancel-idem-001",
+    )
+
+    assert received["method"] == "POST"
+    assert received["path"] == "/internal/orders/A1002/cancel"
+    assert received["body"] == {"reason": "不想要了"}
+    assert received["idempotency_key"] == "cancel-idem-001"
+    assert result["order_id"] == "A1002"
+    assert result["order_status"] == "canceled"
+    assert result["cancel_reason"] == "不想要了"
+
+
+def test_cancel_order_maps_business_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "success": False,
+                "code": "ORDER_NOT_CANCELABLE",
+                "message": "当前订单状态不支持取消。",
+                "data": None,
+                "trace_id": "trace-cancel-409",
+            },
+            request=request,
+        )
+
+    client = make_client(handler)
+
+    with pytest.raises(AppException) as exc_info:
+        client.cancel_order("A1001", "不想要了")
+
+    exc = exc_info.value
+    assert exc.code == "ORDER_NOT_CANCELABLE"
+    assert exc.message == "当前订单状态不支持取消。"
+    assert exc.status_code == 409
