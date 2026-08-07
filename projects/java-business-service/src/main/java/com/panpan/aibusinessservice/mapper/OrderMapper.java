@@ -32,6 +32,16 @@ public interface OrderMapper {
             @Param("updatedAt") Instant updatedAt
     );
 
+    int updateCancelState(
+            @Param("tenantId") String tenantId,
+            @Param("orderId") String orderId,
+            @Param("orderStatus") String orderStatus,
+            @Param("canceledAt") LocalDateTime canceledAt,
+            @Param("cancelReason") String cancelReason,
+            @Param("latestEvent") String latestEvent,
+            @Param("updatedAt") Instant updatedAt
+    );
+
     int insertOrderEvent(
             @Param("tenantId") String tenantId,
             @Param("eventId") String eventId,

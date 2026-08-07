@@ -12,4 +12,11 @@ public interface OrderService {
             InternalRequestContext context,
             String idempotencyKey
     );
+
+    OrderToolView cancelOrder(
+            String orderId,
+            String reason,
+            InternalRequestContext context,
+            String idempotencyKey
+    );
 }

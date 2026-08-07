@@ -79,6 +79,18 @@
           AND payment_status != 'refunded'
     </update>
 
+    <update id="updateCancelState">
+        UPDATE orders
+        SET order_status = #{orderStatus},
+            canceled_at = #{canceledAt},
+            cancel_reason = #{cancelReason},
+            latest_event = #{latestEvent},
+            updated_at = #{updatedAt}
+        WHERE tenant_id = #{tenantId}
+          AND order_id = #{orderId}
+          AND order_status != 'canceled'
+    </update>
+
     <resultMap id="OrderEventResultMap" type="com.panpan.aibusinessservice.entity.OrderEvent">
         <id column="event_id" property="eventId"/>
         <result column="tenant_id" property="tenantId"/>

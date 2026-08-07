@@ -61,4 +61,25 @@ public class InternalOrderController {
                 context.traceId()
         );
     }
+
+    @PostMapping("/{orderId}/cancel")
+    public ApiResponse<OrderToolView> cancelOrder(
+            @PathVariable String orderId,
+            @RequestBody(required = false) Map<String, String> body,
+            @RequestHeader(value = TraceHeaders.IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+            HttpServletRequest request
+    ) {
+        InternalRequestContext context = requestResolver.resolve(request);
+        if (body == null) {
+            throw new BusinessException(BusinessErrorCode.CANCEL_REASON_REQUIRED);
+        }
+        String reason = body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(BusinessErrorCode.CANCEL_REASON_REQUIRED);
+        }
+        return ApiResponse.ok(
+                orderService.cancelOrder(orderId, reason, context, idempotencyKey),
+                context.traceId()
+        );
+    }
 }

@@ -307,4 +307,158 @@ class InternalOrderControllerTest {
         );
         assertThat(second).isEqualTo(0);
     }
+
+    @Test
+    void cancelOrderReturnsToolFacingView() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-view-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(header().string(TraceHeaders.TRACE_ID, TRACE_ID))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.order_id").value("A1002"))
+                .andExpect(jsonPath("$.data.order_status").value("canceled"))
+                .andExpect(jsonPath("$.data.cancel_reason").value("不想要了"))
+                .andExpect(jsonPath("$.data.canceled_at").isNotEmpty())
+                .andExpect(jsonPath("$.data.latest_event").value("订单已取消"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
+    void cancelOrderDeniesShippedOrder() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1001/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-shipped-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"想取消\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_CANCELABLE"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
+    void cancelOrderDeniesAlreadyCanceled() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-already-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"首次取消\"}")
+                )
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-already-002")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"重复取消\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("CANCEL_ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+
+        // 重复取消不产生第二条 cancel 审计事件
+        Integer cancelEventCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM order_events WHERE tenant_id = ? AND order_id = ? AND event_type = ?",
+                Integer.class,
+                "default",
+                "A1002",
+                "cancel"
+        );
+        assertThat(cancelEventCount).isEqualTo(1);
+    }
+
+    @Test
+    void cancelOrderIsIdempotentForSameKey() throws Exception {
+        String idempotencyKey = "cancel-stage2-idem-001";
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.order_status").value("canceled"))
+                .andExpect(jsonPath("$.data.cancel_reason").value("不想要了"));
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.order_id").value("A1002"))
+                .andExpect(jsonPath("$.data.order_status").value("canceled"))
+                .andExpect(jsonPath("$.data.cancel_reason").value("不想要了"));
+    }
+
+    @Test
+    void cancelOrderRejectsOtherUsersOrder() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A2001/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-other-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"跨用户取消\"}")
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("ORDER_ACCESS_DENIED"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
+    void cancelOrderRejectsNullBody() throws Exception {
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-nullbody-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("null")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("CANCEL_REASON_REQUIRED"));
+    }
+
+    @Test
+    void cancelOrderRejectsReasonTooLong() throws Exception {
+        // reason 超过 200 字必须在 service 层拦截，否则落到 cancel_reason
+        // VARCHAR(255) 时 DataTruncation 返回 500。
+        String tooLongReason = "A".repeat(201);
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, "cancel-stage2-reason-long-001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"" + tooLongReason + "\"}")
+                )
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("CANCEL_REASON_TOO_LONG"))
+                .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    @Test
+    void updateCancelStateSkipsAlreadyCanceledRow() {
+        LocalDateTime canceledAt = LocalDateTime.now();
+        Instant updatedAt = Instant.now();
+
+        int first = orderMapper.updateCancelState(
+                "default", "A1002", "canceled", canceledAt, "首次", "订单已取消", updatedAt
+        );
+        assertThat(first).isEqualTo(1);
+
+        // WHERE order_status != 'canceled' 已挡住重复更新（模拟并发下另一请求已取消）
+        int second = orderMapper.updateCancelState(
+                "default", "A1002", "canceled", canceledAt, "重复", "订单已取消", updatedAt
+        );
+        assertThat(second).isEqualTo(0);
+    }
 }
