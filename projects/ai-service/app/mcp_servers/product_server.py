@@ -18,13 +18,18 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import AppException
 from app.mcp_clients.product_client import MCP_AUTH_FAILED_ERROR_CODE
 from app.mcp_servers import order_tool
+from app.schemas.cancel import CancelOrderArgs
 from app.schemas.refund import RefundOrderArgs
 from app.schemas.ticket import CreateTicketArgs
 from app.services.java_order_client import JavaOrderClient
 from app.services.java_ticket_client import JavaTicketClient
 from app.tools.idempotency import run_idempotent_tool
 from app.tools.tool_confirmation import create_tool_confirmation_store
-from app.tools.tool_registry import REFUND_ORDER_TOOL_NAME, authorize_tool_call
+from app.tools.tool_registry import (
+    CANCEL_ORDER_TOOL_NAME,
+    REFUND_ORDER_TOOL_NAME,
+    authorize_tool_call,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +81,25 @@ def _refund_response(
         "error_code": error_code,
         "message": message,
         "refund": refund,
+    }
+
+
+def _cancel_response(
+    *,
+    ok: bool,
+    confirmation_id: str,
+    error_code: str | None,
+    message: str,
+    cancel: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "allowed": True,
+        "confirmation_checked": True,
+        "confirmation_id": confirmation_id,
+        "error_code": error_code,
+        "message": message,
+        "cancel": cancel,
     }
 
 
@@ -332,6 +356,130 @@ def _product_refund_order(
     )
 
 
+def _product_cancel_order(
+    order_id: str,
+    reason: str,
+    confirmation_id: str,
+    requester_id: str,
+    user_confirmed: bool = False,
+    user_id: str | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
+    """Cancel an order with confirmation + authorization + idempotency guards.
+
+    ``user_id``/``tenant_id`` carry the authenticated actor identity that the
+    AI service injected into the tool call; they are applied to the Java
+    business call via the business context so cancel ownership checks see the
+    real caller instead of the default fallback identity.
+    """
+    if not user_confirmed:
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id.strip(),
+            error_code="TOOL_CONFIRMATION_REQUIRED",
+            message="该工具需要用户确认后才能执行。",
+            cancel=None,
+        )
+
+    try:
+        arguments = CancelOrderArgs(
+            order_id=order_id,
+            reason=reason,
+            requester_id=requester_id,
+        )
+    except Exception as exc:  # pydantic.ValidationError
+        from pydantic import ValidationError
+
+        if not isinstance(exc, ValidationError):
+            raise
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="INVALID_TOOL_ARGUMENTS",
+            message="取消订单参数不正确，请确认后重新提交。",
+            cancel=None,
+        )
+
+    try:
+        store = create_tool_confirmation_store()
+        store.require_confirmed(confirmation_id, actor_id=requester_id)
+    except AppException as exc:
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code=exc.code,
+            message=exc.message,
+            cancel=None,
+        )
+    except Exception as exc:
+        # e.g. redis ConnectionError under the redis backend: never let
+        # infrastructure errors escape as MCP protocol errors.
+        logger.warning(
+            "product_mcp_confirmation_unavailable error_type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="TOOL_CONFIRMATION_UNAVAILABLE",
+            message="确认服务暂时不可用，请稍后重试或联系人工处理。",
+            cancel=None,
+        )
+
+    try:
+        authorize_tool_call(CANCEL_ORDER_TOOL_NAME, user_confirmed=True)
+        order_client = JavaOrderClient.from_settings(get_settings())
+        tokens = set_business_context(user_id=user_id, tenant_id=tenant_id)
+        try:
+            result = run_idempotent_tool(
+                CANCEL_ORDER_TOOL_NAME,
+                arguments,
+                confirmation_id,
+                lambda: order_client.cancel_order(
+                    order_id,
+                    reason,
+                    idempotency_key=confirmation_id,
+                ),
+            )
+        finally:
+            reset_business_context(tokens)
+    except AppException as exc:
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code=exc.code,
+            message=exc.message,
+            cancel=None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "product_mcp_cancel_order_failed error_type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return _cancel_response(
+            ok=False,
+            confirmation_id=confirmation_id,
+            error_code="CANCEL_TOOL_ERROR",
+            message="取消订单工具暂时不可用，请稍后重试或联系人工处理。",
+            cancel=None,
+        )
+
+    logger.info(
+        "product_mcp_cancel_order_succeeded confirmation_id=%s order_id=%s",
+        confirmation_id,
+        order_id,
+    )
+    return _cancel_response(
+        ok=True,
+        confirmation_id=confirmation_id,
+        error_code=None,
+        message="取消成功。",
+        cancel=dict(result),
+    )
+
+
 def create_product_mcp_server(
     settings: Settings | None = None,
 ) -> MCPServer:
@@ -407,6 +555,32 @@ def create_product_mcp_server(
         ownership is attributed to the real caller.
         """
         return _product_refund_order(
+            order_id=order_id,
+            reason=reason,
+            confirmation_id=confirmation_id,
+            requester_id=requester_id,
+            user_confirmed=user_confirmed,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+
+    @server.tool()
+    def cancel_order(
+        order_id: str,
+        reason: Annotated[str, Field(min_length=1, max_length=200)],
+        confirmation_id: Annotated[str, Field(pattern=CONFIRMATION_ID_PATTERN)],
+        requester_id: Annotated[str, Field(min_length=1, max_length=64)],
+        user_confirmed: bool = False,
+        user_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancel an order after user confirmation and idempotency checks.
+
+        ``user_id``/``tenant_id`` carry the authenticated actor identity injected
+        by the AI service; they are applied to the Java business call so cancel
+        ownership is attributed to the real caller.
+        """
+        return _product_cancel_order(
             order_id=order_id,
             reason=reason,
             confirmation_id=confirmation_id,

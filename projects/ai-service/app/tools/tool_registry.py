@@ -1,4 +1,5 @@
 from app.core.exceptions import AppException
+from app.schemas.cancel import get_cancel_order_args_json_schema
 from app.schemas.refund import get_refund_order_args_json_schema
 from app.schemas.tool import (
     ToolAccessLevel,
@@ -9,6 +10,7 @@ from app.schemas.ticket import get_create_ticket_args_json_schema
 
 
 REFUND_ORDER_TOOL_NAME = "refund_order"
+CANCEL_ORDER_TOOL_NAME = "cancel_order"
 
 
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
@@ -35,6 +37,14 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         requires_confirmation=True,
         enabled=True,
         argument_schema=get_refund_order_args_json_schema(),
+    ),
+    CANCEL_ORDER_TOOL_NAME: ToolDefinition(
+        name=CANCEL_ORDER_TOOL_NAME,
+        description="发起取消订单操作，属于敏感业务动作，必须先让用户确认，且订单未发货才可取消。",
+        access_level=ToolAccessLevel.SENSITIVE,
+        requires_confirmation=True,
+        enabled=True,
+        argument_schema=get_cancel_order_args_json_schema(),
     ),
 }
 

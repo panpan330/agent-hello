@@ -28,7 +28,7 @@ def test_list_tool_definitions_contains_backend_owned_tools() -> None:
     definitions = list_tool_definitions()
     names = {definition.name for definition in definitions}
 
-    assert names == {"query_order", "create_ticket", "refund_order"}
+    assert names == {"query_order", "create_ticket", "refund_order", "cancel_order"}
     assert all(isinstance(definition, ToolDefinition) for definition in definitions)
 
 
@@ -156,3 +156,23 @@ def test_refund_order_not_in_read_only_model_callable_tools() -> None:
     definitions = list_model_callable_tool_definitions()
 
     assert "refund_order" not in {definition.name for definition in definitions}
+
+
+def test_cancel_order_tool_is_enabled_and_requires_confirmation() -> None:
+    definition = get_tool_definition("cancel_order")
+
+    assert definition is not None
+    assert definition.enabled is True
+    assert definition.access_level == ToolAccessLevel.SENSITIVE
+    assert definition.requires_confirmation is True
+    assert definition.argument_schema["type"] == "object"
+    assert set(definition.argument_schema["properties"]) == {
+        "order_id",
+        "reason",
+        "requester_id",
+    }
+    assert set(definition.argument_schema["required"]) == {
+        "order_id",
+        "reason",
+        "requester_id",
+    }

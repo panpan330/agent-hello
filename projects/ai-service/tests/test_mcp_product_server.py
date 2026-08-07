@@ -29,7 +29,7 @@ def test_product_server_registers_only_business_tools() -> None:
         async with Client(server) as client:
             tools = await client.list_tools()
         names = [tool.name for tool in tools.tools]
-        assert names == ["query_order", "create_ticket", "refund_order"]
+        assert names == ["query_order", "create_ticket", "refund_order", "cancel_order"]
 
     import asyncio
 
@@ -555,6 +555,242 @@ def test_product_refund_order_rejects_missing_requester_id() -> None:
     assert result["ok"] is False
     assert result["error_code"] == "INVALID_TOOL_ARGUMENTS"
     assert result["refund"] is None
+
+
+def test_product_cancel_order_requires_user_confirmation() -> None:
+    from app.mcp_servers import product_server
+
+    result = product_server._product_cancel_order(
+        order_id="A1002",
+        reason="不想要了",
+        confirmation_id="a" * 32,
+        requester_id="user-1",
+        user_confirmed=False,
+    )
+
+    assert result["ok"] is False
+    assert result["error_code"] == "TOOL_CONFIRMATION_REQUIRED"
+    assert result["cancel"] is None
+
+
+def test_product_cancel_order_validates_confirmation_id_format() -> None:
+    server = create_product_mcp_server(_settings())
+
+    async def run() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "cancel_order",
+                {
+                    "order_id": "A1002",
+                    "reason": "不想要了",
+                    "requester_id": "user-1",
+                    "confirmation_id": "not-a-hex-id",
+                },
+            )
+        # MCP 2.0 surfaces pydantic argument-validation failures as an is_error
+        # CallToolResult whose text describes the confirmation_id pattern.
+        assert result.is_error is True
+        error_text = result.content[0].text
+        assert "confirmation_id" in error_text
+        assert "string_pattern_mismatch" in error_text
+
+    import asyncio
+
+    asyncio.run(run())
+
+
+def test_product_cancel_order_sets_business_context_before_java_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.mcp_servers import product_server
+
+    captured: dict[str, object] = {}
+
+    class _ContextCapturingOrderClient:
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def cancel_order(
+            self,
+            order_id: str,
+            reason: str,
+            *,
+            idempotency_key: str | None = None,
+            trace_context: object = None,
+        ) -> dict[str, object]:
+            captured["order_id"] = order_id
+            captured["reason"] = reason
+            captured["idempotency_key"] = idempotency_key
+            captured["headers"] = build_java_internal_headers(self.settings)
+            return {
+                "order_id": order_id,
+                "order_status": "cancelled",
+                "cancel_reason": reason,
+            }
+
+    monkeypatch.setattr(
+        product_server,
+        "JavaOrderClient",
+        SimpleNamespace(
+            from_settings=staticmethod(
+                lambda settings: _ContextCapturingOrderClient(settings)
+            )
+        ),
+    )
+
+    class _ConfirmingStore:
+        def require_confirmed(
+            self,
+            confirmation_id: str,
+            *,
+            actor_id: str,
+        ) -> None:
+            captured["confirmation_actor_id"] = actor_id
+            return None
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _ConfirmingStore(),
+    )
+
+    result = product_server._product_cancel_order(
+        order_id="A1002",
+        reason="不想要了",
+        confirmation_id="b" * 32,
+        requester_id="U5000",
+        user_confirmed=True,
+        user_id="U5000",
+        tenant_id="tenant-5",
+    )
+    assert result["ok"] is True
+    # The confirmation store verified the real requester id, not a demo fallback.
+    assert captured["confirmation_actor_id"] == "U5000"
+    # The Java cancel call saw the injected identity, not the default fallback.
+    assert captured["headers"]["X-User-Id"] == "U5000"
+    assert captured["headers"]["X-Tenant-Id"] == "tenant-5"
+    # The confirmation id doubles as the idempotency key for the Java call.
+    assert captured["idempotency_key"] == "b" * 32
+    # The business context was reset after the Java call.
+    assert get_business_context() == (None, None)
+
+
+def test_product_cancel_order_confirmation_unavailable_mapped_to_ok_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.mcp_servers import product_server
+
+    class _FailingConfirmationStore:
+        def require_confirmed(self, confirmation_id: str, *, actor_id: str) -> None:
+            raise RedisConnectionError("redis connection refused")
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _FailingConfirmationStore(),
+    )
+    result = product_server._product_cancel_order(
+        order_id="A1002",
+        reason="不想要了",
+        confirmation_id="a" * 32,
+        requester_id="user-1",
+        user_confirmed=True,
+    )
+    assert result["ok"] is False
+    assert result["error_code"] == "TOOL_CONFIRMATION_UNAVAILABLE"
+    assert result["cancel"] is None
+
+
+def test_product_cancel_order_success_returns_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.mcp_servers import product_server
+
+    captured: dict[str, object] = {}
+
+    class _FakeOrderClient:
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def cancel_order(
+            self,
+            order_id: str,
+            reason: str,
+            *,
+            idempotency_key: str | None = None,
+            trace_context: object = None,
+        ) -> dict[str, object]:
+            captured["order_id"] = order_id
+            captured["idempotency_key"] = idempotency_key
+            return {
+                "order_id": order_id,
+                "order_status": "cancelled",
+                "payment_status": "refunded",
+                "cancelled_at": "2026-08-07T10:00:00",
+                "cancel_reason": reason,
+            }
+
+    monkeypatch.setattr(
+        product_server,
+        "JavaOrderClient",
+        SimpleNamespace(
+            from_settings=staticmethod(
+                lambda settings: _FakeOrderClient(settings)
+            )
+        ),
+    )
+
+    class _ConfirmingStore:
+        def require_confirmed(
+            self,
+            confirmation_id: str,
+            *,
+            actor_id: str,
+        ) -> None:
+            captured["confirmation_actor_id"] = actor_id
+            return None
+
+    monkeypatch.setattr(
+        product_server,
+        "create_tool_confirmation_store",
+        lambda: _ConfirmingStore(),
+    )
+
+    result = product_server._product_cancel_order(
+        order_id="A1002",
+        reason="不想要了",
+        confirmation_id="c" * 32,
+        requester_id="user-1",
+        user_confirmed=True,
+    )
+    assert result["ok"] is True
+    # The confirmation store verified the real requester id, not a demo fallback.
+    assert captured["confirmation_actor_id"] == "user-1"
+    assert result["allowed"] is True
+    assert result["confirmation_checked"] is True
+    assert result["confirmation_id"] == "c" * 32
+    assert result["error_code"] is None
+    assert result["message"] == "取消成功。"
+    assert result["cancel"]["order_id"] == "A1002"
+    assert result["cancel"]["order_status"] == "cancelled"
+    assert captured["idempotency_key"] == "c" * 32
+
+
+def test_product_cancel_order_rejects_missing_requester_id() -> None:
+    from app.mcp_servers import product_server
+
+    result = product_server._product_cancel_order(
+        order_id="A1002",
+        reason="不想要了",
+        confirmation_id="a" * 32,
+        requester_id="",
+        user_confirmed=True,
+    )
+    assert result["ok"] is False
+    assert result["error_code"] == "INVALID_TOOL_ARGUMENTS"
+    assert result["cancel"] is None
 
 
 def test_main_refuses_to_start_without_auth_token(
