@@ -180,3 +180,59 @@ def _unique_strings(values: Iterable[str]) -> list[str]:
         unique.append(value)
         seen.add(value)
     return unique
+
+
+class LLMQueryRewriter:
+    """LLM 驱动查询改写：把口语提问规范化为检索问法。LLM 失败回退规则实现。"""
+
+    def __init__(self, settings, *, client=None) -> None:
+        self._settings = settings
+        self._client = client
+        self._fallback = RuleBasedQueryRewriter()
+
+    def rewrite(self, query: str) -> QueryRewriteResult:
+        if not getattr(self._settings, "has_llm_api_key", False):
+            return self._fallback.rewrite(query)
+        try:
+            reply = self._call_llm(query)
+        except Exception:
+            return self._fallback.rewrite(query)
+        rewritten = (reply or "").strip()
+        if not rewritten:
+            return self._fallback.rewrite(query)
+        return QueryRewriteResult(
+            original_query=query.strip(),
+            rewritten_query=rewritten,
+            changed=rewritten != query.strip(),
+            rewrite_reasons=["llm_rewrite"],
+        )
+
+    def _call_llm(self, query: str) -> str:
+        from app.services.llm_service import extract_first_reply
+
+        client = self._client
+        if client is None:
+            from app.services.llm_client import create_openai_compatible_client
+
+            client = create_openai_compatible_client(self._settings)
+        completion = client.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是一个电商客服检索查询改写助手。把用户的口语化提问改写为"
+                        "适合知识库检索的规范问法（保留订单号、金额等关键实体）。"
+                        "只输出改写后的问题本身，不要解释。"
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+        )
+        return extract_first_reply(completion)
+
+
+def create_query_rewriter(settings) -> QueryRewriter:
+    if getattr(settings, "rag_advanced_mode", "rule") == "llm":
+        return LLMQueryRewriter(settings)
+    return RuleBasedQueryRewriter()

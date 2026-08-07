@@ -429,3 +429,113 @@ def _dedupe(values: Sequence[str]) -> list[str]:
         if value not in result:
             result.append(value)
     return result
+
+
+class LLMRagKnowledgeRouter:
+    """LLM 驱动知识库路由：按意图选择知识库（映射到 collection）。LLM 失败回退规则实现。"""
+
+    def __init__(
+        self,
+        settings,
+        *,
+        client=None,
+        knowledge_bases: Sequence[RagKnowledgeBaseDefinition] | None = None,
+    ) -> None:
+        self._settings = settings
+        self._client = client
+        self.knowledge_bases = list(knowledge_bases or default_rag_knowledge_bases())
+        self._fallback = RuleBasedRagKnowledgeRouter(knowledge_bases=self.knowledge_bases)
+
+    def route(
+        self,
+        query: str,
+        *,
+        access_scope: RagAccessScope | None = None,
+        classification: QueryIntentClassification | None = None,
+        max_routes: int = 2,
+    ) -> RagKnowledgeRouteDecision:
+        if not getattr(self._settings, "has_llm_api_key", False):
+            return self._fallback.route(
+                query,
+                access_scope=access_scope,
+                classification=classification,
+                max_routes=max_routes,
+            )
+        try:
+            reply = self._call_llm(query, max_routes=max_routes)
+            return self._build_decision_from_reply(query, reply, max_routes=max_routes)
+        except Exception:
+            return self._fallback.route(
+                query,
+                access_scope=access_scope,
+                classification=classification,
+                max_routes=max_routes,
+            )
+
+    def _call_llm(self, query: str, *, max_routes: int) -> str:
+        from app.services.llm_service import extract_first_reply
+
+        client = self._client
+        if client is None:
+            from app.services.llm_client import create_openai_compatible_client
+
+            client = create_openai_compatible_client(self._settings)
+        candidate_ids = ", ".join(kb.knowledge_base_id for kb in self.knowledge_bases)
+        completion = client.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是电商客服知识库路由助手。根据用户问题选择最合适的知识库 id。"
+                        f"候选知识库：{candidate_ids}。只输出知识库 id（最多 {max_routes} 个，"
+                        "逗号分隔），不要解释。"
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+        )
+        return extract_first_reply(completion)
+
+    def _build_decision_from_reply(
+        self,
+        query: str,
+        reply: str,
+        *,
+        max_routes: int,
+    ) -> RagKnowledgeRouteDecision:
+        selected_ids = [part.strip() for part in (reply or "").split(",") if part.strip()][:max_routes]
+        by_id = {kb.knowledge_base_id: kb for kb in self.knowledge_bases}
+        routes: list[RagKnowledgeRoute] = []
+        for kb_id in selected_ids:
+            kb = by_id.get(kb_id)
+            if kb is None:
+                continue
+            routes.append(
+                RagKnowledgeRoute(
+                    knowledge_base_id=kb.knowledge_base_id,
+                    collection_name=kb.collection_name,
+                    display_name=kb.display_name,
+                    route_score=1.0,
+                    matched_keywords=[],
+                    business_domains=kb.business_domains,
+                    doc_types=kb.doc_types,
+                    permission_groups=kb.permission_groups,
+                    payload_filter=None,
+                    reasons=["llm route"],
+                )
+            )
+        if not routes:
+            raise ValueError("LLM returned no valid knowledge base ids")
+        return _build_decision(
+            normalized_query=query.strip(),
+            intent="policy_question",
+            should_use_rag=True,
+            routes=routes,
+        )
+
+
+def create_knowledge_router(settings) -> RagKnowledgeRouter:
+    if getattr(settings, "rag_advanced_mode", "rule") == "llm":
+        return LLMRagKnowledgeRouter(settings)
+    return RuleBasedRagKnowledgeRouter()

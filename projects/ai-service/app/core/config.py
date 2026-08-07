@@ -101,6 +101,16 @@ class Settings(BaseSettings):
     rerank_max_retries: int = Field(default=1, ge=0, le=3)
     rerank_top_n: int = Field(default=5, ge=1, le=20)
     rerank_candidate_count: int = Field(default=20, ge=1, le=100)
+    # RAG 高级模块（阶段 2）：引擎模式与功能开关
+    rag_advanced_mode: Literal["rule", "llm"] = "rule"
+    rag_enable_rewrite: bool = False
+    rag_enable_multi_query: bool = False
+    rag_enable_routing: bool = False
+    rag_enable_hybrid: bool = False
+    rag_enable_context_compression: bool = False
+    rag_enable_citation_verify: bool = False
+    rag_hybrid_vector_weight: float = Field(default=0.7, ge=0, le=1)
+    rag_hybrid_keyword_weight: float = Field(default=0.3, ge=0, le=1)
     tool_confirmation_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     agent_redis_url: str = Field(default="redis://127.0.0.1:6379/0")
     agent_checkpoint_ttl_minutes: int = Field(default=120, ge=1, le=1440)

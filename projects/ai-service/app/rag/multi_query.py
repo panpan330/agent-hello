@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+import json
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -253,3 +254,74 @@ def _deduplicate_candidates(
 def _validate_max_queries(max_queries: int) -> None:
     if not isinstance(max_queries, int) or isinstance(max_queries, bool) or max_queries <= 0:
         raise ValueError("max_queries must be a positive integer")
+
+
+class LLMMultiQueryGenerator:
+    """LLM 驱动多查询扩展：生成多条检索变体。LLM 失败回退规则实现。"""
+
+    def __init__(self, settings, *, client=None) -> None:
+        self._settings = settings
+        self._client = client
+        self._fallback = RuleBasedMultiQueryGenerator()
+
+    def generate(
+        self,
+        query: str,
+        *,
+        max_queries: int = DEFAULT_MULTI_QUERY_LIMIT,
+    ) -> MultiQueryExpansion:
+        if not getattr(self._settings, "has_llm_api_key", False):
+            return self._fallback.generate(query, max_queries=max_queries)
+        try:
+            reply = self._call_llm(query, max_queries=max_queries)
+        except Exception:
+            return self._fallback.generate(query, max_queries=max_queries)
+        try:
+            variants = json.loads(reply)
+        except (ValueError, TypeError):
+            return self._fallback.generate(query, max_queries=max_queries)
+        if not isinstance(variants, list) or not variants:
+            return self._fallback.generate(query, max_queries=max_queries)
+        normalized_query = query.strip()
+        return MultiQueryExpansion(
+            original_query=normalized_query,
+            queries=[
+                MultiQueryCandidate(
+                    query=str(v)[:200] if isinstance(v, str) else normalized_query,
+                    query_type="llm",
+                    reason="llm expansion",
+                )
+                for v in variants[:max_queries]
+            ],
+            expanded=len(variants) > 1,
+        )
+
+    def _call_llm(self, query: str, *, max_queries: int) -> str:
+        from app.services.llm_service import extract_first_reply
+
+        client = self._client
+        if client is None:
+            from app.services.llm_client import create_openai_compatible_client
+
+            client = create_openai_compatible_client(self._settings)
+        completion = client.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是一个电商客服检索查询扩展助手。把用户问题从不同角度（语义/政策/"
+                        "场景/关键词）扩展为多条检索问法。输出 JSON 字符串数组，每项一条问法，"
+                        f"最多 {max_queries} 条。不要输出其他内容。"
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+        )
+        return extract_first_reply(completion)
+
+
+def create_multi_query_generator(settings) -> MultiQueryGenerator:
+    if getattr(settings, "rag_advanced_mode", "rule") == "llm":
+        return LLMMultiQueryGenerator(settings)
+    return RuleBasedMultiQueryGenerator()
