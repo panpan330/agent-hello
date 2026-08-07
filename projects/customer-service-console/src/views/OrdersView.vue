@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listOrders, refundOrder } from '../services/businessApi'
+import { cancelOrder, listOrders, refundOrder } from '../services/businessApi'
 import type { OrderListItem } from '../services/businessApi'
 
 const orders = ref<OrderListItem[]>([])
@@ -11,6 +11,7 @@ const orderStatusLabels: Record<string, string> = {
   shipped: '运输中',
   waiting_shipment: '待发货',
   delivered: '已签收',
+  canceled: '已取消',
 }
 
 const paymentStatusLabels: Record<string, string> = {
@@ -32,6 +33,31 @@ async function loadOrders() {
 
 function formatDate(value: string | null | undefined) {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
+}
+
+async function handleCancel(row: OrderListItem) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入取消原因，提交后将不可撤销',
+      `取消订单 - ${row.order_id}`,
+      {
+        confirmButtonText: '确认取消',
+        cancelButtonText: '取消',
+        inputPlaceholder: '取消原因（必填）',
+        inputValidator: (input: string) => {
+          if (!input || !input.trim()) return '取消原因不能为空'
+          return input.trim().length <= 100 ? true : '取消原因不能超过 100 字'
+        },
+      },
+    )
+    if (!value || !value.trim()) return
+    await cancelOrder(row.order_id, value.trim())
+    ElMessage.success('订单已取消')
+    await loadOrders()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error instanceof Error ? error.message : '取消订单失败')
+  }
 }
 
 async function handleRefund(row: OrderListItem) {
@@ -74,9 +100,13 @@ onMounted(loadOrders)
     <el-table v-loading="loading" :data="orders" stripe>
       <el-table-column prop="order_id" label="订单号" width="140" />
       <el-table-column prop="owner_user_id" label="用户" width="120" />
-      <el-table-column label="订单状态" width="120">
+      <el-table-column label="订单状态" width="220">
         <template #default="{ row }">
-          <el-tag effect="light">{{ orderStatusLabels[row.order_status] || row.order_status }}</el-tag>
+          <template v-if="row.order_status === 'canceled'">
+            <el-tag type="info" effect="light">已取消（{{ formatDate(row.canceled_at) }}）</el-tag>
+            <div class="cancel-reason">取消原因：{{ row.cancel_reason || '-' }}</div>
+          </template>
+          <el-tag v-else effect="light">{{ orderStatusLabels[row.order_status] || row.order_status }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="支付状态" width="200">
@@ -99,17 +129,14 @@ onMounted(loadOrders)
       <el-table-column label="更新时间" width="180">
         <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="110" fixed="right">
+      <el-table-column label="操作" width="230" fixed="right">
         <template #default="{ row }">
-          <el-button
-            v-if="row.order_status === 'waiting_shipment' && row.payment_status !== 'refunded'"
-            type="primary"
-            plain
-            size="small"
-            @click="handleRefund(row)"
+          <template
+            v-if="row.order_status === 'waiting_shipment' && row.payment_status !== 'refunded' && row.order_status !== 'canceled'"
           >
-            申请退款
-          </el-button>
+            <el-button type="primary" plain size="small" @click="handleRefund(row)">申请退款</el-button>
+            <el-button type="danger" plain size="small" @click="handleCancel(row)">取消订单</el-button>
+          </template>
           <span v-else>-</span>
         </template>
       </el-table-column>
@@ -118,3 +145,12 @@ onMounted(loadOrders)
     <el-empty v-if="!loading && orders.length === 0" description="暂无可见订单" />
   </el-card>
 </template>
+
+<style scoped>
+.cancel-reason {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+</style>

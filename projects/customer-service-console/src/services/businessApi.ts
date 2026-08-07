@@ -11,6 +11,8 @@ export interface OrderListItem {
   can_create_ticket: boolean
   refund_amount: number | null
   refunded_at: string | null
+  canceled_at: string | null
+  cancel_reason: string | null
   updated_at: string
 }
 
@@ -24,6 +26,8 @@ export interface OrderToolView {
   refund_amount: number | null
   refunded_at: string | null
   refund_reason: string | null
+  canceled_at: string | null
+  cancel_reason: string | null
   user_visible_summary: string | null
 }
 
@@ -126,6 +130,11 @@ export async function listOrders() {
 
 export async function refundOrder(orderId: string, reason: string) {
   const response = await javaApi.post<ApiResponse<OrderToolView>>(`/api/orders/${orderId}/refund`, { reason })
+  return unwrapResponse(response.data)
+}
+
+export async function cancelOrder(orderId: string, reason: string) {
+  const response = await javaApi.post<ApiResponse<OrderToolView>>(`/api/orders/${orderId}/cancel`, { reason })
   return unwrapResponse(response.data)
 }
 

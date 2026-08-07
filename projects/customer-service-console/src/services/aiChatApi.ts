@@ -35,6 +35,13 @@ export interface ConsoleAgentTicketConfirmation {
    * flag over `ticket_fields.issue_type` to pick refund-vs-ticket copy.
    */
   is_refund_execution?: boolean
+  /**
+   * True only for a cancel *execution* confirmation (backend graph state
+   * `cancel_request_active`).  Cancel-typed tickets created through the
+   * ordinary ticket flow leave this absent/false.  The browser prefers this
+   * flag over `ticket_fields.issue_type` to pick cancel-vs-ticket copy.
+   */
+  is_cancel_execution?: boolean
   ticket_fields: ConsoleAgentTicketFields
 }
 

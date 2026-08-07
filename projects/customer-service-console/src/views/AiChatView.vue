@@ -114,13 +114,13 @@ async function decideConfirmation(message: ChatMessage, approved: boolean) {
       approved,
     })
     message.pendingConfirmation = undefined
-    const isRefund = isRefundConfirmation(confirmation)
+    const kind = confirmationKind(confirmation)
     messages.value.push({
       id: crypto.randomUUID(),
       role: 'user',
       text: approved
-        ? (isRefund ? '确认退款' : '确认创建工单')
-        : (isRefund ? '取消退款' : '取消创建工单'),
+        ? (kind === 'cancel' ? '确认取消订单' : kind === 'refund' ? '确认退款' : '确认创建工单')
+        : (kind === 'cancel' ? '取消取消' : kind === 'refund' ? '取消退款' : '取消创建工单'),
     })
     appendAgentResponse(response)
   } catch (error) {
@@ -181,10 +181,16 @@ async function submitConfirmationCorrection(message: ChatMessage) {
       ticketFields,
     })
     message.pendingConfirmation = undefined
+    const kind = confirmationKind(confirmation)
     messages.value.push({
       id: crypto.randomUUID(),
       role: 'user',
-      text: isRefundConfirmation(confirmation) ? '修改退款信息并重新确认' : '修改工单草稿并重新确认',
+      text:
+        kind === 'cancel'
+          ? '修改取消信息并重新确认'
+          : kind === 'refund'
+            ? '修改退款信息并重新确认'
+            : '修改工单草稿并重新确认',
     })
     cancelConfirmationCorrection()
     appendAgentResponse(response)
@@ -356,6 +362,36 @@ function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): bo
   }
   return confirmation?.ticket_fields?.issue_type === 'refund'
 }
+
+function isCancelConfirmation(confirmation?: ConsoleAgentTicketConfirmation): boolean {
+  // Symmetric to isRefundConfirmation: the backend's is_cancel_execution flag
+  // wins whenever present; issue_type falls back to 'cancel' only for legacy
+  // confirmations recorded before the flag existed.
+  if (confirmation?.is_cancel_execution !== undefined) {
+    return confirmation.is_cancel_execution === true
+  }
+  return confirmation?.ticket_fields?.issue_type === 'cancel'
+}
+
+type ConfirmationKind = 'cancel' | 'refund' | 'ticket'
+
+function confirmationKind(confirmation?: ConsoleAgentTicketConfirmation): ConfirmationKind {
+  if (isCancelConfirmation(confirmation)) return 'cancel'
+  if (isRefundConfirmation(confirmation)) return 'refund'
+  return 'ticket'
+}
+
+function confirmationTitle(confirmation?: ConsoleAgentTicketConfirmation): string {
+  if (confirmationKind(confirmation) === 'cancel') return '确认取消订单'
+  if (confirmationKind(confirmation) === 'refund') return '确认退款'
+  return confirmation?.title || '确认创建工单'
+}
+
+function confirmationConfirmLabel(confirmation?: ConsoleAgentTicketConfirmation): string {
+  if (confirmationKind(confirmation) === 'cancel') return '确认取消'
+  if (confirmationKind(confirmation) === 'refund') return '确认退款'
+  return '确认创建工单'
+}
 </script>
 
 <template>
@@ -375,7 +411,7 @@ function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): bo
 
             <div v-if="message.pendingConfirmation" class="agent-confirmation">
               <div class="confirmation-heading">
-                <strong>{{ isRefundConfirmation(message.pendingConfirmation) ? '确认退款' : message.pendingConfirmation.title }}</strong>
+                <strong>{{ confirmationTitle(message.pendingConfirmation) }}</strong>
                 <el-tag type="warning">等待确认</el-tag>
               </div>
               <p>{{ message.pendingConfirmation.summary }}</p>
@@ -384,7 +420,15 @@ function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): bo
                 class="correction-form"
                 label-position="top"
               >
-                <template v-if="isRefundConfirmation(message.pendingConfirmation)">
+                <template v-if="isCancelConfirmation(message.pendingConfirmation)">
+                  <el-form-item label="关联订单">
+                    <el-input v-model="correctionFields.order_id" maxlength="64" />
+                  </el-form-item>
+                  <el-form-item label="取消原因">
+                    <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+                  </el-form-item>
+                </template>
+                <template v-else-if="isRefundConfirmation(message.pendingConfirmation)">
                   <el-form-item label="退款订单">
                     <el-input v-model="correctionFields.order_id" maxlength="64" />
                   </el-form-item>
@@ -424,7 +468,15 @@ function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): bo
               </el-form>
 
               <el-descriptions v-else :column="1" size="small" border>
-                <template v-if="isRefundConfirmation(message.pendingConfirmation)">
+                <template v-if="isCancelConfirmation(message.pendingConfirmation)">
+                  <el-descriptions-item label="订单号">
+                    {{ message.pendingConfirmation.ticket_fields.order_id || '未提供' }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="取消原因">
+                    {{ message.pendingConfirmation.ticket_fields.description }}
+                  </el-descriptions-item>
+                </template>
+                <template v-else-if="isRefundConfirmation(message.pendingConfirmation)">
                   <el-descriptions-item label="退款订单">
                     {{ message.pendingConfirmation.ticket_fields.order_id || '未提供' }}
                   </el-descriptions-item>
@@ -458,7 +510,7 @@ function isRefundConfirmation(confirmation?: ConsoleAgentTicketConfirmation): bo
                   <el-button :loading="confirmationSubmitting" @click="decideConfirmation(message, false)">取消</el-button>
                   <el-button :disabled="confirmationSubmitting" @click="beginConfirmationCorrection(message)">修改信息</el-button>
                   <el-button type="primary" :loading="confirmationSubmitting" @click="decideConfirmation(message, true)">
-                    {{ isRefundConfirmation(message.pendingConfirmation) ? '确认退款' : '确认创建工单' }}
+                    {{ confirmationConfirmLabel(message.pendingConfirmation) }}
                   </el-button>
                 </template>
               </div>
