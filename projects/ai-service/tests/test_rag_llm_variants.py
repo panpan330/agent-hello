@@ -191,3 +191,19 @@ class TestRagFeatureSwitches:
         assert settings.rag_enable_context_compression is False
         assert settings.rag_enable_citation_verify is False
         assert settings.rag_advanced_mode == "rule"
+
+
+def test_multi_query_blank_variants_falls_back() -> None:
+    """LLM 返回全空串/非字符串 → 回退规则实现（不抛 min_length 校验错误）。"""
+    from app.rag.multi_query import LLMMultiQueryGenerator, RuleBasedMultiQueryGenerator
+    from tests.fakes import FakeChatCompletions, FakeOpenAICompatibleClient
+
+    fake = FakeChatCompletions(content=json.dumps(["", "  ", 123], ensure_ascii=False))
+    generator = LLMMultiQueryGenerator(
+        _settings(advanced_mode="llm"),
+        client=FakeOpenAICompatibleClient(fake),
+    )
+    expansion = generator.generate("运费谁出")
+    # 回退规则仍产出 original query
+    assert expansion.original_query == "运费谁出"
+    assert isinstance(generator._fallback, RuleBasedMultiQueryGenerator)

@@ -549,3 +549,43 @@ def test_scroll_all_follows_next_page_offset() -> None:
     chunks = list(store.scroll_all(batch_size=10))
     assert len(chunks) == 1
     assert chunks[0].chunk_id == "refund_chunk_0001"
+
+
+def test_scroll_all_passes_offset_to_second_page() -> None:
+    """第二页请求必须携带上一页的 next_page_offset。"""
+    import httpx
+
+    requests: list[dict] = []
+    page = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        body_req = _json.loads(request.content or b"{}")
+        requests.append(body_req)
+        if page["count"] == 0:
+            page["count"] = 1
+            body = {
+                "result": {
+                    "points": [
+                        {
+                            "id": "p1",
+                            "payload": {
+                                "content": "退款政策七天无理由",
+                                "chunk_id": "refund_chunk_0001",
+                                "source": "refund-return-policy.md",
+                            },
+                        }
+                    ],
+                    "next_page_offset": 42,
+                }
+            }
+        else:
+            body = {"result": {"points": [], "next_page_offset": None}}
+        return httpx.Response(200, json=body)
+
+    store = make_store(handler)
+    list(store.scroll_all(batch_size=10))
+    assert len(requests) == 2
+    assert requests[0].get("offset") is None
+    assert requests[1].get("offset") == 42
