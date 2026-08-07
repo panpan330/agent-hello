@@ -134,8 +134,8 @@ def _case_result_to_dict(result) -> dict:
     return {
         "case_id": getattr(result, "case_id", None),
         "hit": getattr(result, "hit", None),
-        "recall": getattr(result, "recall", None),
-        "precision": getattr(result, "precision", None),
+        "recall": getattr(result, "recall_at_k", None),
+        "precision": getattr(result, "precision_at_k", None),
         "rank": getattr(result, "reciprocal_rank", None),
     }
 

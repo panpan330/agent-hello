@@ -1256,7 +1256,12 @@ def test_production_policy_rag_service_passes_permission_filters(monkeypatch):
         captured["kwargs"] = kwargs
         return []
 
+    def fake_from_settings(settings, **kwargs):
+        return object()
+
     monkeypatch.setattr(cas_module, "retrieve_top_k", fake_retrieve_top_k)
+    monkeypatch.setattr(cas_module.OpenAICompatibleEmbeddingModel, "from_settings", staticmethod(fake_from_settings))
+    monkeypatch.setattr(cas_module.QdrantVectorStore, "from_settings", staticmethod(fake_from_settings))
     service = ProductionPolicyRagService(get_settings())
     result = service.answer_policy_question("退款政策是什么")
     # retrieve_top_k 被调用且传了权限过滤参数（None 语义，显式传参）
