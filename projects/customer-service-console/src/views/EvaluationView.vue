@@ -183,6 +183,14 @@ function renderTrendChart() {
   if (!trendChartEl.value) {
     return
   }
+  // 空态时图表 div 处于 display:none（v-show），此处 init 会触发
+  // "Can't get DOM width or height" 警告并留下不可见实例；
+  // 空态由 el-empty 展示，这里只需释放可能残留的旧实例。
+  if (trendEmpty.value) {
+    trendChart.value?.dispose()
+    trendChart.value = null
+    return
+  }
   const chart = trendChart.value || echarts.init(trendChartEl.value)
   trendChart.value = chart
   chart.setOption({
