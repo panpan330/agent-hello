@@ -189,7 +189,7 @@ class QdrantVectorStore:
             data = response.json().get("result", {})
             points = data.get("points", [])
             for point in points:
-                yield _build_retrieved_chunk(point)
+                yield _build_retrieved_chunk(point, score=0.0)
             next_offset = data.get("next_page_offset")
             if next_offset is None or not points:
                 break
@@ -372,7 +372,7 @@ def _extract_query_points(response: httpx.Response) -> list[dict[str, Any]]:
     return points
 
 
-def _build_retrieved_chunk(point: dict[str, Any]) -> RetrievedChunk:
+def _build_retrieved_chunk(point: dict[str, Any], *, score: float | None = None) -> RetrievedChunk:
     payload = point.get("payload")
     if not isinstance(payload, dict):
         raise QdrantVectorStoreError("Qdrant query point is missing payload")
@@ -384,9 +384,14 @@ def _build_retrieved_chunk(point: dict[str, Any]) -> RetrievedChunk:
     if not isinstance(chunk_id, str) or not chunk_id.strip():
         raise QdrantVectorStoreError("Qdrant query payload is missing chunk_id")
 
-    score = point.get("score")
-    if not isinstance(score, int | float) or isinstance(score, bool):
-        raise QdrantVectorStoreError("Qdrant query point is missing score")
+    # Scroll API 的 Record 无 score 字段（仅 query 的 ScoredPoint 有）；
+    # 调用方未提供时默认 0.0（scroll 场景 score 无意义）。
+    if score is None:
+        raw_score = point.get("score")
+        if isinstance(raw_score, int | float) and not isinstance(raw_score, bool):
+            score = float(raw_score)
+        else:
+            score = 0.0
     point_id = point.get("id")
     if point_id is None:
         raise QdrantVectorStoreError("Qdrant query point is missing id")
@@ -401,5 +406,5 @@ def _build_retrieved_chunk(point: dict[str, Any]) -> RetrievedChunk:
         chunk_id=chunk_id,
         content=content,
         metadata=metadata,
-        score=float(score),
+        score=score,
     )

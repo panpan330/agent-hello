@@ -482,3 +482,70 @@ def test_qdrant_store_from_settings_uses_qdrant_config() -> None:
     assert store.collection_name == "demo_chunks"
     assert store.timeout_seconds == 2.5
     assert store.api_key == "secret"
+
+
+def test_scroll_all_handles_records_without_score_and_paginates() -> None:
+    """Scroll API 的 Record 无 score 字段，且支持 next_page_offset 分页。"""
+    import httpx
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        body = {
+            "result": {
+                "points": [
+                    {
+                        "id": "p1",
+                        "payload": {
+                            "content": "退货运费由商家承担",
+                            "chunk_id": "refund_chunk_0001",
+                            "source": "refund-return-policy.md",
+                        },
+                    }
+                ],
+                "next_page_offset": None,
+            }
+        }
+        return httpx.Response(200, json=body)
+
+    store = make_store(handler)
+    chunks = list(store.scroll_all(batch_size=10))
+    assert len(chunks) == 1
+    assert chunks[0].chunk_id == "refund_chunk_0001"
+    assert chunks[0].score == 0.0  # Scroll Record 无 score，默认 0.0
+    assert calls == ["/collections/learning_chunks/points/scroll"]
+
+
+def test_scroll_all_follows_next_page_offset() -> None:
+    """scroll 分页：第一页带 next_page_offset，第二页返回空则终止。"""
+    import httpx
+
+    page = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if page["count"] == 0:
+            page["count"] = 1
+            body = {
+                "result": {
+                    "points": [
+                        {
+                            "id": "p1",
+                            "payload": {
+                                "content": "退款政策七天无理由",
+                                "chunk_id": "refund_chunk_0001",
+                                "source": "refund-return-policy.md",
+                            },
+                        }
+                    ],
+                    "next_page_offset": 42,
+                }
+            }
+        else:
+            body = {"result": {"points": [], "next_page_offset": None}}
+        return httpx.Response(200, json=body)
+
+    store = make_store(handler)
+    chunks = list(store.scroll_all(batch_size=10))
+    assert len(chunks) == 1
+    assert chunks[0].chunk_id == "refund_chunk_0001"

@@ -283,18 +283,24 @@ class LLMMultiQueryGenerator:
         if not isinstance(variants, list) or not variants:
             return self._fallback.generate(query, max_queries=max_queries)
         normalized_query = query.strip()
+        filtered = [
+            str(v)[:200]
+            for v in variants[:max_queries]
+            if isinstance(v, str) and v.strip()
+        ]
+        if not filtered:
+            return self._fallback.generate(query, max_queries=max_queries)
         return MultiQueryExpansion(
             original_query=normalized_query,
             queries=[
                 MultiQueryCandidate(
-                    query=str(v)[:200] if isinstance(v, str) else normalized_query,
+                    query=q,
                     query_type="llm",
                     reason="llm expansion",
                 )
-                for v in variants[:max_queries]
-                if isinstance(v, str) and v.strip()
+                for q in filtered
             ],
-            expanded=len(variants) > 1,
+            expanded=len(filtered) > 1,
         )
 
     def _call_llm(self, query: str, *, max_queries: int) -> str:
