@@ -123,6 +123,32 @@ export interface EvaluationOverview {
   trace_id: string
 }
 
+/**
+ * 单次评估快照的通过率点。
+ * 注意：历史快照早于 started_at 字段引入时，后端输出 started_at 为 null，
+ * 前端趋势图必须过滤这类点，否则时间轴错乱。
+ */
+export interface EvaluationHistoryPoint {
+  started_at: string | null
+  check_pass_rate: number | null
+  passed: number | null
+  total: number | null
+  pass_rate: number | null
+}
+
+export interface EvaluationHistory {
+  agent_eval: EvaluationHistoryPoint[]
+  production_regression: EvaluationHistoryPoint[]
+}
+
+export type EvaluationReportType = 'agent' | 'regression'
+
+export interface EvaluationReport {
+  report: string
+  type: string
+  generated_at: string
+}
+
 interface AiServiceErrorBody {
   code?: string
   message?: string
@@ -146,5 +172,30 @@ export async function runProductionRegression() {
   } catch (error: any) {
     const data = error?.response?.data as AiServiceErrorBody | undefined
     throw new Error(data?.message || 'Production regression run failed')
+  }
+}
+
+export async function getEvaluationHistory() {
+  try {
+    const response = await aiApi.get<EvaluationHistory>('/api/ai/evaluation/history')
+    return response.data
+  } catch (error: any) {
+    const data = error?.response?.data as AiServiceErrorBody | undefined
+    throw new Error(data?.message || 'AI 评估历史加载失败')
+  }
+}
+
+export async function getLatestReport(type: EvaluationReportType) {
+  try {
+    const response = await aiApi.get<EvaluationReport>('/api/ai/evaluation/reports/latest', {
+      params: { type },
+    })
+    return response.data
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      throw new Error('暂无报告数据')
+    }
+    const data = error?.response?.data as AiServiceErrorBody | undefined
+    throw new Error(data?.message || 'AI 评估报告加载失败')
   }
 }

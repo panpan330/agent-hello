@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getEvaluationOverview, runProductionRegression } from '../services/evaluationApi'
+import { ArrowDown } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
+import type { EChartsType } from 'echarts'
+import {
+  getEvaluationHistory,
+  getEvaluationOverview,
+  getLatestReport,
+  runProductionRegression,
+} from '../services/evaluationApi'
 import {
   getAiResponseFeedbackOverview,
   getProductionFeedbackContext,
@@ -12,7 +20,10 @@ import type {
   BadCaseItem,
   BaselineComparison,
   BaselineMetricComparison,
+  EvaluationHistory,
+  EvaluationHistoryPoint,
   EvaluationOverview,
+  EvaluationReportType,
 } from '../services/evaluationApi'
 import type {
   AiFeedbackRegressionCandidate,
@@ -31,6 +42,11 @@ const feedbackReviewVisible = ref(false)
 const feedbackReviewLoading = ref(false)
 const feedbackPromotionSubmitting = ref(false)
 const productionRegressionRunning = ref(false)
+const trendHistory = ref<EvaluationHistory | null>(null)
+const trendLoading = ref(false)
+const trendChartEl = ref<HTMLDivElement | null>(null)
+const trendChart = shallowRef<EChartsType | null>(null)
+const reportDownloading = ref(false)
 const selectedFeedbackContext = ref<ProductionFeedbackContext | null>(null)
 const feedbackPromotionForm = reactive({
   failure_layer: 'agent_decision',
@@ -129,6 +145,153 @@ async function loadOverview() {
   } finally {
     loading.value = false
   }
+}
+
+function toTrendPoint(point: EvaluationHistoryPoint): [number, number] | null {
+  // 历史快照早于 started_at 字段引入时后端输出 null，必须过滤这类点，否则时间轴错乱。
+  if (!point.started_at) {
+    return null
+  }
+  const timestamp = Date.parse(point.started_at)
+  if (Number.isNaN(timestamp)) {
+    return null
+  }
+  const value = point.check_pass_rate ?? point.pass_rate
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null
+  }
+  return [timestamp, value]
+}
+
+const trendAgentPoints = computed<[number, number][]>(() =>
+  (trendHistory.value?.agent_eval || [])
+    .map(toTrendPoint)
+    .filter((point): point is [number, number] => point !== null)
+    .sort((left, right) => left[0] - right[0]),
+)
+
+const trendRegressionPoints = computed<[number, number][]>(() =>
+  (trendHistory.value?.production_regression || [])
+    .map(toTrendPoint)
+    .filter((point): point is [number, number] => point !== null)
+    .sort((left, right) => left[0] - right[0]),
+)
+
+const trendEmpty = computed(() => trendAgentPoints.value.length === 0 && trendRegressionPoints.value.length === 0)
+
+function renderTrendChart() {
+  if (!trendChartEl.value) {
+    return
+  }
+  const chart = trendChart.value || echarts.init(trendChartEl.value)
+  trendChart.value = chart
+  chart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: unknown) => {
+        const items = (Array.isArray(params) ? params : [params]) as Array<{
+          marker: string
+          seriesName: string
+          value: [number, number]
+        }>
+        return items
+          .map((item) => {
+            const [timestamp, value] = item.value
+            const time = new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
+            return `${item.marker}${item.seriesName}（${time}）<br/>通过率 ${(value * 100).toFixed(1)}%`
+          })
+          .join('<br/>')
+      },
+    },
+    legend: { data: ['Agent 通过率', '回归通过率'] },
+    grid: { left: 52, right: 20, top: 40, bottom: 32 },
+    xAxis: { type: 'time' },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 1,
+      axisLabel: {
+        formatter: (value: unknown) => `${Math.round(Number(value) * 100)}%`,
+      },
+    },
+    series: [
+      {
+        name: 'Agent 通过率',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#409EFF', width: 2 },
+        itemStyle: { color: '#409EFF' },
+        data: trendAgentPoints.value,
+      },
+      {
+        name: '回归通过率',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#67C23A', width: 2 },
+        itemStyle: { color: '#67C23A' },
+        data: trendRegressionPoints.value,
+      },
+    ],
+  })
+}
+
+async function loadTrendHistory() {
+  trendLoading.value = true
+  try {
+    trendHistory.value = await getEvaluationHistory()
+    await nextTick()
+    renderTrendChart()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'AI 评估历史加载失败')
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+function onWindowResize() {
+  trendChart.value?.resize()
+}
+
+function formatReportDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  }
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}${month}${day}`
+}
+
+async function downloadReport(type: EvaluationReportType) {
+  if (reportDownloading.value) {
+    return
+  }
+  reportDownloading.value = true
+  try {
+    const report = await getLatestReport(type)
+    const filename =
+      type === 'agent'
+        ? `agent-eval-report-${formatReportDate(report.generated_at)}.md`
+        : `production-regression-report-${formatReportDate(report.generated_at)}.md`
+    const blob = new Blob([report.report], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '报告下载失败')
+  } finally {
+    reportDownloading.value = false
+  }
+}
+
+function handleDownloadReport(command: string | number | object) {
+  void downloadReport(command as EvaluationReportType)
 }
 
 function selectBadCase(item: BadCaseItem) {
@@ -265,6 +428,14 @@ async function updateSelectedFeedbackReview(reviewStatus: 'triaged' | 'closed') 
 
 onMounted(() => {
   void loadOverview()
+  void loadTrendHistory()
+  window.addEventListener('resize', onWindowResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onWindowResize)
+  trendChart.value?.dispose()
+  trendChart.value = null
 })
 </script>
 
@@ -370,6 +541,19 @@ onMounted(() => {
       </template>
     </el-card>
 
+    <el-card shadow="never" class="baseline-comparison-card">
+      <template #header>
+        <div class="card-header">
+          <span>评测趋势</span>
+          <el-tag v-if="!trendEmpty" type="info" effect="plain">通过率</el-tag>
+        </div>
+      </template>
+      <div v-loading="trendLoading" class="trend-chart-wrap">
+        <el-empty v-if="trendEmpty" :image-size="52" description="暂无评估历史数据" />
+        <div v-show="!trendEmpty" ref="trendChartEl" class="trend-chart"></div>
+      </div>
+    </el-card>
+
     <section class="content-grid two-columns">
       <div class="content-grid">
         <el-card shadow="never">
@@ -411,7 +595,20 @@ onMounted(() => {
           <template #header>
             <div class="card-header">
               <span>本地评估运行</span>
-              <el-button type="primary" plain :loading="loading" @click="loadOverview">刷新</el-button>
+              <div class="card-actions">
+                <el-dropdown trigger="click" @command="handleDownloadReport">
+                  <el-button :loading="reportDownloading" plain>
+                    下载报告<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="agent">Agent 评测报告</el-dropdown-item>
+                      <el-dropdown-item command="regression">生产回归报告</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <el-button type="primary" plain :loading="loading" @click="loadOverview">刷新</el-button>
+              </div>
             </div>
           </template>
           <el-descriptions v-if="overview" :column="2" border>
@@ -746,6 +943,21 @@ onMounted(() => {
 
 .baseline-comparison-card {
   margin-bottom: 16px;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trend-chart-wrap {
+  min-height: 300px;
+}
+
+.trend-chart {
+  width: 100%;
+  height: 300px;
 }
 
 .baseline-rate-grid {
