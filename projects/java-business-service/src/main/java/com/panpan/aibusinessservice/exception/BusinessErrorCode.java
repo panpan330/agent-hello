@@ -35,7 +35,9 @@ public enum BusinessErrorCode {
     AUTH_REQUIRED(HttpStatus.UNAUTHORIZED, "请先登录。"),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "用户不存在。"),
     AI_FEEDBACK_ACCESS_DENIED(HttpStatus.FORBIDDEN, "当前账号无权查看 AI 反馈数据。"),
-    AI_FEEDBACK_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 反馈记录不存在。");
+    AI_FEEDBACK_NOT_FOUND(HttpStatus.NOT_FOUND, "AI 反馈记录不存在。"),
+    DOCUMENT_ID_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "知识文档 ID 不能为空。"),
+    DOCUMENT_TITLE_REQUIRED(HttpStatus.UNPROCESSABLE_ENTITY, "知识文档标题不能为空。");
 
     private final HttpStatus status;
     private final String defaultMessage;

@@ -11,4 +11,16 @@ public interface KnowledgeDocumentMapper {
             @Param("tenantId") String tenantId,
             @Param("permissionGroups") List<String> permissionGroups
     );
+
+    KnowledgeDocument selectByTenantIdAndDocumentId(
+            @Param("tenantId") String tenantId,
+            @Param("documentId") String documentId
+    );
+
+    int upsert(KnowledgeDocument entity);
+
+    int deleteByTenantIdAndDocumentId(
+            @Param("tenantId") String tenantId,
+            @Param("documentId") String documentId
+    );
 }
