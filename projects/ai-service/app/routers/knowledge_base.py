@@ -469,14 +469,12 @@ def update_knowledge_base_document(
     file_path.write_text(markdown, encoding="utf-8")
 
     embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
-    vector_store = build_collection_vector_store(settings)
-    result = update_single_document(
+    result = _sync_document_to_all_collections(
         file_path,
         embedding_model=embedding_model,
-        vector_store=vector_store,
+        settings=settings,
         chunk_size=request.chunk_size,
         chunk_overlap=request.chunk_overlap,
-        wait=True,
     )
 
     java_client = build_java_document_client(settings)
@@ -500,7 +498,7 @@ def update_knowledge_base_document(
         business_domain=business_domain,
         permission_group=permission_group,
         doc_type=doc_type,
-        collection_name=vector_store.collection_name,
+        collection_name=result.collection_name,
         chunk_count=result.chunk_count,
         source_file_name=file_path.name,
         exists_local=True,
@@ -516,17 +514,54 @@ def delete_knowledge_base_document(
 ) -> dict:
     file_path = directory / f"{document_id}.md"
     if file_path.exists():
-        delete_document_from_vector_store(
-            file_path.name,
-            vector_store=build_collection_vector_store(settings),
-            wait=True,
-        )
+        _delete_source_from_all_collections(file_path.name, settings)
         file_path.unlink()
 
     java_client = build_java_document_client(settings)
     java_client.delete_document(document_id)
 
     return {"success": True, "trace_id": get_trace_id()}
+
+
+def _delete_source_from_all_collections(source: str, settings: Settings) -> None:
+    """删除 source 在默认库与全部 kb_* collection 中的 chunk。"""
+    collection_names = [settings.qdrant_collection_name]
+    collection_names.extend(
+        sorted({d.collection_name for d in default_rag_knowledge_bases()})
+    )
+    for collection_name in collection_names:
+        try:
+            delete_document_from_vector_store(
+                source,
+                vector_store=build_collection_vector_store(
+                    settings, collection_name=collection_name
+                ),
+                wait=True,
+            )
+        except Exception:
+            # 集合不存在或删除失败不影响主流程，记录即可
+            continue
+
+
+def _sync_document_to_all_collections(
+    file_path: Path,
+    *,
+    embedding_model,
+    settings: Settings,
+    chunk_size: int,
+    chunk_overlap: int,
+):
+    """从全部 collection 删旧 chunk，再写入默认库（保证一致性）。"""
+    source = file_path.name
+    _delete_source_from_all_collections(source, settings)
+    return update_single_document(
+        file_path,
+        embedding_model=embedding_model,
+        vector_store=build_collection_vector_store(settings),
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        wait=True,
+    )
 
 
 @router.post("/documents/{document_id}/ingest", response_model=KnowledgeBaseDocumentView)
@@ -547,14 +582,12 @@ def ingest_knowledge_base_document(
     existing = load_document(file_path)
     metadata = existing.metadata
     embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
-    vector_store = build_collection_vector_store(settings)
-    result = update_single_document(
+    result = _sync_document_to_all_collections(
         file_path,
         embedding_model=embedding_model,
-        vector_store=vector_store,
+        settings=settings,
         chunk_size=request.chunk_size,
         chunk_overlap=request.chunk_overlap,
-        wait=True,
     )
 
     java_client = build_java_document_client(settings)
