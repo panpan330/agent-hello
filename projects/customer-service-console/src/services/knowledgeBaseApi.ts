@@ -73,3 +73,108 @@ function buildAiServiceError(error: any, fallbackMessage: string) {
   }
   return new Error(fallbackMessage)
 }
+
+export interface KnowledgeBaseCollectionStatus {
+  collection_name: string
+  knowledge_base_ids: string[]
+  display_name: string
+  point_count: number
+  exists: boolean
+  is_legacy: boolean
+}
+
+export interface KnowledgeBaseCollectionsResponse {
+  collections: KnowledgeBaseCollectionStatus[]
+  legacy_collections: KnowledgeBaseCollectionStatus[]
+  trace_id: string
+}
+
+export interface KnowledgeBaseDocumentItem {
+  document_id: string
+  title: string
+  business_domain: string
+  permission_group: string
+  doc_type: string
+  collection_name: string
+  chunk_count: number
+  source_file_name: string
+  exists_local: boolean
+  status: string
+  updated_at: string | null
+}
+
+export interface KnowledgeBaseDocumentCreateRequest {
+  document_id: string
+  title: string
+  content: string
+  business_domain: string
+  permission_group: string
+  doc_type: string
+  collection_name: string
+  embedding_mode: KnowledgeBaseEmbeddingMode
+  chunk_size: number
+  chunk_overlap: number
+}
+
+export interface KnowledgeBaseDocumentListResponse {
+  documents: KnowledgeBaseDocumentItem[]
+  document_count: number
+  trace_id: string
+}
+
+export async function getKnowledgeBaseCollections() {
+  try {
+    const response = await aiApi.get<KnowledgeBaseCollectionsResponse>('/api/knowledge-base/collections')
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识库 collection 加载失败')
+  }
+}
+
+export async function listKnowledgeBaseDocuments() {
+  try {
+    const response = await aiApi.get<KnowledgeBaseDocumentListResponse>('/api/knowledge-base/documents')
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识库文档列表加载失败')
+  }
+}
+
+export async function createKnowledgeBaseDocument(request: KnowledgeBaseDocumentCreateRequest) {
+  try {
+    const response = await aiApi.post<KnowledgeBaseDocumentItem>('/api/knowledge-base/documents', request)
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识文档上传失败')
+  }
+}
+
+export async function updateKnowledgeBaseDocument(documentId: string, request: Partial<KnowledgeBaseDocumentCreateRequest>) {
+  try {
+    const response = await aiApi.put<KnowledgeBaseDocumentItem>(`/api/knowledge-base/documents/${documentId}`, request)
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识文档更新失败')
+  }
+}
+
+export async function deleteKnowledgeBaseDocument(documentId: string) {
+  try {
+    const response = await aiApi.delete<{ success: boolean }>(`/api/knowledge-base/documents/${documentId}`)
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识文档删除失败')
+  }
+}
+
+export async function ingestKnowledgeBaseDocument(
+  documentId: string,
+  request: { embedding_mode: KnowledgeBaseEmbeddingMode; chunk_size: number; chunk_overlap: number },
+) {
+  try {
+    const response = await aiApi.post<KnowledgeBaseDocumentItem>(`/api/knowledge-base/documents/${documentId}/ingest`, request)
+    return response.data
+  } catch (error: any) {
+    throw buildAiServiceError(error, '知识文档同步失败')
+  }
+}

@@ -1,24 +1,49 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listKnowledgeDocuments } from '../services/businessApi'
-import type { KnowledgeDocumentItem } from '../services/businessApi'
 import {
+  createKnowledgeBaseDocument,
+  deleteKnowledgeBaseDocument,
+  getKnowledgeBaseCollections,
   getKnowledgeBaseStatus,
   ingestKnowledgeBase,
+  ingestKnowledgeBaseDocument,
+  listKnowledgeBaseDocuments,
+  updateKnowledgeBaseDocument,
 } from '../services/knowledgeBaseApi'
 import type {
+  KnowledgeBaseCollectionStatus,
+  KnowledgeBaseCollectionsResponse,
+  KnowledgeBaseDocumentItem,
   KnowledgeBaseDocumentStatus,
   KnowledgeBaseEmbeddingMode,
   KnowledgeBaseIngestResponse,
   KnowledgeBaseStatusResponse,
 } from '../services/knowledgeBaseApi'
 
-const documents = ref<KnowledgeDocumentItem[]>([])
+const documents = ref<KnowledgeBaseDocumentItem[]>([])
 const kbStatus = ref<KnowledgeBaseStatusResponse>()
 const lastIngestResult = ref<KnowledgeBaseIngestResponse>()
 const loading = ref(false)
 const ingestingMode = ref<KnowledgeBaseEmbeddingMode | null>(null)
+const collections = ref<KnowledgeBaseCollectionStatus[]>([])
+const collectionsLoading = ref(false)
+const dialogVisible = ref(false)
+const dialogMode = ref<'create' | 'edit'>('create')
+const dialogSubmitting = ref(false)
+const editingDocumentId = ref('')
+const dialogForm = ref({
+  document_id: '',
+  title: '',
+  content: '',
+  business_domain: 'general',
+  permission_group: 'public',
+  doc_type: 'policy',
+  collection_name: 'kb_customer_policy',
+  embedding_mode: 'fake' as KnowledgeBaseEmbeddingMode,
+  chunk_size: 500,
+  chunk_overlap: 80,
+})
 
 const localDocumentBySource = computed(() => {
   const result = new Map<string, KnowledgeBaseDocumentStatus>()
@@ -53,12 +78,12 @@ const permissionLabels: Record<string, string> = {
 async function loadPageData() {
   loading.value = true
   try {
-    const [businessDocuments, status] = await Promise.all([
-      listKnowledgeDocuments(),
+    const [status, documentList] = await Promise.all([
       getKnowledgeBaseStatus(),
+      listKnowledgeBaseDocuments(),
     ])
-    documents.value = businessDocuments
     kbStatus.value = status
+    documents.value = documentList.documents
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '知识库加载失败')
   } finally {
@@ -105,7 +130,7 @@ async function runIngest(mode: KnowledgeBaseEmbeddingMode) {
   }
 }
 
-function hasLocalFile(row: KnowledgeDocumentItem) {
+function hasLocalFile(row: KnowledgeBaseDocumentItem) {
   return localDocumentBySource.value.has(row.source_file_name)
 }
 
@@ -117,7 +142,148 @@ function labelOf(value: string, labels: Record<string, string>) {
   return labels[value] || value
 }
 
-onMounted(loadPageData)
+function openCreateDialog() {
+  dialogMode.value = 'create'
+  editingDocumentId.value = ''
+  dialogForm.value = {
+    document_id: '',
+    title: '',
+    content: '',
+    business_domain: 'general',
+    permission_group: 'public',
+    doc_type: 'policy',
+    collection_name: 'kb_customer_policy',
+    embedding_mode: 'fake',
+    chunk_size: 500,
+    chunk_overlap: 80,
+  }
+  dialogVisible.value = true
+}
+
+function openEditDialog(row: KnowledgeBaseDocumentItem) {
+  dialogMode.value = 'edit'
+  editingDocumentId.value = row.document_id
+  dialogForm.value = {
+    document_id: row.document_id,
+    title: row.title,
+    content: '',
+    business_domain: row.business_domain,
+    permission_group: row.permission_group,
+    doc_type: row.doc_type,
+    collection_name: row.collection_name || 'kb_customer_policy',
+    embedding_mode: 'fake',
+    chunk_size: 500,
+    chunk_overlap: 80,
+  }
+  dialogVisible.value = true
+}
+
+async function submitDocumentDialog() {
+  const form = dialogForm.value
+  if (!form.title.trim()) {
+    ElMessage.warning('文档标题不能为空')
+    return
+  }
+  if (dialogMode.value === 'create' && !form.document_id.trim()) {
+    ElMessage.warning('文档 ID 不能为空')
+    return
+  }
+  if (!form.content.trim()) {
+    ElMessage.warning('文档内容不能为空')
+    return
+  }
+
+  dialogSubmitting.value = true
+  try {
+    if (dialogMode.value === 'create') {
+      await createKnowledgeBaseDocument({
+        document_id: form.document_id.trim(),
+        title: form.title.trim(),
+        content: form.content,
+        business_domain: form.business_domain,
+        permission_group: form.permission_group,
+        doc_type: form.doc_type,
+        collection_name: form.collection_name,
+        embedding_mode: form.embedding_mode,
+        chunk_size: form.chunk_size,
+        chunk_overlap: form.chunk_overlap,
+      })
+      ElMessage.success('文档创建并同步成功')
+    } else {
+      await updateKnowledgeBaseDocument(editingDocumentId.value, {
+        title: form.title.trim(),
+        content: form.content,
+        business_domain: form.business_domain,
+        permission_group: form.permission_group,
+        doc_type: form.doc_type,
+        embedding_mode: form.embedding_mode,
+        chunk_size: form.chunk_size,
+        chunk_overlap: form.chunk_overlap,
+      })
+      ElMessage.success('文档更新并重新同步成功')
+    }
+    dialogVisible.value = false
+    await loadPageData()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '文档保存失败')
+  } finally {
+    dialogSubmitting.value = false
+  }
+}
+
+async function confirmDeleteDocument(row: KnowledgeBaseDocumentItem) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除文档「${row.title}」？本地文件、Qdrant chunk 与元数据将被一并删除。`,
+      '确认删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteKnowledgeBaseDocument(row.document_id)
+    ElMessage.success('文档已删除')
+    await loadPageData()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '文档删除失败')
+  }
+}
+
+async function runSingleIngest(row: KnowledgeBaseDocumentItem) {
+  try {
+    await ingestKnowledgeBaseDocument(row.document_id, {
+      embedding_mode: 'fake',
+      chunk_size: 500,
+      chunk_overlap: 80,
+    })
+    ElMessage.success(`文档「${row.title}」同步完成`)
+    await loadPageData()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '文档同步失败')
+  }
+}
+
+async function loadCollections() {
+  collectionsLoading.value = true
+  try {
+    const data: KnowledgeBaseCollectionsResponse = await getKnowledgeBaseCollections()
+    collections.value = data.collections
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Collection 列表加载失败')
+  } finally {
+    collectionsLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadPageData()
+  await loadCollections()
+})
 </script>
 
 <template>
@@ -128,6 +294,9 @@ onMounted(loadPageData)
           <span>知识库管理</span>
           <div class="toolbar-actions">
             <el-button plain :loading="loading" @click="loadPageData">刷新状态</el-button>
+            <el-button type="success" plain :disabled="dialogSubmitting" @click="openCreateDialog">
+              上传文档
+            </el-button>
             <el-button
               type="primary"
               plain
@@ -170,6 +339,25 @@ onMounted(loadPageData)
         <el-descriptions-item label="trace_id">{{ kbStatus.trace_id }}</el-descriptions-item>
       </el-descriptions>
 
+      <div v-loading="collectionsLoading" class="collection-status">
+        <span class="collection-status-title">Collection 状态</span>
+        <el-tag
+          v-for="collection in collections"
+          :key="collection.collection_name"
+          class="collection-tag"
+          :type="collection.exists ? 'success' : 'info'"
+          effect="plain"
+        >
+          {{ collection.collection_name }}
+          <template v-if="collection.exists">
+            · {{ collection.point_count }} 点
+          </template>
+          <template v-else>
+            · 未创建
+          </template>
+        </el-tag>
+      </div>
+
       <el-table v-loading="loading" :data="documents" stripe>
         <el-table-column prop="title" label="文档名称" min-width="220" show-overflow-tooltip />
         <el-table-column label="业务域" width="120">
@@ -201,9 +389,81 @@ onMounted(loadPageData)
         <el-table-column label="更新时间" width="180">
           <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
         </el-table-column>
+        <el-table-column label="操作" width="190" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
+            <el-button link type="primary" :disabled="Boolean(ingestingMode)" @click="runSingleIngest(row)">
+              同步
+            </el-button>
+            <el-button link type="danger" @click="confirmDeleteDocument(row)">删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <el-empty v-if="!loading && documents.length === 0" description="暂无可见知识文档" />
+
+      <el-dialog
+        v-model="dialogVisible"
+        :title="dialogMode === 'create' ? '上传知识文档' : '编辑知识文档'"
+        width="640px"
+        destroy-on-close
+      >
+        <el-form label-width="110px">
+          <el-form-item v-if="dialogMode === 'create'" label="文档 ID" required>
+            <el-input v-model="dialogForm.document_id" placeholder="如 doc-001（唯一标识）" />
+          </el-form-item>
+          <el-form-item label="标题" required>
+            <el-input v-model="dialogForm.title" placeholder="文档标题" />
+          </el-form-item>
+          <el-form-item label="内容" required>
+            <el-input
+              v-model="dialogForm.content"
+              type="textarea"
+              :rows="8"
+              placeholder="文档正文（Markdown）"
+            />
+          </el-form-item>
+          <el-form-item label="业务域">
+            <el-select v-model="dialogForm.business_domain">
+              <el-option label="退款" value="refund" />
+              <el-option label="物流" value="logistics" />
+              <el-option label="订单" value="order" />
+              <el-option label="账号" value="account" />
+              <el-option label="通用" value="general" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="权限组">
+            <el-select v-model="dialogForm.permission_group">
+              <el-option label="公开" value="public" />
+              <el-option label="客户可见" value="customer" />
+              <el-option label="客服可见" value="customer_service" />
+              <el-option label="内部" value="internal" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Collection">
+            <el-select v-model="dialogForm.collection_name">
+              <el-option
+                v-for="collection in collections"
+                :key="collection.collection_name"
+                :label="collection.collection_name"
+                :value="collection.collection_name"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="向量模式">
+            <el-select v-model="dialogForm.embedding_mode">
+              <el-option label="Fake（离线）" value="fake" />
+              <el-option label="真实（API）" value="real" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="dialogSubmitting" @click="submitDocumentDialog">
+            {{ dialogMode === 'create' ? '上传并同步' : '保存并重新同步' }}
+          </el-button>
+        </template>
+      </el-dialog>
     </el-card>
   </section>
 </template>
@@ -227,6 +487,24 @@ onMounted(loadPageData)
   border-radius: 8px;
   padding: 14px 16px;
   background: #f8fafc;
+}
+
+.collection-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.collection-status-title {
+  font-size: 13px;
+  color: #606266;
+  margin-right: 4px;
+}
+
+.collection-tag {
+  margin-right: 0;
 }
 
 @media (max-width: 1100px) {
