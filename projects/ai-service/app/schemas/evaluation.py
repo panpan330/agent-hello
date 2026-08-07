@@ -75,11 +75,15 @@ class EvaluationHistoryPoint(BaseModel):
     passed: int | None = None
     total: int | None = None
     pass_rate: float | None = None
+    hit_rate: float | None = None
+    recall: float | None = None
+    mrr: float | None = None
 
 
 class EvaluationHistoryView(BaseModel):
     agent_eval: list[EvaluationHistoryPoint] = Field(default_factory=list)
     production_regression: list[EvaluationHistoryPoint] = Field(default_factory=list)
+    rag_retrieval: list[EvaluationHistoryPoint] = Field(default_factory=list)
 
 
 class EvaluationReportView(BaseModel):

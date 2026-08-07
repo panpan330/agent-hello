@@ -941,3 +941,42 @@ def test_reports_latest_agent_not_found_when_cases_missing(
     assert response.status_code == 404
     assert response.json()["code"] == "EVALUATION_DATA_NOT_FOUND"
 
+
+
+def test_history_includes_rag_retrieval_sequence(app: FastAPI, client: TestClient, tmp_path, monkeypatch):
+    """GET /api/ai/evaluation/history 返回 rag_retrieval 序列。"""
+    import json
+    from datetime import datetime, timezone
+
+    from app.evaluation.rag_retrieval_history import RagRetrievalRun, RagRetrievalRunHistory
+    from app.routers.evaluation import get_rag_retrieval_history_path
+
+    history_path = tmp_path / "rag_retrieval_runs.json"
+    history = RagRetrievalRunHistory(
+        runs=[
+            RagRetrievalRun(
+                run_id="rag-001",
+                retriever_mode="keyword",
+                started_at=datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc),
+                completed_at=datetime(2026, 8, 7, 12, 1, tzinfo=timezone.utc),
+                top_k=3,
+                hit_rate=0.8,
+                recall=0.7,
+                precision=0.3,
+                mrr=0.65,
+                case_count=12,
+                results=[],
+            )
+        ]
+    )
+    history_path.write_text(history.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    app.dependency_overrides[get_rag_retrieval_history_path] = lambda: history_path
+
+    response = client.get("/api/ai/evaluation/history")
+    assert response.status_code == 200
+    data = response.json().get("data", response.json())
+    rag = data.get("rag_retrieval", [])
+    assert len(rag) == 1
+    assert rag[0]["hit_rate"] == 0.8
+    assert rag[0]["recall"] == 0.7
+    assert rag[0]["mrr"] == 0.65

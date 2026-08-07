@@ -82,6 +82,7 @@ PRODUCTION_REGRESSION_HISTORY_PATH = (
     PROJECT_ROOT / "data" / "evaluation" / "production_regression_runs.json"
 )
 EVAL_SNAPSHOT_STORE_PATH = PROJECT_ROOT / "data" / "evaluation" / "agent_eval_snapshots.json"
+RAG_RETRIEVAL_HISTORY_PATH = PROJECT_ROOT / "data" / "evaluation" / "rag_retrieval_runs.json"
 # agent_eval 数据集路径与 datasets.json manifest 中 cases_path="data/agent_eval/agent_cases.json" 一致
 AGENT_CASES_PATH = PROJECT_ROOT / "data" / "agent_eval" / "agent_cases.json"
 
@@ -100,6 +101,10 @@ def get_production_regression_history_path() -> Path:
 
 def get_eval_snapshot_store_path() -> Path:
     return EVAL_SNAPSHOT_STORE_PATH
+
+
+def get_rag_retrieval_history_path() -> Path:
+    return RAG_RETRIEVAL_HISTORY_PATH
 
 
 def get_agent_cases_path() -> Path:
@@ -332,6 +337,7 @@ def evaluation_overview(
 def get_evaluation_history(
     snapshot_store_path: Path = Depends(get_eval_snapshot_store_path),
     regression_history_path: Path = Depends(get_production_regression_history_path),
+    rag_retrieval_history_path: Path = Depends(get_rag_retrieval_history_path),
 ) -> EvaluationHistoryView:
     """Return per-run metric history for the trend chart (Task 3 consumer).
 
@@ -380,9 +386,26 @@ def get_evaluation_history(
         )
         for run in regression_runs
     ]
+    try:
+        from app.evaluation.rag_retrieval_history import load_rag_retrieval_runs
+
+        rag_runs = load_rag_retrieval_runs(rag_retrieval_history_path)
+    except (OSError, ValueError) as exc:
+        logger.warning("history_load_failed path=%s error=%s", rag_retrieval_history_path, exc)
+        rag_runs = []
+    rag_retrieval = [
+        EvaluationHistoryPoint(
+            started_at=run.started_at.isoformat(),
+            hit_rate=run.hit_rate,
+            recall=run.recall,
+            mrr=run.mrr,
+        )
+        for run in rag_runs
+    ]
     return EvaluationHistoryView(
         agent_eval=agent_eval,
         production_regression=production_regression,
+        rag_retrieval=rag_retrieval,
     )
 
 

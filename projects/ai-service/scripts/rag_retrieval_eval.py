@@ -19,6 +19,7 @@ from app.rag.splitters import split_documents_into_chunks
 
 KNOWLEDGE_BASE_DIR = PROJECT_ROOT / "data" / "knowledge_base"
 EVAL_CASES_PATH = PROJECT_ROOT / "data" / "rag_eval" / "retrieval_cases.json"
+RAG_RETRIEVAL_HISTORY_PATH = PROJECT_ROOT / "data" / "evaluation" / "rag_retrieval_runs.json"
 DEFAULT_EVAL_TOP_K = 3
 DEFAULT_KEYWORD_MIN_SCORE = 0.2
 
@@ -101,8 +102,42 @@ def main() -> None:
         print(line)
 
     if args.save_run:
-        # --save-run 的入库实现在阶段 1 Task 3（rag_retrieval_history 模块）接入
-        pass
+        _persist_run(args, summary, cases)
+
+
+def _persist_run(args, summary, cases) -> None:
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from app.evaluation.rag_retrieval_history import (
+        RagRetrievalRun,
+        append_rag_retrieval_run,
+    )
+
+    run = RagRetrievalRun(
+        run_id=f"rag-retrieval-{uuid4().hex[:12]}",
+        retriever_mode=args.retriever,
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+        top_k=args.top_k,
+        hit_rate=summary.hit_rate_at_k,
+        recall=summary.recall_at_k,
+        precision=summary.precision_at_k,
+        mrr=summary.mrr_at_k,
+        case_count=len(cases),
+        results=[_case_result_to_dict(r) for r in (summary.results or [])],
+    )
+    append_rag_retrieval_run(RAG_RETRIEVAL_HISTORY_PATH, run)
+
+
+def _case_result_to_dict(result) -> dict:
+    return {
+        "case_id": getattr(result, "case_id", None),
+        "hit": getattr(result, "hit", None),
+        "recall": getattr(result, "recall", None),
+        "precision": getattr(result, "precision", None),
+        "rank": getattr(result, "reciprocal_rank", None),
+    }
 
 
 def _keyword_result_to_retrieved_chunk(
