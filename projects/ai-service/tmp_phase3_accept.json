@@ -1,0 +1,12 @@
+{
+  "document_id": "phase3-accept-001",
+  "title": "运费险赔付政策",
+  "content": "运费险赔付规则：买家申请退换货时，若订单已投保运费险，退货寄出后 3 个工作日内自动赔付首重运费。赔付金额以保单显示为准。",
+  "business_domain": "refund",
+  "permission_group": "public",
+  "doc_type": "policy",
+  "collection_name": "kb_customer_policy",
+  "embedding_mode": "fake",
+  "chunk_size": 500,
+  "chunk_overlap": 80
+}

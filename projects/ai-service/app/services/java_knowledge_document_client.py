@@ -6,6 +6,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.business_context import build_java_internal_headers
+from app.core.exceptions import AppException
 from app.core.trace import build_trace_headers
 from app.services.java_error_mapping import build_java_error_app_exception
 from app.services.java_order_client import _unwrap_java_api_response_data
@@ -50,12 +51,22 @@ class KnowledgeDocumentClient:
                     json=payload,
                     headers=self._build_headers(),
                 )
+            if response.status_code != 200:
+                raise build_java_error_app_exception(
+                    response,
+                    operation="knowledge_document_upsert",
+                    fallback_code="TOOL_UPSTREAM_ERROR",
+                    fallback_message="知识文档元数据保存失败，请稍后重试。",
+                    fallback_status_code=502,
+                )
             return _unwrap_java_api_response_data(response.json())
         except AppException:
             raise
         except Exception as exc:
-            raise build_java_error_app_exception(
-                exc, fallback_message="知识文档元数据保存失败。"
+            raise AppException(
+                code="TOOL_UPSTREAM_ERROR",
+                message="知识文档元数据保存失败。",
+                status_code=502,
             ) from exc
 
     def delete_document(self, document_id: str) -> bool:
@@ -69,13 +80,34 @@ class KnowledgeDocumentClient:
                     f"/internal/knowledge-documents/{document_id}",
                     headers=self._build_headers(),
                 )
-            payload = _unwrap_java_api_response_data(response.json())
-            return bool(payload)
+            if response.status_code != 200:
+                raise build_java_error_app_exception(
+                    response,
+                    operation="knowledge_document_delete",
+                    fallback_code="TOOL_UPSTREAM_ERROR",
+                    fallback_message="知识文档元数据删除失败，请稍后重试。",
+                    fallback_status_code=502,
+                )
+            payload = response.json()
+            if payload.get("success") is True:
+                data = payload.get("data")
+                if isinstance(data, bool):
+                    return data
+                return True
+            raise build_java_error_app_exception(
+                response,
+                operation="knowledge_document_delete",
+                fallback_code="TOOL_UPSTREAM_ERROR",
+                fallback_message="知识文档元数据删除失败。",
+                fallback_status_code=502,
+            )
         except AppException:
             raise
         except Exception as exc:
-            raise build_java_error_app_exception(
-                exc, fallback_message="知识文档元数据删除失败。"
+            raise AppException(
+                code="TOOL_UPSTREAM_ERROR",
+                message="知识文档元数据删除失败。",
+                status_code=502,
             ) from exc
 
     def _build_headers(self) -> dict[str, str]:
