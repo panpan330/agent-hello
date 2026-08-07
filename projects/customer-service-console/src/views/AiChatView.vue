@@ -425,7 +425,7 @@ function confirmationConfirmLabel(confirmation?: ConsoleAgentTicketConfirmation)
                     <el-input v-model="correctionFields.order_id" maxlength="64" />
                   </el-form-item>
                   <el-form-item label="取消原因">
-                    <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+                    <el-input v-model="correctionFields.description" type="textarea" :rows="3" maxlength="200" show-word-limit />
                   </el-form-item>
                 </template>
                 <template v-else-if="isRefundConfirmation(message.pendingConfirmation)">
