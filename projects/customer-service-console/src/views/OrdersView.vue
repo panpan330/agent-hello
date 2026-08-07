@@ -46,7 +46,7 @@ async function handleCancel(row: OrderListItem) {
         inputPlaceholder: '取消原因（必填）',
         inputValidator: (input: string) => {
           if (!input || !input.trim()) return '取消原因不能为空'
-          return input.trim().length <= 100 ? true : '取消原因不能超过 100 字'
+          return input.trim().length <= 200 ? true : '取消原因不能超过 200 字'
         },
       },
     )
