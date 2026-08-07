@@ -1,11 +1,14 @@
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 
 from app.agents.bad_case_analysis import analyze_agent_eval_bad_cases
+from app.agents.eval_report import build_agent_eval_markdown_report
 from app.agents.eval_suite import AgentEvalRunReport, run_agent_eval_suites
 from app.core.config import PROJECT_ROOT
 from app.core.exceptions import AppException
@@ -43,6 +46,7 @@ from app.evaluation.eval_platform import (
     find_eval_dataset_manifest,
     load_eval_dataset_registry,
 )
+from app.evaluation.report_generator import build_production_regression_markdown_report
 from app.evaluation.snapshot_store import SnapshotStore
 from app.schemas.evaluation import (
     BadCaseItemView,
@@ -50,6 +54,7 @@ from app.schemas.evaluation import (
     EvaluationDatasetView,
     EvaluationHistoryPoint,
     EvaluationHistoryView,
+    EvaluationReportView,
     EvaluationMetricView,
     EvaluationOverviewResponse,
     EvaluationRunOverview,
@@ -358,6 +363,32 @@ def get_evaluation_history(
     return EvaluationHistoryView(
         agent_eval=agent_eval,
         production_regression=production_regression,
+    )
+
+
+@router.get("/reports/latest", response_model=EvaluationReportView)
+def get_latest_evaluation_report(
+    type: Literal["agent", "regression"] = Query("agent"),
+    cases_path: Path = Depends(get_agent_cases_path),
+    regression_history_path: Path = Depends(get_production_regression_history_path),
+) -> EvaluationReportView:
+    """Return the latest evaluation report as Markdown (Task 3 download consumer)."""
+    if type == "agent":
+        run_report = run_agent_eval_suites(cases_path)
+        report = build_agent_eval_markdown_report(run_report)
+    else:
+        run = load_latest_production_regression_run(regression_history_path)
+        if run is None:
+            raise AppException(
+                code="REPORT_NOT_FOUND",
+                message="还没有已生成的评估报告。",
+                status_code=404,
+            )
+        report = build_production_regression_markdown_report(run)
+    return EvaluationReportView(
+        report=report,
+        type=type,
+        generated_at=datetime.now(timezone.utc),
     )
 
 

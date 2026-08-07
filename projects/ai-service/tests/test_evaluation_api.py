@@ -773,3 +773,90 @@ def test_history_returns_empty_arrays_when_no_data(
 
     assert response.status_code == 200
     assert response.json() == {"agent_eval": [], "production_regression": []}
+
+
+def test_reports_latest_agent_returns_markdown(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/ai/evaluation/reports/latest",
+        params={"type": "agent"},
+        headers={TRACE_ID_HEADER: "trace-report-agent"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "agent"
+    assert data["generated_at"]
+    assert data["report"].startswith("# Agent Evaluation Report\n")
+    assert "## Overall" in data["report"]
+
+
+def test_reports_latest_regression_returns_markdown(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "production_regression_runs.json"
+    app.dependency_overrides[get_production_regression_history_path] = lambda: history_path
+    append_production_regression_run(
+        history_path,
+        ProductionRegressionRun(
+            run_id="reg-001",
+            started_at=datetime(2026, 8, 7, 12, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2026, 8, 7, 12, 0, 5, tzinfo=timezone.utc),
+            total_case_count=2,
+            passed_case_count=2,
+            failed_case_count=0,
+            not_ready_case_count=0,
+            error_case_count=0,
+            passed=True,
+            results=[],
+        ),
+    )
+
+    response = client.get(
+        "/api/ai/evaluation/reports/latest",
+        params={"type": "regression"},
+        headers={TRACE_ID_HEADER: "trace-report-regression"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "regression"
+    assert data["report"].startswith("# Production Regression Report\n")
+    assert "## Overall" in data["report"]
+
+
+def test_reports_latest_not_found_when_no_data(
+    app: FastAPI,
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    app.dependency_overrides[get_production_regression_history_path] = (
+        lambda: tmp_path / "missing-runs.json"
+    )
+
+    response = client.get(
+        "/api/ai/evaluation/reports/latest",
+        params={"type": "regression"},
+        headers={TRACE_ID_HEADER: "trace-report-missing"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "REPORT_NOT_FOUND"
+
+
+def test_reports_latest_rejects_unknown_type(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/ai/evaluation/reports/latest",
+        params={"type": "foo"},
+        headers={TRACE_ID_HEADER: "trace-report-unknown-type"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"

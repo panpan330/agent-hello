@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -79,6 +80,12 @@ class EvaluationHistoryPoint(BaseModel):
 class EvaluationHistoryView(BaseModel):
     agent_eval: list[EvaluationHistoryPoint] = Field(default_factory=list)
     production_regression: list[EvaluationHistoryPoint] = Field(default_factory=list)
+
+
+class EvaluationReportView(BaseModel):
+    report: str
+    type: str
+    generated_at: datetime
 
 
 class BadCaseSummaryView(BaseModel):
