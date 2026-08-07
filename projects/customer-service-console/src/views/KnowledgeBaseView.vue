@@ -210,16 +210,19 @@ async function submitDocumentDialog() {
       })
       ElMessage.success('文档创建并同步成功')
     } else {
-      await updateKnowledgeBaseDocument(editingDocumentId.value, {
+      const updatePayload: Record<string, unknown> = {
         title: form.title.trim(),
-        content: form.content,
         business_domain: form.business_domain,
         permission_group: form.permission_group,
         doc_type: form.doc_type,
         embedding_mode: form.embedding_mode,
         chunk_size: form.chunk_size,
         chunk_overlap: form.chunk_overlap,
-      })
+      }
+      if (form.content.trim()) {
+        updatePayload.content = form.content
+      }
+      await updateKnowledgeBaseDocument(editingDocumentId.value, updatePayload)
       ElMessage.success('文档更新并重新同步成功')
     }
     dialogVisible.value = false

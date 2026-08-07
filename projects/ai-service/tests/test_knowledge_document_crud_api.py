@@ -14,13 +14,22 @@ class FakeKnowledgeDocumentClient:
     def __init__(self) -> None:
         self.upsert_calls: list[dict] = []
         self.delete_calls: list[str] = []
+        self.docs: list[dict] = []
+
+    def list_documents(self) -> list[dict]:
+        return list(self.docs)
 
     def upsert_document(self, payload: dict) -> dict:
         self.upsert_calls.append(payload)
+        self.docs = [
+            d for d in self.docs if d.get("document_id") != payload["document_id"]
+        ]
+        self.docs.append(payload)
         return {**payload, "updated_at": None}
 
     def delete_document(self, document_id: str) -> bool:
         self.delete_calls.append(document_id)
+        self.docs = [d for d in self.docs if d.get("document_id") != document_id]
         return True
 
 

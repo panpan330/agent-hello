@@ -459,7 +459,9 @@ def update_knowledge_base_document(
     existing = load_document(file_path)
     metadata = existing.metadata
     new_title = request.title or str(metadata.get("title") or document_id)
-    new_content = request.content if request.content is not None else existing.content
+    new_content = (
+        request.content if request.content and request.content.strip() else existing.content
+    )
     business_domain = request.business_domain or _optional_str(metadata.get("business_domain")) or "general"
     permission_group = request.permission_group or _optional_str(metadata.get("permission_group")) or "public"
     doc_type = request.doc_type or _optional_str(metadata.get("doc_type")) or "policy"
