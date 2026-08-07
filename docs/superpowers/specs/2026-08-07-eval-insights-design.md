@@ -53,7 +53,7 @@
   - agent eval 序列：从 snapshot load_all 取，`[{started_at, check_pass_rate}]`（按时间升序）
   - 生产回归序列：从 production_regression_runs.json 取全部，`[{started_at, passed, total, pass_rate}]`
   - 响应：`{agent_eval: [...], production_regression: [...]}`（无数据时空数组）
-  - 生产回归读取用新依赖 `get_production_regression_history_path`（仿 get_bad_case_registry_path 模式，已有 get_production_regression_history_path？——实现时确认，无则加）
+  - 生产回归读取用新依赖 `get_production_regression_history_path`（routers/evaluation.py 已有常量 `PRODUCTION_REGRESSION_HISTORY_PATH`，需包装为依赖注入函数供 history 端点使用，仿 get_bad_case_registry_path 模式）
 
 **前端**：
 - 引入 echarts（package.json 加依赖 + npm install）
@@ -120,7 +120,7 @@
 
 ## 6. 风险与开放点
 - **echarts 引入突破"不新增第三方依赖"约束**：用户明确选择，本规格允许；锁定版本（echarts ^5.x）
-- **history 端点生产回归读取**：production_regression_runs.json 路径依赖需确认（get_production_regression_history_path 是否已存在，无则加）
+- **history 端点生产回归读取**：routers/evaluation.py 已有 `PRODUCTION_REGRESSION_HISTORY_PATH` 常量，需包装为依赖注入函数（仿 get_bad_case_registry_path 模式）供 history 端点用
 - **reports 端点 agent 类型重跑评测**：每次请求重跑 run_agent_eval_suites（与 overview 一致，评测快 ~30s，可接受）——或复用 overview 的缓存，实现时定最小方案
 - **CI 本地无法验证**：workflow 语法靠结构审查 + 文档说明；CLI 脚本本地冒烟
 - **production_regression_runs.json 当前不存在**：首次跑生成
