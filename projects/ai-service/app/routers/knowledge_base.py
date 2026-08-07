@@ -12,16 +12,24 @@ from app.rag.embeddings import (
 )
 from app.rag.ingestion import (
     VectorStoreUpdater,
+    delete_document_from_vector_store,
     ingest_directory_to_vector_store,
+    ingest_single_document,
     refresh_directory_in_vector_store,
+    update_single_document,
 )
 from app.rag.knowledge_routing import default_rag_knowledge_bases
-from app.rag.loaders import load_documents_from_directory
+from app.rag.loaders import load_document, load_documents_from_directory
 from app.rag.vector_store import QdrantVectorStore
 from app.schemas.knowledge_base import (
     KnowledgeBaseCollectionStatus,
     KnowledgeBaseCollectionsResponse,
+    KnowledgeBaseDocumentCreateRequest,
+    KnowledgeBaseDocumentIngestRequest,
+    KnowledgeBaseDocumentListView,
     KnowledgeBaseDocumentStatus,
+    KnowledgeBaseDocumentUpdateRequest,
+    KnowledgeBaseDocumentView,
     KnowledgeBaseIngestRequest,
     KnowledgeBaseIngestResponse,
     KnowledgeBaseStatusResponse,
@@ -218,3 +226,361 @@ def _optional_str(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value
     return None
+
+
+def build_java_document_client(settings: Settings):
+    from app.services.java_knowledge_document_client import KnowledgeDocumentClient
+
+    return KnowledgeDocumentClient.from_settings(settings)
+
+
+def _render_document_markdown(
+    title: str,
+    content: str,
+    *,
+    business_domain: str,
+    permission_group: str,
+    doc_type: str,
+) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        f"文档类型: {doc_type}",
+        f"业务领域: {business_domain}",
+        f"权限组: {permission_group}",
+        "",
+        content.strip(),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _build_single_embedding_model(settings: Settings, mode: str):
+    if mode == "fake":
+        return DeterministicHashEmbeddingModel(dimension=settings.qdrant_vector_size)
+    try:
+        return OpenAICompatibleEmbeddingModel.from_settings(settings)
+    except ValueError as exc:
+        raise AppException(
+            code="EMBEDDING_API_KEY_MISSING",
+            message="Embedding API key 未配置，无法执行真实 embedding 入库。",
+            status_code=500,
+        ) from exc
+
+
+def _document_view(
+    *,
+    document_id: str,
+    title: str,
+    business_domain: str,
+    permission_group: str,
+    doc_type: str,
+    collection_name: str,
+    chunk_count: int,
+    source_file_name: str,
+    exists_local: bool,
+    status: str = "enabled",
+    updated_at: str | None = None,
+) -> KnowledgeBaseDocumentView:
+    return KnowledgeBaseDocumentView(
+        document_id=document_id,
+        title=title,
+        business_domain=business_domain,
+        permission_group=permission_group,
+        doc_type=doc_type,
+        collection_name=collection_name,
+        chunk_count=chunk_count,
+        source_file_name=source_file_name,
+        exists_local=exists_local,
+        status=status,
+        updated_at=updated_at,
+    )
+
+
+@router.get("/documents", response_model=KnowledgeBaseDocumentListView)
+def knowledge_base_documents(
+    settings: Settings = Depends(get_settings),
+    directory: Path = Depends(get_knowledge_base_dir),
+) -> KnowledgeBaseDocumentListView:
+    local_docs: dict[str, dict] = {}
+    try:
+        documents = load_documents_from_directory(directory)
+    except NotADirectoryError:
+        documents = []
+    for document in documents:
+        metadata = document.metadata
+        source = str(metadata.get("source") or "")
+        local_docs[source] = {
+            "source": source,
+            "title": str(metadata.get("title") or Path(source).stem),
+            "doc_type": _optional_str(metadata.get("doc_type")) or "policy",
+            "business_domain": _optional_str(metadata.get("business_domain")) or "general",
+            "permission_group": _optional_str(metadata.get("permission_group")) or "public",
+        }
+
+    java_client = build_java_document_client(settings)
+    java_docs = []
+    try:
+        from app.services.java_business_api_client import list_knowledge_documents
+
+        java_docs = list_knowledge_documents(settings) or []
+    except Exception:
+        java_docs = []
+
+    views: list[KnowledgeBaseDocumentView] = []
+    seen: set[str] = set()
+    for java_doc in java_docs:
+        document_id = str(java_doc.get("document_id") or "")
+        if not document_id:
+            continue
+        seen.add(document_id)
+        source_file_name = str(java_doc.get("source_file_name") or f"{document_id}.md")
+        local = local_docs.get(source_file_name) or {}
+        views.append(
+            _document_view(
+                document_id=document_id,
+                title=str(java_doc.get("title") or local.get("title") or document_id),
+                business_domain=str(java_doc.get("business_domain") or local.get("business_domain") or "general"),
+                permission_group=str(java_doc.get("permission_group") or local.get("permission_group") or "public"),
+                doc_type=str(java_doc.get("doc_type") or local.get("doc_type") or "policy"),
+                collection_name="",
+                chunk_count=int(java_doc.get("chunk_count") or 0),
+                source_file_name=source_file_name,
+                exists_local=source_file_name in local_docs,
+                status=str(java_doc.get("status") or "enabled"),
+                updated_at=_optional_str(java_doc.get("updated_at")),
+            )
+        )
+
+    for source, local in local_docs.items():
+        if source in seen:
+            continue
+        views.append(
+            _document_view(
+                document_id=source,
+                title=local["title"],
+                business_domain=local["business_domain"],
+                permission_group=local["permission_group"],
+                doc_type=local["doc_type"],
+                collection_name="",
+                chunk_count=0,
+                source_file_name=source,
+                exists_local=True,
+            )
+        )
+
+    return KnowledgeBaseDocumentListView(
+        documents=views,
+        document_count=len(views),
+        trace_id=get_trace_id(),
+    )
+
+
+@router.post("/documents", response_model=KnowledgeBaseDocumentView)
+def create_knowledge_base_document(
+    request: KnowledgeBaseDocumentCreateRequest,
+    settings: Settings = Depends(get_settings),
+    directory: Path = Depends(get_knowledge_base_dir),
+) -> KnowledgeBaseDocumentView:
+    file_path = directory / f"{request.document_id}.md"
+    markdown = _render_document_markdown(
+        request.title,
+        request.content,
+        business_domain=request.business_domain,
+        permission_group=request.permission_group,
+        doc_type=request.doc_type,
+    )
+    file_path.write_text(markdown, encoding="utf-8")
+
+    embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
+    vector_store = build_collection_vector_store(
+        settings, collection_name=request.collection_name
+    )
+    result = ingest_single_document(
+        file_path,
+        embedding_model=embedding_model,
+        vector_store=vector_store,
+        chunk_size=request.chunk_size,
+        chunk_overlap=request.chunk_overlap,
+        wait=True,
+    )
+
+    java_client = build_java_document_client(settings)
+    java_client.upsert_document(
+        {
+            "document_id": request.document_id,
+            "title": request.title,
+            "doc_type": request.doc_type,
+            "business_domain": request.business_domain,
+            "permission_group": request.permission_group,
+            "status": "enabled",
+            "source_file_name": file_path.name,
+            "chunk_count": result.chunk_count,
+            "updated_by": "ai-service",
+        }
+    )
+
+    return _document_view(
+        document_id=request.document_id,
+        title=request.title,
+        business_domain=request.business_domain,
+        permission_group=request.permission_group,
+        doc_type=request.doc_type,
+        collection_name=request.collection_name,
+        chunk_count=result.chunk_count,
+        source_file_name=file_path.name,
+        exists_local=True,
+        status="enabled",
+    )
+
+
+
+
+@router.put("/documents/{document_id}", response_model=KnowledgeBaseDocumentView)
+def update_knowledge_base_document(
+    document_id: str,
+    request: KnowledgeBaseDocumentUpdateRequest,
+    settings: Settings = Depends(get_settings),
+    directory: Path = Depends(get_knowledge_base_dir),
+) -> KnowledgeBaseDocumentView:
+    file_path = directory / f"{document_id}.md"
+    if not file_path.exists():
+        raise AppException(
+            code="KNOWLEDGE_DOCUMENT_NOT_FOUND",
+            message="知识文档不存在。",
+            status_code=404,
+        )
+
+    existing = load_document(file_path)
+    metadata = existing.metadata
+    new_title = request.title or str(metadata.get("title") or document_id)
+    new_content = request.content if request.content is not None else existing.content
+    business_domain = request.business_domain or _optional_str(metadata.get("business_domain")) or "general"
+    permission_group = request.permission_group or _optional_str(metadata.get("permission_group")) or "public"
+    doc_type = request.doc_type or _optional_str(metadata.get("doc_type")) or "policy"
+
+    markdown = _render_document_markdown(
+        new_title,
+        new_content,
+        business_domain=business_domain,
+        permission_group=permission_group,
+        doc_type=doc_type,
+    )
+    file_path.write_text(markdown, encoding="utf-8")
+
+    embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
+    vector_store = build_collection_vector_store(settings)
+    result = update_single_document(
+        file_path,
+        embedding_model=embedding_model,
+        vector_store=vector_store,
+        chunk_size=request.chunk_size,
+        chunk_overlap=request.chunk_overlap,
+        wait=True,
+    )
+
+    java_client = build_java_document_client(settings)
+    java_client.upsert_document(
+        {
+            "document_id": document_id,
+            "title": new_title,
+            "doc_type": doc_type,
+            "business_domain": business_domain,
+            "permission_group": permission_group,
+            "status": "enabled",
+            "source_file_name": file_path.name,
+            "chunk_count": result.chunk_count,
+            "updated_by": "ai-service",
+        }
+    )
+
+    return _document_view(
+        document_id=document_id,
+        title=new_title,
+        business_domain=business_domain,
+        permission_group=permission_group,
+        doc_type=doc_type,
+        collection_name=vector_store.collection_name,
+        chunk_count=result.chunk_count,
+        source_file_name=file_path.name,
+        exists_local=True,
+        status="enabled",
+    )
+
+
+@router.delete("/documents/{document_id}", response_model=dict)
+def delete_knowledge_base_document(
+    document_id: str,
+    settings: Settings = Depends(get_settings),
+    directory: Path = Depends(get_knowledge_base_dir),
+) -> dict:
+    file_path = directory / f"{document_id}.md"
+    if file_path.exists():
+        delete_document_from_vector_store(
+            file_path.name,
+            vector_store=build_collection_vector_store(settings),
+            wait=True,
+        )
+        file_path.unlink()
+
+    java_client = build_java_document_client(settings)
+    java_client.delete_document(document_id)
+
+    return {"success": True, "trace_id": get_trace_id()}
+
+
+@router.post("/documents/{document_id}/ingest", response_model=KnowledgeBaseDocumentView)
+def ingest_knowledge_base_document(
+    document_id: str,
+    request: KnowledgeBaseDocumentIngestRequest,
+    settings: Settings = Depends(get_settings),
+    directory: Path = Depends(get_knowledge_base_dir),
+) -> KnowledgeBaseDocumentView:
+    file_path = directory / f"{document_id}.md"
+    if not file_path.exists():
+        raise AppException(
+            code="KNOWLEDGE_DOCUMENT_NOT_FOUND",
+            message="知识文档不存在。",
+            status_code=404,
+        )
+
+    existing = load_document(file_path)
+    metadata = existing.metadata
+    embedding_model = _build_single_embedding_model(settings, request.embedding_mode)
+    vector_store = build_collection_vector_store(settings)
+    result = update_single_document(
+        file_path,
+        embedding_model=embedding_model,
+        vector_store=vector_store,
+        chunk_size=request.chunk_size,
+        chunk_overlap=request.chunk_overlap,
+        wait=True,
+    )
+
+    java_client = build_java_document_client(settings)
+    java_client.upsert_document(
+        {
+            "document_id": document_id,
+            "title": str(metadata.get("title") or document_id),
+            "doc_type": _optional_str(metadata.get("doc_type")) or "policy",
+            "business_domain": _optional_str(metadata.get("business_domain")) or "general",
+            "permission_group": _optional_str(metadata.get("permission_group")) or "public",
+            "status": "enabled",
+            "source_file_name": file_path.name,
+            "chunk_count": result.chunk_count,
+            "updated_by": "ai-service",
+        }
+    )
+
+    return _document_view(
+        document_id=document_id,
+        title=str(metadata.get("title") or document_id),
+        business_domain=_optional_str(metadata.get("business_domain")) or "general",
+        permission_group=_optional_str(metadata.get("permission_group")) or "public",
+        doc_type=_optional_str(metadata.get("doc_type")) or "policy",
+        collection_name=vector_store.collection_name,
+        chunk_count=result.chunk_count,
+        source_file_name=file_path.name,
+        exists_local=True,
+        status="enabled",
+    )

@@ -8,7 +8,7 @@ from app.rag.documents import RagDocument
 from app.rag.embeddings import EmbeddingModel, embed_chunks
 from app.rag.errors import rag_embedding_failed, rag_vector_store_failed
 from app.rag.filters import build_payload_filter
-from app.rag.loaders import load_documents_from_directory
+from app.rag.loaders import load_document, load_documents_from_directory
 from app.rag.splitters import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
@@ -172,3 +172,66 @@ def _extract_document_sources(documents: list[RagDocument]) -> list[str]:
         sources.append(normalized_source)
         seen.add(normalized_source)
     return sources
+
+
+def ingest_single_document(
+    path: Path | str,
+    *,
+    embedding_model: EmbeddingModel,
+    vector_store: VectorStoreWriter,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    wait: bool = True,
+) -> RagIngestionResult:
+    document = load_document(path)
+    chunks = split_documents_into_chunks(
+        [document],
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+    try:
+        embedded_chunks = embed_chunks(chunks, embedding_model=embedding_model)
+    except Exception as exc:
+        raise rag_embedding_failed(exc) from exc
+
+    try:
+        vector_store.ensure_collection(
+            vector_size=embedding_model.dimension,
+            distance="Cosine",
+        )
+        vector_count = vector_store.upsert_embedded_chunks(embedded_chunks, wait=wait)
+    except Exception as exc:
+        raise rag_vector_store_failed(exc) from exc
+
+    return RagIngestionResult(
+        document_count=1,
+        chunk_count=len(chunks),
+        vector_count=vector_count,
+        vector_dimension=embedding_model.dimension,
+        collection_name=vector_store.collection_name,
+    )
+
+
+def update_single_document(
+    path: Path | str,
+    *,
+    embedding_model: EmbeddingModel,
+    vector_store: VectorStoreUpdater,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    wait: bool = True,
+) -> RagIngestionResult:
+    source = Path(path).name
+    delete_document_from_vector_store(
+        source,
+        vector_store=vector_store,
+        wait=wait,
+    )
+    return ingest_single_document(
+        path,
+        embedding_model=embedding_model,
+        vector_store=vector_store,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        wait=wait,
+    )
