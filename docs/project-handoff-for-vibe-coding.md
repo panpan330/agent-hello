@@ -668,12 +668,13 @@ Qdrant 容器不会因 Windows 启动自动出现，取决于 Ubuntu、Docker �
 | 退款全链路闭环 | 退款工具解禁 + MCP handler + `refund_request` 意图 + Java 退款接口（内部/公开）+ orders 退款字段 + `order_events` 审计 + 前端双入口（AI 对话/订单页） | 已完成（真实联调三场景验证通过） |
 | 订单取消全链路 | `cancel_order` 工具（SENSITIVE+确认）+ MCP handler + `cancel_request` 意图（cancel 优先于 refund 防混淆）+ Java 取消接口（内部/公开，CAS 并发防护 + 幂等按操作隔离）+ orders canceled_at/cancel_reason + `order_events` cancel 审计 + 前端双入口（AI 对话/订单页） | 已完成（真实联调三场景验证通过） |
 | RAG 体系完善·阶段 1 | A 对话链路真实化收尾（ProductionPolicyRagService 补权限过滤，Fake 标 deprecated）+ C 真实检索评测（评测脚本 `--retriever=keyword\|vector` 双模式，vector 连真 Qdrant+真 embedding，实测 hit_rate@3=1.0）+ 评测结果入库（`data/evaluation/rag_retrieval_runs.json` + `/api/ai/evaluation/history` 加 rag_retrieval 序列） | 已完成（vector 评测实测 hit_rate 1.0，对话真实引用验证） |
+| RAG 体系完善·阶段 2 | B 高级检索模块规则+LLM 双实现（`LLMQueryRewriter`/`LLMMultiQueryGenerator`/`LLMRagKnowledgeRouter`，`RAG_ADVANCED_MODE=rule\|llm` 切换，LLM 失败回退规则）+ `enhanced_rag_answer` 管线统一接入（ProductionPolicyRagService + 对话链路，8 步：rewrite→route→multi_query→hybrid/检索→rerank→压缩→生成→引用校验）+ `SimpleKeywordRetriever.from_vector_store` 真库索引 + `RAG_ENABLE_*` 功能开关（默认全关保兼容） | 已完成（默认规则模式对话真实引用验证；LLM 模式 + rewrite 开启实测正常；配置默认恢复） |
 | 评测体系深化 | must_ask_for/must_not_reveal 断言生效（prompt-injection 用例真正防护）+ 生产回归断言扩至 6 种（intent/citation_present/ticket_confirmation_required/tool_called/must_ask_for/must_not_reveal，intent 补 refund_request）+ Baseline 对比（snapshot 落盘 + overview 对比 + 前端基线卡片）+ Bad Case promote 写回 agent_cases.json 闭环 | 已完成（真实验收三场景：基线对比 / promote 闭环 / 生产回归执行） |
 | 评测深化后续 | 评测趋势图（echarts 折线：agent/回归通过率时间序列，`GET /api/ai/evaluation/history`）+ 报告导出（`GET /api/ai/evaluation/reports/latest?type=agent\|regression` + 前端下载按钮）+ CI cron 定时回归（`.github/workflows/ci.yml` schedule 每日 + `scripts/production_regression.py` CLI） | 已完成（真实验收三场景：趋势数据 / 报告导出 / CI 配置） |
 
 **当前 HEAD**：`git log --oneline` 可见全部 commit。
 
-**当前基线测试**：Python `uv run pytest -q` = 1531 passed；Java `mvn test -q` = 80 passed（另有 6 个历史遗留 `InternalRefundTicketControllerTest` 产物不在源码中）；前端 `npm run build` 通过（含 echarts 依赖）。
+**当前基线测试**：Python `uv run pytest -q` = 1548 passed；Java `mvn test -q` = 80 passed（另有 6 个历史遗留 `InternalRefundTicketControllerTest` 产物不在源码中）；前端 `npm run build` 通过（含 echarts 依赖）。
 
 ### 候选下一步方向（按优先级）
 
