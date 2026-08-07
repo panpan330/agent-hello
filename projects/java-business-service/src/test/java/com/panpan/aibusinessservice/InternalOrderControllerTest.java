@@ -13,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.panpan.aibusinessservice.common.trace.TraceHeaders;
 import com.panpan.aibusinessservice.mapper.OrderMapper;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
@@ -234,6 +236,50 @@ class InternalOrderControllerTest {
     }
 
     @Test
+    void refundOrderIsIdempotentForSameKeyWithLegacyFingerprint() throws Exception {
+        // 模拟 Task 2（fingerprint 纳入 operation）之前已落库的 refund 事件：指纹为旧算法
+        // SHA-256(orderId+"\n"+reason+"\n"+userId)，无 "refund" 后缀。升级后客户端用同一
+        // Idempotency-Key + 同参数重试历史请求，必须幂等返回首次结果（200），
+        // 而不是 IDEMPOTENCY_KEY_CONFLICT(409)。
+        String idempotencyKey = "refund-legacy-fp-001";
+        String legacyFingerprint = sha256Hex("A1002\n不想要了\nU1001");
+
+        jdbcTemplate.update(
+                """
+                        INSERT INTO order_events (
+                          tenant_id, event_id, order_id, event_type, event_payload,
+                          operator_type, operator_id, trace_id, idempotency_key, request_fingerprint, created_at
+                        ) VALUES (
+                          'default', ?, 'A1002', 'refund', '{"amount":159.00,"reason":"不想要了"}',
+                          'ai-service', 'U1001', ?, ?, ?, CURRENT_TIMESTAMP(6)
+                        )
+                        """,
+                "E-LEGACY-REFUND-001",
+                TRACE_ID,
+                idempotencyKey,
+                legacyFingerprint
+        );
+        // 历史事件落库时订单已处于 refunded 状态
+        jdbcTemplate.update(
+                "UPDATE orders SET payment_status = 'refunded', refund_amount = 159.00, "
+                        + "refund_reason = '不想要了', latest_event = '退款成功' "
+                        + "WHERE tenant_id = 'default' AND order_id = 'A1002'"
+        );
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.order_id").value("A1002"))
+                .andExpect(jsonPath("$.data.payment_status").value("refunded"))
+                .andExpect(jsonPath("$.data.refund_reason").value("不想要了"));
+    }
+
+    @Test
     void refundOrderRejectsOtherUsersOrder() throws Exception {
         mockMvc.perform(
                         withInternalHeaders(post("/internal/orders/A2001/refund"))
@@ -443,6 +489,16 @@ class InternalOrderControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("CANCEL_REASON_TOO_LONG"))
                 .andExpect(jsonPath("$.trace_id").value(TRACE_ID));
+    }
+
+    private static String sha256Hex(String source) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(source.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(hash.length * 2);
+        for (byte item : hash) {
+            hex.append(String.format("%02x", item));
+        }
+        return hex.toString();
     }
 
     @Test

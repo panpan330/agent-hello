@@ -683,6 +683,10 @@ TICKET_URGENCY_LABELS: dict[TicketUrgencyLevel, str] = {
     "high": "高",
 }
 TICKET_ISSUE_TYPE_TO_CATEGORY: dict[TicketIssueType, TicketCategory] = {
+    # 取消订单通常走 cancel_order 工具链路；ticket_request 意图 + LLM 抽取
+    # issue_type=cancel 的边缘路径会创建人工工单，TicketCategory 无 cancel 值，
+    # 归入最接近的"投诉/异常处理"人工工单类别。
+    "cancel": TicketCategory.COMPLAINT,
     "refund": TicketCategory.REFUND,
     "logistics": TicketCategory.LOGISTICS,
     "complaint": TicketCategory.COMPLAINT,

@@ -87,8 +87,9 @@ public class OrderServiceImpl implements OrderService {
 
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
         String fingerprint = fingerprint(orderId, reason, context.userId(), "refund");
+        String legacyFingerprint = fingerprint(orderId, reason, context.userId());
 
-        Optional<Order> idempotent = findRefundedOrderByIdempotency(context, normalizedKey, fingerprint);
+        Optional<Order> idempotent = findRefundedOrderByIdempotency(context, normalizedKey, fingerprint, legacyFingerprint);
         if (idempotent.isPresent()) {
             return OrderToolView.from(idempotent.get());
         }
@@ -107,7 +108,7 @@ public class OrderServiceImpl implements OrderService {
             applyRefund(context, order, reason, normalizedKey, fingerprint);
             return OrderToolView.from(order);
         } catch (DuplicateKeyException exception) {
-            Optional<Order> concurrent = findRefundedOrderByIdempotency(context, normalizedKey, fingerprint);
+            Optional<Order> concurrent = findRefundedOrderByIdempotency(context, normalizedKey, fingerprint, legacyFingerprint);
             if (concurrent.isPresent()) {
                 return OrderToolView.from(concurrent.get());
             }
@@ -132,8 +133,9 @@ public class OrderServiceImpl implements OrderService {
 
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
         String fingerprint = fingerprint(orderId, reason, context.userId(), "cancel");
+        String legacyFingerprint = fingerprint(orderId, reason, context.userId());
 
-        Optional<Order> idempotent = findCanceledOrderByIdempotency(context, normalizedKey, fingerprint);
+        Optional<Order> idempotent = findCanceledOrderByIdempotency(context, normalizedKey, fingerprint, legacyFingerprint);
         if (idempotent.isPresent()) {
             return OrderToolView.from(idempotent.get());
         }
@@ -156,7 +158,7 @@ public class OrderServiceImpl implements OrderService {
             applyCancel(context, order, reason, normalizedKey, fingerprint);
             return OrderToolView.from(order);
         } catch (DuplicateKeyException exception) {
-            Optional<Order> concurrent = findCanceledOrderByIdempotency(context, normalizedKey, fingerprint);
+            Optional<Order> concurrent = findCanceledOrderByIdempotency(context, normalizedKey, fingerprint, legacyFingerprint);
             if (concurrent.isPresent()) {
                 return OrderToolView.from(concurrent.get());
             }
@@ -187,10 +189,23 @@ public class OrderServiceImpl implements OrderService {
         return idempotencyKey.trim();
     }
 
+    // 升级兼容：Task 2 之前落库的 refund/cancel 事件指纹是旧算法
+    // （orderId+"\n"+reason+"\n"+userId，无 operation 后缀）。升级后客户端用同一
+    // Idempotency-Key 重试历史请求（同参数）时，先比新格式；不匹配再比一次旧格式，
+    // 保证"同 key 同参数返回首次结果"契约在升级前后一致，而不是抛 IDEMPOTENCY_KEY_CONFLICT。
+    private boolean matchesFingerprint(
+            String storedFingerprint,
+            String currentFingerprint,
+            String legacyFingerprint
+    ) {
+        return storedFingerprint.equals(currentFingerprint) || storedFingerprint.equals(legacyFingerprint);
+    }
+
     private Optional<Order> findRefundedOrderByIdempotency(
             InternalRequestContext context,
             String idempotencyKey,
-            String fingerprint
+            String fingerprint,
+            String legacyFingerprint
     ) {
         if (idempotencyKey == null) {
             return Optional.empty();
@@ -199,7 +214,7 @@ public class OrderServiceImpl implements OrderService {
         Optional<TicketIdempotencyCacheEntry> cached = ticketIdempotencyCache.get(context.tenantId(), idempotencyKey);
         if (cached.isPresent()) {
             TicketIdempotencyCacheEntry entry = cached.get();
-            if (!entry.requestFingerprint().equals(fingerprint)) {
+            if (!matchesFingerprint(entry.requestFingerprint(), fingerprint, legacyFingerprint)) {
                 if (orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey) != null) {
                     throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
                 }
@@ -215,7 +230,7 @@ public class OrderServiceImpl implements OrderService {
             return Optional.empty();
         }
         OrderEvent record = event.get();
-        if (!record.getRequestFingerprint().equals(fingerprint)) {
+        if (!matchesFingerprint(record.getRequestFingerprint(), fingerprint, legacyFingerprint)) {
             throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         return Optional.ofNullable(loadOrder(context, record.getOrderId()));
@@ -224,7 +239,8 @@ public class OrderServiceImpl implements OrderService {
     private Optional<Order> findCanceledOrderByIdempotency(
             InternalRequestContext context,
             String idempotencyKey,
-            String fingerprint
+            String fingerprint,
+            String legacyFingerprint
     ) {
         if (idempotencyKey == null) {
             return Optional.empty();
@@ -233,7 +249,7 @@ public class OrderServiceImpl implements OrderService {
         Optional<TicketIdempotencyCacheEntry> cached = ticketIdempotencyCache.get(context.tenantId(), idempotencyKey);
         if (cached.isPresent()) {
             TicketIdempotencyCacheEntry entry = cached.get();
-            if (!entry.requestFingerprint().equals(fingerprint)) {
+            if (!matchesFingerprint(entry.requestFingerprint(), fingerprint, legacyFingerprint)) {
                 if (orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey) != null) {
                     throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
                 }
@@ -249,7 +265,7 @@ public class OrderServiceImpl implements OrderService {
             return Optional.empty();
         }
         OrderEvent record = event.get();
-        if (!record.getRequestFingerprint().equals(fingerprint)) {
+        if (!matchesFingerprint(record.getRequestFingerprint(), fingerprint, legacyFingerprint)) {
             throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         return Optional.ofNullable(loadOrder(context, record.getOrderId()));
@@ -395,8 +411,24 @@ public class OrderServiceImpl implements OrderService {
     // （order_events.uk_order_events_tenant_idempotency 唯一键），不带 operation 会让
     // 同一幂等键跨操作静默误命中，返回成功但实际未执行。带 operation 后同 key 跨操作
     // fingerprint 不同 → IDEMPOTENCY_KEY_CONFLICT。
+    // 旧算法（升级前落库的 refund/cancel 事件指纹）：无 operation 后缀，仅用于兼容读取历史事件。
+    private String fingerprint(String orderId, String reason, String userId) {
+        return sha256Hex(fingerprintSource(orderId, reason, userId, null));
+    }
+
     private String fingerprint(String orderId, String reason, String userId, String operation) {
-        String source = orderId + "\n" + (reason == null ? "" : reason) + "\n" + userId + "\n" + operation;
+        return sha256Hex(fingerprintSource(orderId, reason, userId, operation));
+    }
+
+    private String fingerprintSource(String orderId, String reason, String userId, String operation) {
+        String source = orderId + "\n" + (reason == null ? "" : reason) + "\n" + userId;
+        if (operation != null) {
+            source += "\n" + operation;
+        }
+        return source;
+    }
+
+    private String sha256Hex(String source) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(source.getBytes(StandardCharsets.UTF_8));

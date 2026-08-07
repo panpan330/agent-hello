@@ -683,6 +683,28 @@ def test_build_create_ticket_args_from_policy_gap_fields_maps_contract() -> None
     assert arguments.related_order_id is None
 
 
+def test_build_create_ticket_args_from_cancel_fields_maps_contract() -> None:
+    # 边缘路径：ticket_request 意图 + LLM 抽取 issue_type=cancel。TicketCategory
+    # 无 cancel 值，TICKET_ISSUE_TYPE_TO_CATEGORY 必须兜底映射，否则 category=None
+    # 会抛 422 而无法创建工单。
+    arguments = build_create_ticket_args_from_fields(
+        {
+            "issue_type": "cancel",
+            "order_id": "1001",
+            "description": "用户要求取消订单 1001，商家已接单但尚未发货。",
+            "user_request": "取消订单",
+            "urgency": "normal",
+            "need_human_review": False,
+        },
+        actor_id="demo_user_001",
+    )
+
+    assert arguments.category is not None
+    assert arguments.category == "complaint"
+    assert arguments.priority == "normal"
+    assert arguments.related_order_id == "1001"
+
+
 def test_create_ticket_node_blocks_without_user_confirmation() -> None:
     creator = FakeTicketCreator()
     update = create_ticket_node(
