@@ -193,47 +193,16 @@ public class OrderServiceImpl implements OrderService {
     // （orderId+"\n"+reason+"\n"+userId，无 operation 后缀）。升级后客户端用同一
     // Idempotency-Key 重试历史请求（同参数）时，先比新格式；不匹配再比一次旧格式，
     // 保证"同 key 同参数返回首次结果"契约在升级前后一致，而不是抛 IDEMPOTENCY_KEY_CONFLICT。
-    private boolean matchesFingerprint(
-            String storedFingerprint,
-            String currentFingerprint,
-            String legacyFingerprint
-    ) {
-        return storedFingerprint.equals(currentFingerprint) || storedFingerprint.equals(legacyFingerprint);
-    }
-
+    // 但旧格式指纹不含 operation，无法区分操作：legacy 匹配必须回查事件类型与当前操作
+    // 一致，否则同 key 跨操作（如旧 refund 事件 + cancel 请求）会静默误命中返回 200
+    // 而操作未执行——必须保守抛 409（fail-closed）。新格式指纹含 operation，跨操作天然 409。
     private Optional<Order> findRefundedOrderByIdempotency(
             InternalRequestContext context,
             String idempotencyKey,
             String fingerprint,
             String legacyFingerprint
     ) {
-        if (idempotencyKey == null) {
-            return Optional.empty();
-        }
-
-        Optional<TicketIdempotencyCacheEntry> cached = ticketIdempotencyCache.get(context.tenantId(), idempotencyKey);
-        if (cached.isPresent()) {
-            TicketIdempotencyCacheEntry entry = cached.get();
-            if (!matchesFingerprint(entry.requestFingerprint(), fingerprint, legacyFingerprint)) {
-                if (orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey) != null) {
-                    throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-                }
-                return Optional.empty();
-            }
-            return Optional.ofNullable(loadOrder(context, entry.ticketId()));
-        }
-
-        Optional<OrderEvent> event = Optional.ofNullable(
-                orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey)
-        );
-        if (event.isEmpty()) {
-            return Optional.empty();
-        }
-        OrderEvent record = event.get();
-        if (!matchesFingerprint(record.getRequestFingerprint(), fingerprint, legacyFingerprint)) {
-            throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-        }
-        return Optional.ofNullable(loadOrder(context, record.getOrderId()));
+        return findOrderByIdempotency(context, idempotencyKey, fingerprint, legacyFingerprint, "refund");
     }
 
     private Optional<Order> findCanceledOrderByIdempotency(
@@ -242,6 +211,16 @@ public class OrderServiceImpl implements OrderService {
             String fingerprint,
             String legacyFingerprint
     ) {
+        return findOrderByIdempotency(context, idempotencyKey, fingerprint, legacyFingerprint, "cancel");
+    }
+
+    private Optional<Order> findOrderByIdempotency(
+            InternalRequestContext context,
+            String idempotencyKey,
+            String fingerprint,
+            String legacyFingerprint,
+            String eventType
+    ) {
         if (idempotencyKey == null) {
             return Optional.empty();
         }
@@ -249,13 +228,22 @@ public class OrderServiceImpl implements OrderService {
         Optional<TicketIdempotencyCacheEntry> cached = ticketIdempotencyCache.get(context.tenantId(), idempotencyKey);
         if (cached.isPresent()) {
             TicketIdempotencyCacheEntry entry = cached.get();
-            if (!matchesFingerprint(entry.requestFingerprint(), fingerprint, legacyFingerprint)) {
-                if (orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey) != null) {
+            String storedFingerprint = entry.requestFingerprint();
+            if (storedFingerprint.equals(fingerprint)) {
+                return Optional.ofNullable(loadOrder(context, entry.ticketId()));
+            }
+            if (storedFingerprint.equals(legacyFingerprint)) {
+                // 旧格式缓存条目无法区分操作：回查 DB 事件确认类型一致才允许幂等返回；
+                // DB 无事件或类型不符 → 保守 409（fail-closed）。
+                if (!matchesLegacyEvent(context, idempotencyKey, eventType)) {
                     throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
                 }
-                return Optional.empty();
+                return Optional.ofNullable(loadOrder(context, entry.ticketId()));
             }
-            return Optional.ofNullable(loadOrder(context, entry.ticketId()));
+            if (orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey) != null) {
+                throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+            }
+            return Optional.empty();
         }
 
         Optional<OrderEvent> event = Optional.ofNullable(
@@ -265,10 +253,23 @@ public class OrderServiceImpl implements OrderService {
             return Optional.empty();
         }
         OrderEvent record = event.get();
-        if (!matchesFingerprint(record.getRequestFingerprint(), fingerprint, legacyFingerprint)) {
-            throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        if (record.getRequestFingerprint().equals(fingerprint)) {
+            return Optional.ofNullable(loadOrder(context, record.getOrderId()));
         }
-        return Optional.ofNullable(loadOrder(context, record.getOrderId()));
+        if (record.getRequestFingerprint().equals(legacyFingerprint)
+                && eventType.equals(record.getEventType())) {
+            return Optional.ofNullable(loadOrder(context, record.getOrderId()));
+        }
+        throw new BusinessException(BusinessErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+    }
+
+    private boolean matchesLegacyEvent(
+            InternalRequestContext context,
+            String idempotencyKey,
+            String eventType
+    ) {
+        OrderEvent event = orderMapper.selectEventByTenantIdAndIdempotencyKey(context.tenantId(), idempotencyKey);
+        return event != null && eventType.equals(event.getEventType());
     }
 
     private void applyRefund(

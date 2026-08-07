@@ -280,6 +280,83 @@ class InternalOrderControllerTest {
     }
 
     @Test
+    void cancelWithLegacyRefundEventSameKeyIsIdempotencyConflict() throws Exception {
+        // 旧 refund 事件（旧格式指纹，无 operation 后缀）+ 同 key 同参数 cancel：
+        // legacy 指纹匹配必须绑定事件类型，类型不符 → 409 fail-closed，而不是
+        // 静默误命中返回 200（cancel 未执行却报成功）。
+        String idempotencyKey = "cancel-legacy-refund-fp-001";
+        String legacyFingerprint = sha256Hex("A1002\n不想要了\nU1001");
+
+        jdbcTemplate.update(
+                """
+                        INSERT INTO order_events (
+                          tenant_id, event_id, order_id, event_type, event_payload,
+                          operator_type, operator_id, trace_id, idempotency_key, request_fingerprint, created_at
+                        ) VALUES (
+                          'default', ?, 'A1002', 'refund', '{"amount":159.00,"reason":"不想要了"}',
+                          'ai-service', 'U1001', ?, ?, ?, CURRENT_TIMESTAMP(6)
+                        )
+                        """,
+                "E-LEGACY-REFUND-CROSS-001",
+                TRACE_ID,
+                idempotencyKey,
+                legacyFingerprint
+        );
+        jdbcTemplate.update(
+                "UPDATE orders SET payment_status = 'refunded', refund_amount = 159.00, "
+                        + "refund_reason = '不想要了', latest_event = '退款成功' "
+                        + "WHERE tenant_id = 'default' AND order_id = 'A1002'"
+        );
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/cancel"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+    }
+
+    @Test
+    void refundWithLegacyCancelEventSameKeyIsIdempotencyConflict() throws Exception {
+        // 反向对称：旧 cancel 事件（旧格式指纹）+ 同 key 同参数 refund → 409。
+        String idempotencyKey = "refund-legacy-cancel-fp-001";
+        String legacyFingerprint = sha256Hex("A1002\n不想要了\nU1001");
+
+        jdbcTemplate.update(
+                """
+                        INSERT INTO order_events (
+                          tenant_id, event_id, order_id, event_type, event_payload,
+                          operator_type, operator_id, trace_id, idempotency_key, request_fingerprint, created_at
+                        ) VALUES (
+                          'default', ?, 'A1002', 'cancel', '{"amount":159.00,"reason":"不想要了"}',
+                          'ai-service', 'U1001', ?, ?, ?, CURRENT_TIMESTAMP(6)
+                        )
+                        """,
+                "E-LEGACY-CANCEL-CROSS-001",
+                TRACE_ID,
+                idempotencyKey,
+                legacyFingerprint
+        );
+        jdbcTemplate.update(
+                "UPDATE orders SET order_status = 'canceled', cancel_reason = '不想要了', latest_event = '订单已取消' "
+                        + "WHERE tenant_id = 'default' AND order_id = 'A1002'"
+        );
+
+        mockMvc.perform(
+                        withInternalHeaders(post("/internal/orders/A1002/refund"))
+                                .header(TraceHeaders.IDEMPOTENCY_KEY, idempotencyKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\": \"不想要了\"}")
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+    }
+
+    @Test
     void refundOrderRejectsOtherUsersOrder() throws Exception {
         mockMvc.perform(
                         withInternalHeaders(post("/internal/orders/A2001/refund"))
